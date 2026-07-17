@@ -252,7 +252,7 @@ function DaySummary({ acts, totalTravel }) {
 }
 
 /* --- Carte d'une activité ----------------------------------------- */
-function ActivityCard({ act, onEdit, onUpdate, onEditDuration }) {
+function ActivityCard({ act, onEdit, onUpdate, onEditDuration, nextPlace }) {
   const end = minToTime(timeToMin(act.startTime) + act.durationMin);
   const [editingTitle, setEditingTitle] = useState(false);
   const [title, setTitle] = useState(act.name);
@@ -293,11 +293,24 @@ function ActivityCard({ act, onEdit, onUpdate, onEditDuration }) {
             ) : (
               <div onClick={() => setEditingTitle(true)} style={{ color: C.ink }} className="font-semibold leading-tight cursor-text">{act.name}</div>
             )}
-            <button onClick={() => onEditDuration(act)}
-              style={{ color: C.inkSoft, border: `1px solid ${C.line}`, background: "#fff" }}
-              className="mt-1.5 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs active:scale-95 transition">
-              <Clock size={12} /> {fmtDur(act.durationMin)}
-            </button>
+            <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+              <button onClick={() => onEditDuration(act)}
+                style={{ color: C.inkSoft, border: `1px solid ${C.line}`, background: "#fff" }}
+                className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs active:scale-95 transition">
+                <Clock size={12} /> {fmtDur(act.durationMin)}
+              </button>
+              {nextPlace && (() => {
+                const walk = act.travelMode === "walk";
+                const color = walk ? C.teal : C.amber;
+                return (
+                  <a href={mapsDirUrl(act.place, nextPlace, act.travelMode)} target="_blank" rel="noopener noreferrer"
+                    style={{ color, border: `1px solid ${color}` }}
+                    className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium bg-white active:scale-95 transition">
+                    <Navigation size={12} /> Itinéraire
+                  </a>
+                );
+              })()}
+            </div>
             {act.notes && <div style={{ color: C.inkSoft }} className="text-xs mt-1 clamp2">{act.notes}</div>}
           </div>
           <button onClick={() => onEdit(act)} aria-label="Modifier l'activité"
@@ -371,7 +384,7 @@ function TravelLeg({ from, to, leg, onEdit, variant }) {
       <div className="shrink-0 flex justify-center" style={{ width: 52 }}>
         <div style={{ background: C.line }} className="w-0.5" />
       </div>
-      <div className="flex-1 pb-1 -mt-1 mb-1">
+      <div className="flex-1 pb-1 mt-2 mb-1">
         <div className="flex items-center gap-2 flex-wrap">
           <button onClick={() => onEdit && onEdit(from, to)} style={{ background: soft, color }}
             className="inline-flex items-center gap-1.5 rounded-full pl-2.5 pr-2.5 py-1 active:scale-95 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300">
@@ -382,12 +395,6 @@ function TravelLeg({ from, to, leg, onEdit, variant }) {
             {leg.km != null && <span style={{ fontFamily: MONO }} className="t11 opacity-80">· {leg.km.toFixed(leg.km < 10 ? 1 : 0)} km</span>}
             <Pencil size={11} className="opacity-70" />
           </button>
-
-          <a href={mapsDirUrl(from.place, to.place, leg.mode)} target="_blank" rel="noopener noreferrer"
-            style={{ color, border: `1px solid ${color}` }}
-            className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium bg-white active:scale-95 transition">
-            <Navigation size={12} /> Itinéraire
-          </a>
 
           {leg.isEstimate && <span style={{ color: C.inkSoft }} className="t11">≈ estimation</span>}
         </div>
@@ -520,7 +527,8 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onEditAct, onE
           <div>
             {acts.map((a, i) => (
               <div key={a.id}>
-                <ActivityCard act={a} onEdit={onEditAct} onUpdate={onUpdateAct} onEditDuration={onEditDuration} />
+                <ActivityCard act={a} onEdit={onEditAct} onUpdate={onUpdateAct} onEditDuration={onEditDuration}
+                  nextPlace={i < acts.length - 1 ? acts[i + 1].place : null} />
                 {i < acts.length - 1 && <TravelLeg from={a} to={acts[i + 1]} leg={legBetween(a, acts[i + 1])} onEdit={onEditTravel} />}
               </div>
             ))}
