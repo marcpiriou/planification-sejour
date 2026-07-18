@@ -802,39 +802,15 @@ function EditorSheet({ draft, setDraft, days, onSave, onClose, onDelete }) {
           {/* lieu */}
           <div style={{ background: "#fff", border: `1px solid ${C.line}` }} className="rounded-2xl p-3 space-y-3">
             <div style={{ color: C.ink }} className="text-sm font-medium flex items-center gap-1.5"><MapPin size={15} style={{ color: C.teal }} /> Lieu (facultatif)</div>
-            <input value={draft.placeName} onChange={(e) => upd("placeName", e.target.value)} placeholder="Nom du lieu"
-              style={inputStyle} className="w-full rounded-xl px-3 py-2.5 outline-none" />
             <input value={draft.placeRaw} onChange={(e) => upd("placeRaw", e.target.value)} placeholder="Lien Google Maps ou coordonnées (43.48, -1.56)"
               style={inputStyle} className="w-full rounded-xl px-3 py-2.5 outline-none text-sm" />
             {parsed && (
               <div style={{ color: C.teal }} className="text-xs flex items-center gap-1"><Check size={13} /> Coordonnées détectées : {parsed.lat.toFixed(4)}, {parsed.lng.toFixed(4)}</div>
             )}
             {isShortLink && (
-              <div style={{ color: C.amber }} className="text-xs flex items-start gap-1"><AlertTriangle size={13} className="mt-0.5 shrink-0" /> Lien court : ouvrez-le puis copiez l'URL complète (avec @lat,lng), ou saisissez le nom du lieu.</div>
+              <div style={{ color: C.amber }} className="text-xs flex items-start gap-1"><AlertTriangle size={13} className="mt-0.5 shrink-0" /> Lien court : ouvrez-le puis copiez l'URL complète (avec @lat,lng).</div>
             )}
-            <div style={{ color: C.inkSoft }} className="t11">Les coordonnées permettent l'estimation automatique des trajets. Sans elles, le nom suffit pour ouvrir l'itinéraire.</div>
-          </div>
-
-          {/* trajet vers la suivante */}
-          <div style={{ background: "#fff", border: `1px solid ${C.line}` }} className="rounded-2xl p-3 space-y-3">
-            <div style={{ color: C.ink }} className="text-sm font-medium flex items-center gap-1.5"><Route size={15} style={{ color: C.teal }} /> Trajet vers l'activité suivante</div>
-            <div className="flex gap-2">
-              {[{ id: "walk", label: "À pied", Icon: Footprints, col: C.teal }, { id: "car", label: "Voiture", Icon: Car, col: C.amber }].map(({ id, label, Icon, col }) => {
-                const active = draft.travelMode === id;
-                return (
-                  <button key={id} onClick={() => upd("travelMode", id)}
-                    style={{ background: active ? col : "#fff", color: active ? "#fff" : C.ink, border: `1px solid ${active ? col : C.line}` }}
-                    className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl py-2.5 text-sm active:scale-95 transition">
-                    <Icon size={16} /> {label}
-                  </button>
-                );
-              })}
-            </div>
-            <div className="inline-flex items-center gap-2">
-              <input type="number" min="0" step="1" value={draft.travelMinutes} onChange={(e) => upd("travelMinutes", e.target.value)} placeholder="auto"
-                style={{ ...inputStyle, fontFamily: MONO, width: 90 }} className="rounded-xl px-3 py-2 outline-none" />
-              <span style={{ color: C.inkSoft }} className="text-sm">min — laisser vide pour l'estimation automatique</span>
-            </div>
+            <div style={{ color: C.inkSoft }} className="t11">Un lien Google Maps ou des coordonnées permettent d'estimer les trajets et d'ouvrir l'itinéraire.</div>
           </div>
 
           {/* notes */}
