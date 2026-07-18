@@ -5,6 +5,16 @@
 -- - accès via fonctions SECURITY DEFINER (évite la récursion RLS)
 -- ============================================================
 
+-- 0. Supprimer les anciennes policies (elles dépendent de user_id)
+drop policy if exists trips_select_own on public.trips;
+drop policy if exists trips_insert_own on public.trips;
+drop policy if exists trips_update_own on public.trips;
+drop policy if exists trips_delete_own on public.trips;
+drop policy if exists activities_select_own on public.activities;
+drop policy if exists activities_insert_own on public.activities;
+drop policy if exists activities_update_own on public.activities;
+drop policy if exists activities_delete_own on public.activities;
+
 -- 1. Renommer la colonne propriétaire pour plus de clarté
 alter table public.trips rename column user_id to owner_id;
 
@@ -46,7 +56,7 @@ $$;
 
 -- 5. Empêcher un non-propriétaire de changer le propriétaire d'un séjour
 create or replace function public.trips_guard_owner()
-returns trigger language plpgsql as $$
+returns trigger language plpgsql set search_path = public as $$
 begin
   if NEW.owner_id is distinct from OLD.owner_id and OLD.owner_id <> auth.uid() then
     raise exception 'owner_id is immutable for non-owners';
@@ -90,3 +100,10 @@ create policy members_update on public.trip_members for update using (public.can
 create policy members_delete on public.trip_members for delete using (
   public.can_edit_trip(trip_id) or lower(email) = lower(coalesce(auth.jwt() ->> 'email', ''))
 );
+
+-- 9. Durcissement : les fonctions d'accès ne sont pas appelables en RPC par le rôle anonyme.
+--    "authenticated" conserve l'exécution (indispensable à l'évaluation de la RLS).
+revoke execute on function public.can_read_trip(text) from public, anon;
+revoke execute on function public.can_edit_trip(text) from public, anon;
+grant execute on function public.can_read_trip(text) to authenticated;
+grant execute on function public.can_edit_trip(text) to authenticated;
