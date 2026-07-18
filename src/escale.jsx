@@ -476,17 +476,14 @@ function ActivityCard({ act, onEdit, onUpdate, onEditDuration, nextPlace, prev, 
                   <MapPin size={12} /> Lieu
                 </a>
               )}
-              {(() => {
-                const dest = act.place;
-                // Routable si on a des coordonnées ou une adresse texte (pas une URL courte).
-                const canRoute = dest && (dest.lat != null || (dest.name && !isUrl(dest.name)));
-                if (!canRoute) return null;
+              {act.place && (() => {
+                // Itinéraire depuis la position actuelle vers le lieu de cette activité.
                 // Mode déduit du trajet menant à cette activité (activité précédente), sinon voiture.
                 const mode = prev ? (prev.travelMode || "car") : "car";
                 const walk = mode === "walk";
                 const color = walk ? C.teal : C.amber;
                 return (
-                  <a href={mapsDirUrl(null, dest, mode)} target="_blank" rel="noopener noreferrer"
+                  <a href={mapsDirUrl(null, act.place, mode)} target="_blank" rel="noopener noreferrer"
                     style={{ color, border: `1px solid ${color}` }}
                     className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium bg-white active:scale-95 transition">
                     <Navigation size={12} /> Itinéraire
