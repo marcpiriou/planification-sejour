@@ -3,8 +3,9 @@ import {
   Landmark, UtensilsCrossed, Coffee, Waves, ShoppingBag, BedDouble,
   TrainFront, Sparkles, MapPin, Footprints, Car, Clock, Plus,
   ChevronLeft, Trash2, Pencil, Navigation, Calendar, X, AlertTriangle,
-  Check, ExternalLink, MoreVertical, Route
+  Check, ExternalLink, MoreVertical, Route, Mail, LogOut
 } from "lucide-react";
+import { supabase, redirectTo } from "./supabase";
 
 /* ------------------------------------------------------------------ */
 /* Palette & thème                                                     */
@@ -105,12 +106,96 @@ const mapsDirUrl = (from, to, mode) => {
 const mapsPlaceUrl = (p) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(placeQuery(p))}`;
 
 /* ------------------------------------------------------------------ */
-/* Persistance (window.storage fourni par l'environnement artefact)    */
+/* Persistance (Supabase — tables trips & activities, protégées par RLS) */
 /* ------------------------------------------------------------------ */
-const STORE_KEY = "escale:trips:v1";
-const hasStore = typeof window !== "undefined" && window.storage && typeof window.storage.get === "function";
-async function loadTrips() { if (!hasStore) return []; try { const r = await window.storage.get(STORE_KEY); return r ? JSON.parse(r.value) : []; } catch { return []; } }
-async function saveTrips(trips) { if (!hasStore) return; try { await window.storage.set(STORE_KEY, JSON.stringify(trips)); } catch { /* silencieux */ } }
+
+// Lit un enregistrement "activity" de la base et reconstruit la forme attendue par l'app.
+function rowToActivity(a) {
+  return {
+    id: a.id,
+    date: a.date,
+    name: a.name,
+    category: a.category,
+    startTime: a.start_time,
+    durationMin: a.duration_min,
+    place: a.place ?? null,
+    travelMode: a.travel_mode,
+    travelMinutes: a.travel_minutes === "" || a.travel_minutes == null ? null : Number(a.travel_minutes),
+    notes: a.notes || "",
+  };
+}
+
+// Charge tous les séjours de l'utilisateur connecté, activités imbriquées.
+async function loadTrips() {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return [];
+  const [{ data: trips, error: te }, { data: acts, error: ae }] = await Promise.all([
+    supabase.from("trips").select("*").order("start_date", { ascending: true }),
+    supabase.from("activities").select("*").order("position", { ascending: true }),
+  ]);
+  if (te || ae) { console.error("Chargement séjours:", te || ae); return []; }
+  return (trips || []).map((t) => ({
+    id: t.id,
+    name: t.name,
+    startDate: t.start_date,
+    endDate: t.end_date,
+    activities: (acts || []).filter((a) => a.trip_id === t.id).map(rowToActivity),
+  }));
+}
+
+// Synchronise l'état complet vers la base : upsert des séjours/activités présents,
+// puis suppression des lignes devenues orphelines. Toutes les lignes portent user_id (RLS).
+async function saveTrips(trips) {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return;
+  const uidUser = user.id;
+
+  const tripRows = (trips || []).map((t) => ({
+    id: t.id, user_id: uidUser, name: t.name || "",
+    start_date: t.startDate, end_date: t.endDate, updated_at: new Date().toISOString(),
+  }));
+  const actRows = [];
+  (trips || []).forEach((t) => (t.activities || []).forEach((a, i) => {
+    actRows.push({
+      id: a.id, trip_id: t.id, user_id: uidUser, date: a.date,
+      name: a.name || "", category: a.category || "autre",
+      start_time: a.startTime || "09:00", duration_min: Number(a.durationMin) || 0,
+      place: a.place ?? null, travel_mode: a.travelMode || "walk",
+      travel_minutes: a.travelMinutes == null ? "" : String(a.travelMinutes),
+      notes: a.notes || "", position: i,
+    });
+  }));
+
+  try {
+    if (tripRows.length) {
+      const { error } = await supabase.from("trips").upsert(tripRows);
+      if (error) throw error;
+    }
+    if (actRows.length) {
+      const { error } = await supabase.from("activities").upsert(actRows);
+      if (error) throw error;
+    }
+    // Suppression des orphelins (séjours/activités retirés côté client)
+    const keepTripIds = tripRows.map((r) => r.id);
+    const { data: existTrips } = await supabase.from("trips").select("id").eq("user_id", uidUser);
+    const orphanTrips = (existTrips || []).map((r) => r.id).filter((id) => !keepTripIds.includes(id));
+    if (orphanTrips.length) await supabase.from("trips").delete().in("id", orphanTrips); // cascade -> activités
+
+    const keepActIds = actRows.map((r) => r.id);
+    const { data: existActs } = await supabase.from("activities").select("id").eq("user_id", uidUser);
+    const orphanActs = (existActs || []).map((r) => r.id).filter((id) => !keepActIds.includes(id));
+    if (orphanActs.length) await supabase.from("activities").delete().in("id", orphanActs);
+  } catch (e) {
+    console.error("Sauvegarde séjours:", e);
+  }
+}
+
+// Supprime toutes les données de l'utilisateur (utilisé par le garde-fou d'erreur).
+async function clearAllTrips() {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return;
+  try { await supabase.from("trips").delete().eq("user_id", user.id); } catch { /* silencieux */ }
+}
 
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
@@ -155,13 +240,23 @@ function IconBtn({ onClick, children, label, danger }) {
 }
 
 /* --- Accueil : liste des séjours ---------------------------------- */
-function Home({ trips, onOpen, onNew, onExample }) {
+function Home({ trips, onOpen, onNew, onExample, userEmail, onSignOut }) {
   return (
     <div className="mx-auto max-w-md px-4 pt-6 pb-28">
       <div className="mb-6">
-        <div style={{ color: C.teal, fontFamily: MONO }} className="text-xs trk uppercase font-semibold">Planificateur de séjour · v{APP_VERSION}</div>
-        <h1 style={{ color: C.ink }} className="text-3xl font-bold tracking-tight mt-1">Séjour</h1>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div style={{ color: C.teal, fontFamily: MONO }} className="text-xs trk uppercase font-semibold">Planificateur de séjour · v{APP_VERSION}</div>
+            <h1 style={{ color: C.ink }} className="text-3xl font-bold tracking-tight mt-1">Séjour</h1>
+          </div>
+          <button onClick={onSignOut} title="Se déconnecter"
+            style={{ background: C.card, border: `1px solid ${C.line}`, color: C.inkSoft }}
+            className="shrink-0 h-10 px-3 rounded-full flex items-center gap-1.5 text-xs font-medium active:scale-95 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300">
+            <LogOut size={15} /> Quitter
+          </button>
+        </div>
         <p style={{ color: C.inkSoft }} className="text-sm mt-1">Vos journées, étape par étape : horaires, durées et trajets.</p>
+        {userEmail && <p style={{ color: C.inkSoft }} className="text-[11px] mt-1">Connecté : {userEmail}</p>}
       </div>
 
       {trips.length === 0 ? (
@@ -827,8 +922,10 @@ function SejourApp() {
   const [tripModal, setTripModal] = useState(null); // { isNew, ...draft }
   const [durEdit, setDurEdit] = useState(null);     // { id, durationMin }
   const [travelEdit, setTravelEdit] = useState(null); // { fromId, toId }
+  const [userEmail, setUserEmail] = useState("");
 
   useEffect(() => { (async () => { setTrips(await loadTrips()); setLoaded(true); })(); }, []);
+  useEffect(() => { (async () => { const { data } = await supabase.auth.getUser(); setUserEmail(data.user?.email || ""); })(); }, []);
 
   const commit = (next) => { setTrips(next); saveTrips(next); };
   const trip = trips.find((t) => t.id === tripId) || null;
@@ -932,7 +1029,8 @@ function SejourApp() {
     <div style={{ background: C.paper, fontFamily: SANS, minHeight: "100vh", fontSize: "15px" }}>
       <FontInject />
       {!trip ? (
-        <Home trips={trips} onOpen={openTrip} onNew={newTrip} onExample={loadExample} />
+        <Home trips={trips} onOpen={openTrip} onNew={newTrip} onExample={loadExample}
+          userEmail={userEmail} onSignOut={signOut} />
       ) : (
         <TripView
           trip={trip} current={curDay} onSelectDay={setCurDay}
@@ -987,7 +1085,7 @@ class ErrorBoundary extends React.Component {
   componentDidCatch(error, info) { try { console.error("Séjour:", error, info); } catch { /* silencieux */ } }
   reset() { this.setState((s) => ({ error: null, epoch: s.epoch + 1 })); }
   async clearData() {
-    try { if (hasStore) await window.storage.delete(STORE_KEY); } catch { /* silencieux */ }
+    try { await clearAllTrips(); } catch { /* silencieux */ }
     this.reset();
   }
   render() {
@@ -1010,7 +1108,104 @@ class ErrorBoundary extends React.Component {
   }
 }
 
-export default function Root() { return <ErrorBoundary />; }
+/* ================================================================== */
+/* Authentification (lien magique par email)                           */
+/* ================================================================== */
+function LoginScreen() {
+  const [email, setEmail] = useState("");
+  const [status, setStatus] = useState("idle"); // idle | sending | sent | error
+  const [errMsg, setErrMsg] = useState("");
+
+  const submit = async (e) => {
+    e.preventDefault();
+    const addr = email.trim();
+    if (!addr) return;
+    setStatus("sending"); setErrMsg("");
+    const { error } = await supabase.auth.signInWithOtp({
+      email: addr,
+      options: { emailRedirectTo: redirectTo },
+    });
+    if (error) { setStatus("error"); setErrMsg(error.message || "Envoi impossible."); }
+    else setStatus("sent");
+  };
+
+  return (
+    <div style={{ background: C.paper, fontFamily: SANS, minHeight: "100vh" }} className="flex items-center justify-center px-4">
+      <FontInject />
+      <div className="w-full max-w-sm">
+        <div style={{ color: C.teal }} className="text-xs font-semibold trk uppercase mb-1">Planificateur de séjour · v{APP_VERSION}</div>
+        <h1 style={{ color: C.ink }} className="text-3xl font-bold mb-1">Séjour</h1>
+        <p style={{ color: C.inkSoft }} className="text-sm mb-6">Connectez-vous pour retrouver vos séjours sur tous vos appareils.</p>
+
+        <div style={{ background: C.card, border: `1px solid ${C.line}` }} className="rounded-2xl p-5">
+          {status === "sent" ? (
+            <div className="text-center py-4">
+              <div style={{ background: C.tealSoft, color: C.teal }} className="mx-auto h-12 w-12 rounded-2xl flex items-center justify-center mb-3">
+                <Mail size={22} />
+              </div>
+              <div style={{ color: C.ink }} className="font-semibold">Vérifiez votre boîte mail</div>
+              <div style={{ color: C.inkSoft }} className="text-sm mt-1">
+                Un lien de connexion a été envoyé à<br /><span style={{ color: C.ink }} className="font-medium">{email.trim()}</span>
+              </div>
+              <button onClick={() => setStatus("idle")} style={{ color: C.teal }} className="mt-4 text-sm font-medium">Utiliser une autre adresse</button>
+            </div>
+          ) : (
+            <form onSubmit={submit}>
+              <label style={{ color: C.inkSoft }} className="text-xs font-medium">Adresse email</label>
+              <input
+                type="email" required autoFocus value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="vous@exemple.com"
+                style={{ background: C.paper, border: `1px solid ${C.line}`, color: C.ink }}
+                className="mt-1 w-full rounded-xl px-3 py-2.5 outline-none"
+              />
+              {status === "error" && (
+                <div style={{ background: C.warnSoft, color: C.warn }} className="mt-3 rounded-xl p-2.5 text-xs flex items-start gap-1.5">
+                  <AlertTriangle size={13} className="mt-0.5 shrink-0" /> {errMsg}
+                </div>
+              )}
+              <button
+                type="submit" disabled={status === "sending"}
+                style={{ background: C.teal, opacity: status === "sending" ? 0.7 : 1 }}
+                className="mt-4 w-full text-white rounded-xl py-3 font-medium active:scale-95 transition">
+                {status === "sending" ? "Envoi…" : "Recevoir le lien de connexion"}
+              </button>
+            </form>
+          )}
+        </div>
+        <p style={{ color: C.inkSoft }} className="text-[11px] mt-4 text-center">
+          Sans mot de passe : vous recevez un lien à usage unique par email.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function AuthGate() {
+  const [session, setSession] = useState(null);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => { setSession(data.session); setReady(true); });
+    const { data: sub } = supabase.auth.onAuthStateChange((_evt, s) => setSession(s));
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  if (!ready) {
+    return (
+      <div style={{ background: C.paper, fontFamily: SANS }} className="min-h-screen flex items-center justify-center">
+        <FontInject />
+        <div style={{ color: C.teal }} className="animate-pulse font-semibold">Séjour…</div>
+      </div>
+    );
+  }
+  if (!session) return <LoginScreen />;
+  return <ErrorBoundary />;
+}
+
+export async function signOut() { try { await supabase.auth.signOut(); } catch { /* silencieux */ } }
+
+export default function Root() { return <AuthGate />; }
 
 /* injection police (fallback gracieux si bloquée) */
 function FontInject() {
