@@ -422,7 +422,7 @@ function DaySummary({ acts, totalTravel }) {
 }
 
 /* --- Carte d'une activité ----------------------------------------- */
-function ActivityCard({ act, onEdit, onUpdate, onEditDuration, nextPlace, canEdit = true }) {
+function ActivityCard({ act, onEdit, onUpdate, onEditDuration, nextPlace, prev, canEdit = true }) {
   const end = minToTime(timeToMin(act.startTime) + act.durationMin);
   const [editingTitle, setEditingTitle] = useState(false);
   const [title, setTitle] = useState(act.name);
@@ -476,11 +476,17 @@ function ActivityCard({ act, onEdit, onUpdate, onEditDuration, nextPlace, canEdi
                   <MapPin size={12} /> Lieu
                 </a>
               )}
-              {nextPlace && (() => {
-                const walk = act.travelMode === "walk";
+              {(() => {
+                const dest = act.place;
+                // Routable si on a des coordonnées ou une adresse texte (pas une URL courte).
+                const canRoute = dest && (dest.lat != null || (dest.name && !isUrl(dest.name)));
+                if (!canRoute) return null;
+                // Mode déduit du trajet menant à cette activité (activité précédente), sinon voiture.
+                const mode = prev ? (prev.travelMode || "car") : "car";
+                const walk = mode === "walk";
                 const color = walk ? C.teal : C.amber;
                 return (
-                  <a href={mapsDirUrl(act.place, nextPlace, act.travelMode)} target="_blank" rel="noopener noreferrer"
+                  <a href={mapsDirUrl(null, dest, mode)} target="_blank" rel="noopener noreferrer"
                     style={{ color, border: `1px solid ${color}` }}
                     className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium bg-white active:scale-95 transition">
                     <Navigation size={12} /> Itinéraire
@@ -712,7 +718,7 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onEditAct, onE
             {acts.map((a, i) => (
               <div key={a.id}>
                 <ActivityCard act={a} onEdit={onEditAct} onUpdate={onUpdateAct} onEditDuration={onEditDuration}
-                  nextPlace={i < acts.length - 1 ? acts[i + 1].place : null} canEdit={canEdit} />
+                  nextPlace={i < acts.length - 1 ? acts[i + 1].place : null} prev={i > 0 ? acts[i - 1] : null} canEdit={canEdit} />
                 {i < acts.length - 1 && <TravelLeg from={a} to={acts[i + 1]} leg={legBetween(a, acts[i + 1])} onEdit={canEdit ? onEditTravel : undefined} />}
               </div>
             ))}
