@@ -105,9 +105,14 @@ const mapsDirUrl = (from, to, mode) => {
   return `https://www.google.com/maps/dir/?${params.toString()}`;
 };
 const mapsPlaceUrl = (p) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(placeQuery(p))}`;
-// Lien direct : quand le lieu est une URL collée (ex. lien Google Maps court), on l'ouvre telle quelle.
+// Lien direct : quand le lieu vient d'une URL collée (ex. lien Google Maps), on l'ouvre telle quelle.
 const isUrl = (s) => /^https?:\/\//i.test((s || "").trim());
-const placeDirectUrl = (p) => (p && p.lat == null && isUrl(p.name) ? p.name.trim() : null);
+const placeDirectUrl = (p) => {
+  if (!p) return null;
+  if (p.url && isUrl(p.url)) return p.url.trim();
+  if (p.lat == null && isUrl(p.name)) return p.name.trim();
+  return null;
+};
 
 /* ------------------------------------------------------------------ */
 /* Persistance (Supabase — tables trips & activities, protégées par RLS) */
@@ -258,6 +263,19 @@ async function leaveTrip(tripId) {
   const { error } = await supabase.from("trip_members").delete()
     .eq("trip_id", tripId).eq("email", myEmail);
   return error ? { error: error.message } : {};
+}
+
+// Déplie un lien Google Maps (court ou complet) en coordonnées via l'Edge Function.
+// Renvoie { lat, lng } ou null si non résolu.
+async function resolveMapsLink(url) {
+  try {
+    const { data, error } = await supabase.functions.invoke("resolve-place", { body: { url } });
+    if (error) return null;
+    if (data && typeof data.lat === "number" && typeof data.lng === "number") {
+      return { lat: data.lat, lng: data.lng };
+    }
+    return null;
+  } catch { return null; }
 }
 
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -754,10 +772,16 @@ function EditorSheet({ draft, setDraft, days, onSave, onClose, onDelete }) {
   const [customOpen, setCustomOpen] = useState(false);
   const [ch, setCh] = useState(0);
   const [cm, setCm] = useState(0);
+  const [saving, setSaving] = useState(false);
   const parsed = parseCoords(draft.placeRaw);
   const upd = (k, v) => setDraft({ ...draft, [k]: v });
   const isShortLink = draft.placeRaw && /goo\.gl|app\.goo\.gl|maps\.app/.test(draft.placeRaw) && !parsed;
   const nameError = !draft.name.trim();
+  const handleSave = async () => {
+    if (saving || nameError) return;
+    setSaving(true);
+    try { await onSave(); } catch { setSaving(false); }
+  };
 
   const durChips = [30, 45, 60, 90, 120, 150, 180];
   const isPreset = durChips.includes(draft.durationMin);
@@ -821,7 +845,7 @@ function EditorSheet({ draft, setDraft, days, onSave, onClose, onDelete }) {
               <div style={{ color: C.teal }} className="text-xs flex items-center gap-1"><Check size={13} /> Coordonnées détectées : {parsed.lat.toFixed(4)}, {parsed.lng.toFixed(4)}</div>
             )}
             {isShortLink && (
-              <div style={{ color: C.amber }} className="text-xs flex items-start gap-1"><AlertTriangle size={13} className="mt-0.5 shrink-0" /> Lien court : il sera enregistré tel quel. Pour l'estimation automatique des trajets, colle plutôt l'URL complète (avec @lat,lng) ou des coordonnées.</div>
+              <div style={{ color: C.amber }} className="text-xs flex items-start gap-1"><AlertTriangle size={13} className="mt-0.5 shrink-0" /> Lien court : à l'enregistrement, l'app tente d'en extraire les coordonnées pour l'itinéraire.</div>
             )}
             <div style={{ color: C.inkSoft }} className="t11">Un lien Google Maps ou des coordonnées permettent d'estimer les trajets et d'ouvrir l'itinéraire.</div>
           </div>
@@ -833,10 +857,10 @@ function EditorSheet({ draft, setDraft, days, onSave, onClose, onDelete }) {
           </Field>
 
           {/* actions */}
-          <button onClick={onSave} disabled={nameError}
-            style={{ background: nameError ? C.inkSoft : C.teal, opacity: nameError ? 0.6 : 1 }}
+          <button onClick={handleSave} disabled={nameError || saving}
+            style={{ background: (nameError || saving) ? C.inkSoft : C.teal, opacity: (nameError || saving) ? 0.6 : 1 }}
             className="w-full text-white rounded-xl py-3 font-medium active:scale-95 transition">
-            {draft.mode === "new" ? "Ajouter l'activité" : "Enregistrer"}
+            {saving ? "Enregistrement…" : (draft.mode === "new" ? "Ajouter l'activité" : "Enregistrer")}
           </button>
           {nameError && <div style={{ color: C.warn }} className="text-xs -mt-2">Le nom est requis.</div>}
 
@@ -1184,7 +1208,7 @@ function SejourApp() {
   };
   const editActivity = (a) => setEditor({
     mode: "edit", id: a.id, date: a.date, name: a.name, category: a.category, startTime: a.startTime, durationMin: a.durationMin,
-    placeRaw: a.place ? (a.place.lat != null ? `${a.place.lat}, ${a.place.lng}` : (a.place.name || "")) : "",
+    placeRaw: a.place ? (a.place.url || (a.place.lat != null ? `${a.place.lat}, ${a.place.lng}` : (a.place.name || ""))) : "",
     travelMode: a.travelMode, travelMinutes: a.travelMinutes ?? "", notes: a.notes || "",
   });
   const buildPlace = (name, coords) => {
@@ -1193,16 +1217,26 @@ function SejourApp() {
     if (n) return { name: n, lat: null, lng: null };
     return null;
   };
-  const saveActivity = () => {
+  const saveActivity = async () => {
     const d = editor;
     if (!d.name.trim()) return;
     // Le champ "Lieu" accepte des coordonnées, un lien Google Maps ou une adresse.
-    // On garde le texte saisi tel quel s'il n'y a pas de coordonnées (sinon le lieu serait perdu).
-    const coords = parseCoords(d.placeRaw);
-    const rawPlace = (d.placeRaw || "").trim();
-    const place = coords
-      ? { name: null, lat: coords.lat, lng: coords.lng }
-      : (rawPlace ? { name: rawPlace, lat: null, lng: null } : null);
+    const raw = (d.placeRaw || "").trim();
+    const coords = parseCoords(raw);
+    let place = null;
+    if (coords) {
+      place = { name: null, lat: coords.lat, lng: coords.lng, url: isUrl(raw) ? raw : null };
+    } else if (raw) {
+      if (isUrl(raw)) {
+        // Lien Google Maps sans coordonnées lisibles (lien court) : on tente de le déplier côté serveur.
+        const r = await resolveMapsLink(raw);
+        place = r
+          ? { name: null, lat: r.lat, lng: r.lng, url: raw }
+          : { name: raw, lat: null, lng: null, url: raw };
+      } else {
+        place = { name: raw, lat: null, lng: null, url: null };
+      }
+    }
     const act = {
       id: d.id, date: d.date, name: d.name.trim(), category: d.category, startTime: d.startTime,
       durationMin: Number(d.durationMin) || 0, place,
