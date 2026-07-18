@@ -808,7 +808,7 @@ function EditorSheet({ draft, setDraft, days, onSave, onClose, onDelete }) {
               <div style={{ color: C.teal }} className="text-xs flex items-center gap-1"><Check size={13} /> Coordonnées détectées : {parsed.lat.toFixed(4)}, {parsed.lng.toFixed(4)}</div>
             )}
             {isShortLink && (
-              <div style={{ color: C.amber }} className="text-xs flex items-start gap-1"><AlertTriangle size={13} className="mt-0.5 shrink-0" /> Lien court : ouvrez-le puis copiez l'URL complète (avec @lat,lng).</div>
+              <div style={{ color: C.amber }} className="text-xs flex items-start gap-1"><AlertTriangle size={13} className="mt-0.5 shrink-0" /> Lien court : il sera enregistré tel quel. Pour l'estimation automatique des trajets, colle plutôt l'URL complète (avec @lat,lng) ou des coordonnées.</div>
             )}
             <div style={{ color: C.inkSoft }} className="t11">Un lien Google Maps ou des coordonnées permettent d'estimer les trajets et d'ouvrir l'itinéraire.</div>
           </div>
@@ -1167,11 +1167,11 @@ function SejourApp() {
     const dayActs = trip.activities.filter((a) => a.date === day).sort((a, b) => timeToMin(a.startTime) - timeToMin(b.startTime));
     let start = "09:00";
     if (dayActs.length) { const last = dayActs[dayActs.length - 1]; start = minToTime(timeToMin(last.startTime) + last.durationMin + 15); }
-    setEditor({ mode: "new", id: uid(), date: day, name: "", category: "visite", startTime: start, durationMin: 60, placeName: "", placeRaw: "", travelMode: "walk", travelMinutes: "", notes: "" });
+    setEditor({ mode: "new", id: uid(), date: day, name: "", category: "visite", startTime: start, durationMin: 60, placeRaw: "", travelMode: "walk", travelMinutes: "", notes: "" });
   };
   const editActivity = (a) => setEditor({
     mode: "edit", id: a.id, date: a.date, name: a.name, category: a.category, startTime: a.startTime, durationMin: a.durationMin,
-    placeName: a.place?.name || "", placeRaw: a.place && a.place.lat != null ? `${a.place.lat}, ${a.place.lng}` : "",
+    placeRaw: a.place ? (a.place.lat != null ? `${a.place.lat}, ${a.place.lng}` : (a.place.name || "")) : "",
     travelMode: a.travelMode, travelMinutes: a.travelMinutes ?? "", notes: a.notes || "",
   });
   const buildPlace = (name, coords) => {
@@ -1183,9 +1183,16 @@ function SejourApp() {
   const saveActivity = () => {
     const d = editor;
     if (!d.name.trim()) return;
+    // Le champ "Lieu" accepte des coordonnées, un lien Google Maps ou une adresse.
+    // On garde le texte saisi tel quel s'il n'y a pas de coordonnées (sinon le lieu serait perdu).
+    const coords = parseCoords(d.placeRaw);
+    const rawPlace = (d.placeRaw || "").trim();
+    const place = coords
+      ? { name: null, lat: coords.lat, lng: coords.lng }
+      : (rawPlace ? { name: rawPlace, lat: null, lng: null } : null);
     const act = {
       id: d.id, date: d.date, name: d.name.trim(), category: d.category, startTime: d.startTime,
-      durationMin: Number(d.durationMin) || 0, place: buildPlace(d.placeName, parseCoords(d.placeRaw)),
+      durationMin: Number(d.durationMin) || 0, place,
       travelMode: d.travelMode, travelMinutes: d.travelMinutes === "" ? null : Number(d.travelMinutes), notes: d.notes.trim(),
     };
     const others = trip.activities.filter((a) => a.id !== d.id);
