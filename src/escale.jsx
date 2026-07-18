@@ -105,6 +105,9 @@ const mapsDirUrl = (from, to, mode) => {
   return `https://www.google.com/maps/dir/?${params.toString()}`;
 };
 const mapsPlaceUrl = (p) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(placeQuery(p))}`;
+// Lien direct : quand le lieu est une URL collée (ex. lien Google Maps court), on l'ouvre telle quelle.
+const isUrl = (s) => /^https?:\/\//i.test((s || "").trim());
+const placeDirectUrl = (p) => (p && p.lat == null && isUrl(p.name) ? p.name.trim() : null);
 
 /* ------------------------------------------------------------------ */
 /* Persistance (Supabase — tables trips & activities, protégées par RLS) */
@@ -466,6 +469,13 @@ function ActivityCard({ act, onEdit, onUpdate, onEditDuration, nextPlace, canEdi
                 className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs active:scale-95 transition">
                 <Clock size={12} /> {fmtDur(act.durationMin)}
               </button>
+              {placeDirectUrl(act.place) && (
+                <a href={placeDirectUrl(act.place)} target="_blank" rel="noopener noreferrer"
+                  style={{ color: C.teal, border: `1px solid ${C.teal}` }}
+                  className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium bg-white active:scale-95 transition">
+                  <MapPin size={12} /> Lieu
+                </a>
+              )}
               {nextPlace && (() => {
                 const walk = act.travelMode === "walk";
                 const color = walk ? C.teal : C.amber;
