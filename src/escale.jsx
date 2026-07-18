@@ -3,7 +3,8 @@ import {
   Landmark, UtensilsCrossed, Coffee, Waves, ShoppingBag, BedDouble,
   TrainFront, Sparkles, MapPin, Footprints, Car, Clock, Plus,
   ChevronLeft, Trash2, Pencil, Navigation, Calendar, X, AlertTriangle,
-  Check, ExternalLink, MoreVertical, Route, Mail, LogOut
+  Check, ExternalLink, MoreVertical, Route, Mail, LogOut,
+  Users, Share2, UserPlus
 } from "lucide-react";
 import { supabase, redirectTo } from "./supabase";
 
@@ -125,76 +126,135 @@ function rowToActivity(a) {
   };
 }
 
-// Charge tous les séjours de l'utilisateur connecté, activités imbriquées.
+// Charge les séjours accessibles à l'utilisateur (les siens + ceux partagés avec lui,
+// filtrage assuré par la RLS). Attache à chaque séjour : ownerId, isOwner, role, members.
 async function loadTrips() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return [];
-  const [{ data: trips, error: te }, { data: acts, error: ae }] = await Promise.all([
+  const myEmail = (user.email || "").toLowerCase();
+  const [{ data: trips, error: te }, { data: acts, error: ae }, { data: members }] = await Promise.all([
     supabase.from("trips").select("*").order("start_date", { ascending: true }),
     supabase.from("activities").select("*").order("position", { ascending: true }),
+    supabase.from("trip_members").select("*"),
   ]);
   if (te || ae) { console.error("Chargement séjours:", te || ae); return []; }
-  return (trips || []).map((t) => ({
-    id: t.id,
-    name: t.name,
-    startDate: t.start_date,
-    endDate: t.end_date,
-    activities: (acts || []).filter((a) => a.trip_id === t.id).map(rowToActivity),
-  }));
+  return (trips || []).map((t) => {
+    const isOwner = t.owner_id === user.id;
+    const tripMembers = (members || []).filter((m) => m.trip_id === t.id);
+    let role = "owner";
+    if (!isOwner) {
+      const mine = tripMembers.find((m) => (m.email || "").toLowerCase() === myEmail);
+      role = mine ? mine.role : "viewer";
+    }
+    return {
+      id: t.id,
+      name: t.name,
+      startDate: t.start_date,
+      endDate: t.end_date,
+      ownerId: t.owner_id,
+      isOwner,
+      role,
+      members: tripMembers,
+      activities: (acts || []).filter((a) => a.trip_id === t.id).map(rowToActivity),
+    };
+  });
 }
 
-// Synchronise l'état complet vers la base : upsert des séjours/activités présents,
-// puis suppression des lignes devenues orphelines. Toutes les lignes portent user_id (RLS).
+// Synchronise l'état vers la base. Ne touche qu'aux séjours modifiables
+// (propriétaire ou éditeur). Les séjours d'un autre propriétaire conservent leur owner_id.
 async function saveTrips(trips) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return;
-  const uidUser = user.id;
+  const me = user.id;
+  const now = new Date().toISOString();
+  const list = trips || [];
+  const editable = list.filter((t) => t.isOwner !== false || t.role === "editor");
 
-  const tripRows = (trips || []).map((t) => ({
-    id: t.id, user_id: uidUser, name: t.name || "",
-    start_date: t.startDate, end_date: t.endDate, updated_at: new Date().toISOString(),
-  }));
-  const actRows = [];
-  (trips || []).forEach((t) => (t.activities || []).forEach((a, i) => {
-    actRows.push({
-      id: a.id, trip_id: t.id, user_id: uidUser, date: a.date,
-      name: a.name || "", category: a.category || "autre",
-      start_time: a.startTime || "09:00", duration_min: Number(a.durationMin) || 0,
-      place: a.place ?? null, travel_mode: a.travelMode || "walk",
-      travel_minutes: a.travelMinutes == null ? "" : String(a.travelMinutes),
-      notes: a.notes || "", position: i,
-    });
-  }));
+  const actRow = (t, a, i) => ({
+    id: a.id, trip_id: t.id, date: a.date,
+    name: a.name || "", category: a.category || "autre",
+    start_time: a.startTime || "09:00", duration_min: Number(a.durationMin) || 0,
+    place: a.place ?? null, travel_mode: a.travelMode || "walk",
+    travel_minutes: a.travelMinutes == null ? "" : String(a.travelMinutes),
+    notes: a.notes || "", position: i,
+  });
 
   try {
-    if (tripRows.length) {
-      const { error } = await supabase.from("trips").upsert(tripRows);
-      if (error) throw error;
-    }
-    if (actRows.length) {
-      const { error } = await supabase.from("activities").upsert(actRows);
-      if (error) throw error;
-    }
-    // Suppression des orphelins (séjours/activités retirés côté client)
-    const keepTripIds = tripRows.map((r) => r.id);
-    const { data: existTrips } = await supabase.from("trips").select("id").eq("user_id", uidUser);
-    const orphanTrips = (existTrips || []).map((r) => r.id).filter((id) => !keepTripIds.includes(id));
-    if (orphanTrips.length) await supabase.from("trips").delete().in("id", orphanTrips); // cascade -> activités
+    for (const t of editable) {
+      const owned = t.isOwner !== false; // séjours créés localement : propriétaire par défaut
+      if (owned) {
+        const { error } = await supabase.from("trips").upsert({
+          id: t.id, owner_id: me, name: t.name || "",
+          start_date: t.startDate, end_date: t.endDate, updated_at: now,
+        });
+        if (error) throw error;
+      } else {
+        // Séjour partagé (éditeur) : on met à jour les champs sans toucher owner_id
+        const { error } = await supabase.from("trips").update({
+          name: t.name || "", start_date: t.startDate, end_date: t.endDate, updated_at: now,
+        }).eq("id", t.id);
+        if (error) throw error;
+      }
 
-    const keepActIds = actRows.map((r) => r.id);
-    const { data: existActs } = await supabase.from("activities").select("id").eq("user_id", uidUser);
-    const orphanActs = (existActs || []).map((r) => r.id).filter((id) => !keepActIds.includes(id));
-    if (orphanActs.length) await supabase.from("activities").delete().in("id", orphanActs);
+      const rows = (t.activities || []).map((a, i) => actRow(t, a, i));
+      if (rows.length) {
+        const { error } = await supabase.from("activities").upsert(rows);
+        if (error) throw error;
+      }
+      // Activités orphelines de CE séjour (portée par trip_id, gère l'édition collaborative)
+      const keep = rows.map((r) => r.id);
+      const { data: existA } = await supabase.from("activities").select("id").eq("trip_id", t.id);
+      const orphA = (existA || []).map((r) => r.id).filter((id) => !keep.includes(id));
+      if (orphA.length) await supabase.from("activities").delete().in("id", orphA);
+    }
+
+    // Séjours dont JE suis propriétaire, supprimés localement -> suppression (cascade activités)
+    const keepTripIds = list.map((t) => t.id);
+    const { data: existTrips } = await supabase.from("trips").select("id").eq("owner_id", me);
+    const orphanTrips = (existTrips || []).map((r) => r.id).filter((id) => !keepTripIds.includes(id));
+    if (orphanTrips.length) await supabase.from("trips").delete().in("id", orphanTrips);
   } catch (e) {
     console.error("Sauvegarde séjours:", e);
   }
 }
 
-// Supprime toutes les données de l'utilisateur (utilisé par le garde-fou d'erreur).
+// Supprime tous les séjours dont l'utilisateur est propriétaire (garde-fou d'erreur).
 async function clearAllTrips() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return;
-  try { await supabase.from("trips").delete().eq("user_id", user.id); } catch { /* silencieux */ }
+  try { await supabase.from("trips").delete().eq("owner_id", user.id); } catch { /* silencieux */ }
+}
+
+/* --- Partage : gestion des membres -------------------------------- */
+async function addMember(tripId, email, role) {
+  const { data: { user } } = await supabase.auth.getUser();
+  const addr = (email || "").trim().toLowerCase();
+  if (!addr) return { error: "Email requis" };
+  if (user && addr === (user.email || "").toLowerCase()) return { error: "C'est votre propre adresse." };
+  const { error } = await supabase.from("trip_members").insert({
+    trip_id: tripId, email: addr, role: role || "editor", invited_by: user?.id ?? null,
+  });
+  if (error) {
+    if (error.code === "23505") return { error: "Cette personne a déjà accès." };
+    return { error: error.message || "Ajout impossible." };
+  }
+  return {};
+}
+async function updateMemberRole(memberId, role) {
+  const { error } = await supabase.from("trip_members").update({ role }).eq("id", memberId);
+  return error ? { error: error.message } : {};
+}
+async function removeMember(memberId) {
+  const { error } = await supabase.from("trip_members").delete().eq("id", memberId);
+  return error ? { error: error.message } : {};
+}
+// Un collaborateur quitte un séjour partagé (retire sa propre autorisation).
+async function leaveTrip(tripId) {
+  const { data: { user } } = await supabase.auth.getUser();
+  const myEmail = (user?.email || "").toLowerCase();
+  const { error } = await supabase.from("trip_members").delete()
+    .eq("trip_id", tripId).eq("email", myEmail);
+  return error ? { error: error.message } : {};
 }
 
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -285,8 +345,20 @@ function Home({ trips, onOpen, onNew, onExample, userEmail, onSignOut }) {
                 <div style={{ color: C.inkSoft }} className="text-sm mt-1 flex items-center gap-1.5">
                   <Calendar size={14} /> {fmtRange(t.startDate, t.endDate)}
                 </div>
-                <div style={{ color: C.teal, fontFamily: MONO }} className="text-xs mt-2 font-medium">
-                  {days.length} jour{days.length > 1 ? "s" : ""} · {t.activities.length} activité{t.activities.length > 1 ? "s" : ""}
+                <div className="flex items-center gap-2 flex-wrap mt-2">
+                  <div style={{ color: C.teal, fontFamily: MONO }} className="text-xs font-medium">
+                    {days.length} jour{days.length > 1 ? "s" : ""} · {t.activities.length} activité{t.activities.length > 1 ? "s" : ""}
+                  </div>
+                  {t.isOwner && (t.members?.length > 0) && (
+                    <span style={{ background: C.tealSoft, color: C.teal }} className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium">
+                      <Users size={11} /> Partagé · {t.members.length}
+                    </span>
+                  )}
+                  {!t.isOwner && (
+                    <span style={{ background: C.amberSoft, color: C.amber }} className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium">
+                      <Users size={11} /> Partagé avec vous · {t.role === "viewer" ? "Lecteur" : "Éditeur"}
+                    </span>
+                  )}
                 </div>
               </button>
             );
@@ -347,7 +419,7 @@ function DaySummary({ acts, totalTravel }) {
 }
 
 /* --- Carte d'une activité ----------------------------------------- */
-function ActivityCard({ act, onEdit, onUpdate, onEditDuration, nextPlace }) {
+function ActivityCard({ act, onEdit, onUpdate, onEditDuration, nextPlace, canEdit = true }) {
   const end = minToTime(timeToMin(act.startTime) + act.durationMin);
   const [editingTitle, setEditingTitle] = useState(false);
   const [title, setTitle] = useState(act.name);
@@ -386,10 +458,10 @@ function ActivityCard({ act, onEdit, onUpdate, onEditDuration, nextPlace }) {
                 className="w-full rounded-lg px-2 py-1 font-semibold outline-none"
               />
             ) : (
-              <div onClick={() => setEditingTitle(true)} style={{ color: C.ink }} className="font-semibold leading-tight cursor-text">{act.name}</div>
+              <div onClick={() => canEdit && setEditingTitle(true)} style={{ color: C.ink }} className={`font-semibold leading-tight ${canEdit ? "cursor-text" : ""}`}>{act.name}</div>
             )}
             <div className="mt-1.5 flex items-center gap-2 flex-wrap">
-              <button onClick={() => onEditDuration(act)}
+              <button onClick={() => canEdit && onEditDuration(act)} disabled={!canEdit}
                 style={{ color: C.inkSoft, border: `1px solid ${C.line}`, background: "#fff" }}
                 className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs active:scale-95 transition">
                 <Clock size={12} /> {fmtDur(act.durationMin)}
@@ -408,10 +480,12 @@ function ActivityCard({ act, onEdit, onUpdate, onEditDuration, nextPlace }) {
             </div>
             {act.notes && <div style={{ color: C.inkSoft }} className="text-xs mt-1 clamp2">{act.notes}</div>}
           </div>
-          <button onClick={() => onEdit(act)} aria-label="Modifier l'activité"
-            className="shrink-0 -mt-1 -mr-1 h-9 w-9 flex items-center justify-center rounded-full active:scale-95 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300">
-            <Pencil size={16} style={{ color: C.inkSoft }} />
-          </button>
+          {canEdit && (
+            <button onClick={() => onEdit(act)} aria-label="Modifier l'activité"
+              className="shrink-0 -mt-1 -mr-1 h-9 w-9 flex items-center justify-center rounded-full active:scale-95 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300">
+              <Pencil size={16} style={{ color: C.inkSoft }} />
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -481,14 +555,14 @@ function TravelLeg({ from, to, leg, onEdit, variant }) {
       </div>
       <div className="flex-1 pb-1 mt-2 mb-1">
         <div className="flex items-center gap-2 flex-wrap">
-          <button onClick={() => onEdit && onEdit(from, to)} style={{ background: soft, color }}
+          <button onClick={() => onEdit && onEdit(from, to)} disabled={!onEdit} style={{ background: soft, color }}
             className="inline-flex items-center gap-1.5 rounded-full pl-2.5 pr-2.5 py-1 active:scale-95 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300">
             <Icon size={14} />
             <span style={{ fontFamily: MONO }} className="text-xs font-semibold">
               {leg.min != null ? fmtDur(leg.min) : "trajet"}
             </span>
             {leg.km != null && <span style={{ fontFamily: MONO }} className="t11 opacity-80">· {leg.km.toFixed(leg.km < 10 ? 1 : 0)} km</span>}
-            <Pencil size={11} className="opacity-70" />
+            {onEdit && <Pencil size={11} className="opacity-70" />}
           </button>
 
           {leg.isEstimate && <span style={{ color: C.inkSoft }} className="t11">≈ estimation</span>}
@@ -580,7 +654,7 @@ function TravelPicker({ from, to, onCancel, onValidate }) {
 }
 
 /* --- Vue d'un séjour ---------------------------------------------- */
-function TripView({ trip, current, onSelectDay, onBack, onAddAct, onEditAct, onEditTrip, onUpdateAct, onEditDuration, onEditTravel }) {
+function TripView({ trip, current, onSelectDay, onBack, onAddAct, onEditAct, onEditTrip, onUpdateAct, onEditDuration, onEditTravel, canEdit = true, canShare = false, onShare }) {
   const days = daysInRange(trip.startDate, trip.endDate);
   const safeCurrent = current && days.includes(current) ? current : days[0];
   const counts = useMemo(() => {
@@ -604,7 +678,12 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onEditAct, onE
         left={<IconBtn onClick={onBack} label="Retour"><ChevronLeft size={22} /></IconBtn>}
         title={trip.name}
         subtitle={fmtRange(trip.startDate, trip.endDate)}
-        right={<IconBtn onClick={onEditTrip} label="Modifier le séjour"><MoreVertical size={20} /></IconBtn>}
+        right={
+          <div className="flex items-center">
+            <IconBtn onClick={onShare} label="Partager / gérer l'accès"><Share2 size={19} /></IconBtn>
+            {canEdit && <IconBtn onClick={onEditTrip} label="Modifier le séjour"><MoreVertical size={20} /></IconBtn>}
+          </div>
+        }
       />
       <DateStrip days={days} current={safeCurrent} onSelect={onSelectDay} counts={counts} />
 
@@ -616,15 +695,15 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onEditAct, onE
         {acts.length === 0 ? (
           <div style={{ background: C.card, border: `1px dashed ${C.line}` }} className="rounded-2xl p-8 text-center">
             <div style={{ color: C.inkSoft }} className="text-sm">Aucune activité ce jour.</div>
-            <button onClick={onAddAct} style={{ color: C.teal }} className="mt-2 font-medium">Ajouter la première étape</button>
+            {canEdit && <button onClick={onAddAct} style={{ color: C.teal }} className="mt-2 font-medium">Ajouter la première étape</button>}
           </div>
         ) : (
           <div>
             {acts.map((a, i) => (
               <div key={a.id}>
                 <ActivityCard act={a} onEdit={onEditAct} onUpdate={onUpdateAct} onEditDuration={onEditDuration}
-                  nextPlace={i < acts.length - 1 ? acts[i + 1].place : null} />
-                {i < acts.length - 1 && <TravelLeg from={a} to={acts[i + 1]} leg={legBetween(a, acts[i + 1])} onEdit={onEditTravel} />}
+                  nextPlace={i < acts.length - 1 ? acts[i + 1].place : null} canEdit={canEdit} />
+                {i < acts.length - 1 && <TravelLeg from={a} to={acts[i + 1]} leg={legBetween(a, acts[i + 1])} onEdit={canEdit ? onEditTravel : undefined} />}
               </div>
             ))}
             {/* fin de journée */}
@@ -640,16 +719,18 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onEditAct, onE
         )}
       </div>
 
-      {/* bouton flottant ajouter */}
-      <div className="fixed bottom-0 inset-x-0 z-20 pointer-events-none">
-        <div className="mx-auto max-w-md px-4 pb-5 pt-2 flex justify-end"
-          style={{ background: "linear-gradient(to top, rgba(244,246,247,0.95), rgba(244,246,247,0))" }}>
-          <button onClick={onAddAct} style={{ background: C.teal }}
-            className="pointer-events-auto text-white rounded-full pl-4 pr-5 py-3.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
-            <Plus size={20} /> Activité
-          </button>
+      {/* bouton flottant ajouter (masqué en lecture seule) */}
+      {canEdit && (
+        <div className="fixed bottom-0 inset-x-0 z-20 pointer-events-none">
+          <div className="mx-auto max-w-md px-4 pb-5 pt-2 flex justify-end"
+            style={{ background: "linear-gradient(to top, rgba(244,246,247,0.95), rgba(244,246,247,0))" }}>
+            <button onClick={onAddAct} style={{ background: C.teal }}
+              className="pointer-events-auto text-white rounded-full pl-4 pr-5 py-3.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
+              <Plus size={20} /> Activité
+            </button>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -823,7 +904,7 @@ function Field({ label, children }) {
 }
 
 /* --- Modale séjour (création / édition) --------------------------- */
-function TripModal({ draft, setDraft, onSave, onClose, onDelete, isNew }) {
+function TripModal({ draft, setDraft, onSave, onClose, onDelete, isNew, canDelete = true }) {
   const [confirmDel, setConfirmDel] = useState(false);
   const upd = (k, v) => setDraft({ ...draft, [k]: v });
   const dateError = draft.startDate && draft.endDate && parseDate(draft.endDate) < parseDate(draft.startDate);
@@ -866,7 +947,7 @@ function TripModal({ draft, setDraft, onSave, onClose, onDelete, isNew }) {
           <button onClick={onSave} disabled={nameError || dateError} style={{ background: nameError || dateError ? C.inkSoft : C.teal, opacity: nameError || dateError ? 0.6 : 1 }} className="w-full text-white rounded-xl py-3 font-medium active:scale-95 transition">
             {isNew ? "Créer le séjour" : "Enregistrer"}
           </button>
-          {!isNew && (
+          {!isNew && canDelete && (
             confirmDel ? (
               <div className="flex gap-2">
                 <button onClick={() => setConfirmDel(false)} style={{ border: `1px solid ${C.line}`, color: C.ink }} className="flex-1 rounded-xl py-2.5 bg-white">Annuler</button>
@@ -910,6 +991,128 @@ function buildExample() {
   };
 }
 
+/* --- Modale de partage -------------------------------------------- */
+function ShareModal({ trip, myEmail, onClose, onAdd, onChangeRole, onRemove, onLeave }) {
+  const canManage = trip.isOwner || trip.role === "editor";
+  const [email, setEmail] = useState("");
+  const [role, setRole] = useState("editor");
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [confirmId, setConfirmId] = useState(null);
+  const members = trip.members || [];
+
+  const invite = async (e) => {
+    e.preventDefault();
+    if (!email.trim()) return;
+    setBusy(true); setErr("");
+    const { error } = await onAdd(email, role);
+    setBusy(false);
+    if (error) setErr(error);
+    else setEmail("");
+  };
+
+  const roleLabel = (r) => (r === "viewer" ? "Lecteur" : "Éditeur");
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center px-6">
+      <div className="absolute inset-0 dim" onClick={onClose} />
+      <div style={{ background: C.card }} className="relative w-full max-w-xs rounded-2xl p-4 max-h-[85vh] overflow-y-auto">
+        <div className="flex items-center gap-2">
+          <div style={{ background: C.tealSoft, color: C.teal }} className="h-9 w-9 rounded-xl flex items-center justify-center">
+            <Users size={18} />
+          </div>
+          <div className="flex-1">
+            <div style={{ color: C.ink }} className="font-semibold text-base leading-tight">Partager le séjour</div>
+            <div style={{ color: C.inkSoft }} className="text-xs truncate">{trip.name}</div>
+          </div>
+          <IconBtn onClick={onClose} label="Fermer"><X size={20} /></IconBtn>
+        </div>
+
+        {/* Liste des accès */}
+        <div className="mt-4 space-y-2">
+          <div style={{ color: C.inkSoft }} className="text-xs font-medium uppercase tracking-wide">Accès</div>
+          {members.length === 0 && (
+            <div style={{ color: C.inkSoft }} className="text-xs">Ce séjour n'est partagé avec personne pour le moment.</div>
+          )}
+          {members.map((m) => {
+            const isMe = (m.email || "").toLowerCase() === (myEmail || "").toLowerCase();
+            return (
+              <div key={m.id} style={{ border: `1px solid ${C.line}` }} className="rounded-xl p-2.5">
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div style={{ color: C.ink }} className="text-sm truncate">{m.email}{isMe ? " (vous)" : ""}</div>
+                  </div>
+                  {canManage ? (
+                    <select value={m.role} onChange={(e) => onChangeRole(m.id, e.target.value)}
+                      style={{ background: "#fff", border: `1px solid ${C.line}`, color: C.ink }}
+                      className="rounded-lg px-2 py-1 text-xs outline-none">
+                      <option value="editor">Éditeur</option>
+                      <option value="viewer">Lecteur</option>
+                    </select>
+                  ) : (
+                    <span style={{ color: C.inkSoft }} className="text-xs">{roleLabel(m.role)}</span>
+                  )}
+                  {canManage && (
+                    confirmId === m.id ? (
+                      <button onClick={() => { onRemove(m.id); setConfirmId(null); }} style={{ background: C.warnSoft, color: C.warn }}
+                        className="rounded-lg px-2 py-1 text-xs font-medium">Confirmer</button>
+                    ) : (
+                      <button onClick={() => setConfirmId(m.id)} aria-label="Retirer l'accès" style={{ color: C.warn }}
+                        className="h-7 w-7 flex items-center justify-center rounded-lg active:scale-95 transition">
+                        <Trash2 size={15} />
+                      </button>
+                    )
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Formulaire d'invitation */}
+        {canManage && (
+          <form onSubmit={invite} className="mt-4">
+            <div style={{ color: C.inkSoft }} className="text-xs font-medium uppercase tracking-wide mb-1.5">Inviter par email</div>
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="collaborateur@exemple.com"
+              style={{ background: "#fff", border: `1px solid ${C.line}`, color: C.ink }}
+              className="w-full rounded-xl px-3 py-2.5 outline-none" />
+            <div className="flex gap-2 mt-2">
+              {[{ id: "editor", label: "Éditeur" }, { id: "viewer", label: "Lecteur" }].map((r) => {
+                const active = role === r.id;
+                return (
+                  <button type="button" key={r.id} onClick={() => setRole(r.id)}
+                    style={{ background: active ? C.teal : "#fff", color: active ? "#fff" : C.ink, border: `1px solid ${active ? C.teal : C.line}` }}
+                    className="flex-1 rounded-xl py-2 text-sm active:scale-95 transition">{r.label}</button>
+                );
+              })}
+            </div>
+            {err && (
+              <div style={{ background: C.warnSoft, color: C.warn }} className="mt-2 rounded-xl p-2 text-xs flex items-start gap-1.5">
+                <AlertTriangle size={13} className="mt-0.5 shrink-0" /> {err}
+              </div>
+            )}
+            <button type="submit" disabled={busy} style={{ background: C.teal, opacity: busy ? 0.7 : 1 }}
+              className="mt-3 w-full text-white rounded-xl py-2.5 font-medium inline-flex items-center justify-center gap-2 active:scale-95 transition">
+              <UserPlus size={16} /> {busy ? "Envoi…" : "Donner l'accès"}
+            </button>
+            <div style={{ color: C.inkSoft }} className="t11 mt-2">
+              La personne verra le séjour en se connectant avec cet email (lien magique). Aucun email d'invitation n'est envoyé automatiquement.
+            </div>
+          </form>
+        )}
+
+        {/* Quitter (collaborateurs) */}
+        {!trip.isOwner && (
+          <button onClick={onLeave} style={{ border: `1px solid ${C.line}`, color: C.warn }}
+            className="mt-4 w-full rounded-xl py-2.5 font-medium bg-white active:scale-95 transition">
+            Quitter ce séjour partagé
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ================================================================== */
 /* Application                                                          */
 /* ================================================================== */
@@ -923,12 +1126,22 @@ function SejourApp() {
   const [durEdit, setDurEdit] = useState(null);     // { id, durationMin }
   const [travelEdit, setTravelEdit] = useState(null); // { fromId, toId }
   const [userEmail, setUserEmail] = useState("");
+  const [shareTripId, setShareTripId] = useState(null);
 
+  const reloadTrips = async () => { setTrips(await loadTrips()); };
   useEffect(() => { (async () => { setTrips(await loadTrips()); setLoaded(true); })(); }, []);
   useEffect(() => { (async () => { const { data } = await supabase.auth.getUser(); setUserEmail(data.user?.email || ""); })(); }, []);
 
   const commit = (next) => { setTrips(next); saveTrips(next); };
   const trip = trips.find((t) => t.id === tripId) || null;
+  const canEditTrip = trip ? trip.role !== "viewer" : false;
+
+  /* --- partage --- */
+  const shareTrip = trips.find((t) => t.id === shareTripId) || null;
+  const handleAddMember = async (email, role) => { const r = await addMember(shareTripId, email, role); if (!r.error) await reloadTrips(); return r; };
+  const handleChangeRole = async (memberId, role) => { const r = await updateMemberRole(memberId, role); if (!r.error) await reloadTrips(); return r; };
+  const handleRemoveMember = async (memberId) => { const r = await removeMember(memberId); if (!r.error) await reloadTrips(); return r; };
+  const handleLeaveTrip = async () => { await leaveTrip(shareTripId); setShareTripId(null); setTripId(null); await reloadTrips(); };
 
   // Ouvre un séjour à partir de l'objet lui-même : évite de lire un état périmé
   const enterTrip = (t) => { setTripId(t.id); setCurDay(daysInRange(t.startDate, t.endDate)[0]); };
@@ -958,7 +1171,7 @@ function SejourApp() {
           place: buildPlace(depName, depCoords), travelMode: "car", travelMinutes: null, notes: "",
         });
       }
-      const t = { id: uid(), name: d.name.trim(), startDate: d.startDate, endDate: d.endDate, activities };
+      const t = { id: uid(), name: d.name.trim(), startDate: d.startDate, endDate: d.endDate, activities, isOwner: true, role: "owner", members: [] };
       commit([...trips, t]); setTripModal(null); enterTrip(t);
     } else {
       const next = trips.map((t) => t.id === d.id ? { ...t, name: d.name.trim(), startDate: d.startDate, endDate: d.endDate } : t);
@@ -969,7 +1182,7 @@ function SejourApp() {
   };
   const deleteTrip = () => { commit(trips.filter((t) => t.id !== tripModal.id)); setTripModal(null); setTripId(null); };
 
-  const loadExample = () => { const ex = buildExample(); commit([...trips, ex]); enterTrip(ex); };
+  const loadExample = () => { const ex = { ...buildExample(), isOwner: true, role: "owner", members: [] }; commit([...trips, ex]); enterTrip(ex); };
 
   /* --- activités --- */
   const days = trip ? daysInRange(trip.startDate, trip.endDate) : [];
@@ -1037,6 +1250,16 @@ function SejourApp() {
           onBack={() => setTripId(null)} onAddAct={newActivity} onEditAct={editActivity} onEditTrip={editTrip}
           onUpdateAct={updateActivity} onEditDuration={(a) => setDurEdit({ id: a.id, durationMin: a.durationMin })}
           onEditTravel={(from, to) => setTravelEdit({ fromId: from.id, toId: to.id })}
+          canEdit={canEditTrip} onShare={() => setShareTripId(trip.id)}
+        />
+      )}
+
+      {shareTrip && (
+        <ShareModal
+          trip={shareTrip} myEmail={userEmail}
+          onClose={() => setShareTripId(null)}
+          onAdd={handleAddMember} onChangeRole={handleChangeRole}
+          onRemove={handleRemoveMember} onLeave={handleLeaveTrip}
         />
       )}
 
@@ -1067,7 +1290,8 @@ function SejourApp() {
       )}
       {tripModal && (
         <TripModal draft={tripModal} setDraft={setTripModal} isNew={tripModal.isNew}
-          onSave={saveTrip} onClose={() => setTripModal(null)} onDelete={deleteTrip} />
+          onSave={saveTrip} onClose={() => setTripModal(null)} onDelete={deleteTrip}
+          canDelete={tripModal.isNew ? true : (trip ? trip.isOwner : true)} />
       )}
     </div>
   );
