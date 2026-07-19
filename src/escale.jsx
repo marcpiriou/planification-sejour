@@ -484,7 +484,7 @@ function ActivityCard({ act, onEdit, onUpdate, onEditDuration, nextPlace, prev, 
             ) : (
               <div onClick={() => canEdit && setEditingTitle(true)} style={{ color: C.ink }} className={`font-semibold leading-tight ${canEdit ? "cursor-text" : ""}`}>{act.name}</div>
             )}
-            <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+            <div className="mt-1.5 flex items-center gap-2">
               <button onClick={() => canEdit && onEditDuration(act)} disabled={!canEdit}
                 style={{ color: C.inkSoft, border: `1px solid ${C.line}`, background: "#fff" }}
                 className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs active:scale-95 transition">
@@ -507,7 +507,7 @@ function ActivityCard({ act, onEdit, onUpdate, onEditDuration, nextPlace, prev, 
                   <a href={mapsDirUrl(null, act.place, mode)} target="_blank" rel="noopener noreferrer"
                     style={{ color, border: `1px solid ${color}` }}
                     className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium bg-white active:scale-95 transition">
-                    <Navigation size={12} /> Itinéraire
+                    <Navigation size={12} /> Itin.
                   </a>
                 );
               })()}
