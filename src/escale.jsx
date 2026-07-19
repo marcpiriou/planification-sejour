@@ -265,14 +265,17 @@ async function leaveTrip(tripId) {
   return error ? { error: error.message } : {};
 }
 
-// Déplie un lien Google Maps (court ou complet) en coordonnées via l'Edge Function.
-// Renvoie { lat, lng } ou null si non résolu.
+// Déplie un lien Google Maps (court ou complet) via l'Edge Function.
+// Renvoie { lat, lng } (coordonnées) ou { name } (adresse) ou null si non résolu.
 async function resolveMapsLink(url) {
   try {
     const { data, error } = await supabase.functions.invoke("resolve-place", { body: { url } });
-    if (error) return null;
-    if (data && typeof data.lat === "number" && typeof data.lng === "number") {
+    if (error || !data) return null;
+    if (typeof data.lat === "number" && typeof data.lng === "number") {
       return { lat: data.lat, lng: data.lng };
+    }
+    if (typeof data.name === "string" && data.name.trim()) {
+      return { name: data.name.trim() };
     }
     return null;
   } catch { return null; }
@@ -1228,11 +1231,12 @@ function SejourApp() {
       place = { name: null, lat: coords.lat, lng: coords.lng, url: isUrl(raw) ? raw : null };
     } else if (raw) {
       if (isUrl(raw)) {
-        // Lien Google Maps sans coordonnées lisibles (lien court) : on tente de le déplier côté serveur.
+        // Lien Google Maps sans coordonnées lisibles (lien court) : on le déplie côté serveur
+        // pour en tirer des coordonnées ou, à défaut, l'adresse du lieu (destination d'itinéraire).
         const r = await resolveMapsLink(raw);
-        place = r
-          ? { name: null, lat: r.lat, lng: r.lng, url: raw }
-          : { name: raw, lat: null, lng: null, url: raw };
+        if (r && r.lat != null) place = { name: null, lat: r.lat, lng: r.lng, url: raw };
+        else if (r && r.name) place = { name: r.name, lat: null, lng: null, url: raw };
+        else place = { name: raw, lat: null, lng: null, url: raw };
       } else {
         place = { name: raw, lat: null, lng: null, url: null };
       }

@@ -1,5 +1,6 @@
 // Edge Function : déplie un lien Google Maps (y compris les liens courts
-// maps.app.goo.gl / goo.gl/maps) côté serveur et en extrait les coordonnées.
+// maps.app.goo.gl / goo.gl/maps) côté serveur et en extrait, par ordre de
+// préférence, des coordonnées, sinon le nom/adresse du lieu.
 // Le navigateur ne peut pas le faire (CORS) ; le serveur suit les redirections.
 
 const CORS = {
@@ -27,6 +28,16 @@ function extractCoords(text: string): { lat: number; lng: number } | null {
   return null;
 }
 
+// Nom/adresse depuis une URL /maps/place/<NAME>/...
+function extractPlaceName(u: string): string | null {
+  const m = u.match(/\/maps\/place\/([^/@?]+)/);
+  if (!m) return null;
+  let n = m[1].replace(/\+/g, " ");
+  try { n = decodeURIComponent(n); } catch { /* garde la version non décodée */ }
+  n = n.trim();
+  return n || null;
+}
+
 function json(obj: unknown, status = 200): Response {
   return new Response(JSON.stringify(obj), {
     status,
@@ -46,17 +57,20 @@ Deno.serve(async (req: Request) => {
     });
     const finalUrl = res.url || url;
 
-    // 1) coordonnées dans l'URL finale (cas le plus courant)
+    // 1) coordonnées dans l'URL finale
     let coords = extractCoords(finalUrl);
-
-    // 2) sinon, on cherche dans le corps de la page
-    if (!coords) {
-      const body = await res.text();
-      coords = extractCoords(body);
-    }
-
     if (coords) return json({ lat: coords.lat, lng: coords.lng, finalUrl });
-    return json({ error: "coordonnées introuvables", finalUrl }, 200);
+
+    // 2) nom/adresse du lieu dans l'URL finale
+    const name = extractPlaceName(finalUrl);
+    if (name) return json({ name, finalUrl });
+
+    // 3) en dernier recours, coordonnées dans le corps de la page
+    const body = await res.text();
+    coords = extractCoords(body);
+    if (coords) return json({ lat: coords.lat, lng: coords.lng, finalUrl });
+
+    return json({ error: "lieu introuvable", finalUrl }, 200);
   } catch (e) {
     return json({ error: String(e) }, 500);
   }
