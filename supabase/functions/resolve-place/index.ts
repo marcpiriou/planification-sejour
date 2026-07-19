@@ -45,11 +45,31 @@ function json(obj: unknown, status = 200): Response {
   });
 }
 
+// N'autorise que les domaines Google Maps (évite un proxy SSRF ouvert).
+function isAllowed(url: string): boolean {
+  try {
+    const u = new URL(url);
+    if (u.protocol !== "https:" && u.protocol !== "http:") return false;
+    const h = u.hostname.toLowerCase();
+    return (
+      h === "maps.app.goo.gl" ||
+      h === "goo.gl" ||
+      h === "maps.google.com" ||
+      h === "google.com" ||
+      h.endsWith(".google.com") ||
+      /(^|\.)google\.[a-z.]+$/.test(h)
+    );
+  } catch {
+    return false;
+  }
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   try {
     const { url } = await req.json();
     if (!url || typeof url !== "string") return json({ error: "url requis" }, 400);
+    if (!isAllowed(url)) return json({ error: "domaine non autorisé" }, 400);
 
     const res = await fetch(url, {
       redirect: "follow",
