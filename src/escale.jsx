@@ -502,12 +502,20 @@ function ActivityCard({ act, onEdit, onUpdate, onEditDuration, startMin, endMin,
   };
   return (
     <div className="flex gap-3">
-      {/* colonne horaire + noeud */}
-      <div className="shrink-0 flex flex-col items-center" style={{ width: 52 }}>
+      {/* colonne horaire + noeuds + durée (cliquable) */}
+      <div className="shrink-0 flex flex-col items-center" style={{ width: 60 }}>
         <div style={{ color: C.ink, fontFamily: MONO }} className="text-sm font-semibold">{start}</div>
         {auto && <div style={{ color: C.inkSoft }} className="t10 leading-none">auto</div>}
         <div style={{ background: C.teal, border: `3px solid ${C.paper}`, boxSizing: "content-box" }} className="mt-1 h-3.5 w-3.5 rounded-full"></div>
-        <div style={{ background: C.line }} className="w-0.5 flex-1 mt-1" />
+        {/* ligne verticale avec la durée centrée dessus */}
+        <div className="relative w-full flex-1 flex items-center justify-center my-1" style={{ minHeight: 30 }}>
+          <div style={{ background: C.line }} className="absolute w-0.5 h-full" />
+          <button onClick={() => canEdit && onEditDuration(act)} disabled={!canEdit}
+            style={{ color: C.inkSoft, border: `1px solid ${C.line}`, background: "#fff" }}
+            className="relative inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[11px] font-medium leading-none active:scale-95 transition">
+            <Clock size={10} /> {compactDur(act.durationMin)}
+          </button>
+        </div>
         <div style={{ border: `2px solid ${C.teal}`, background: C.paper, boxSizing: "content-box" }} className="h-2 w-2 rounded-full"></div>
         <div style={{ color: C.inkSoft, fontFamily: MONO }} className="t11 mt-1 leading-none">{end}</div>
       </div>
@@ -531,34 +539,31 @@ function ActivityCard({ act, onEdit, onUpdate, onEditDuration, startMin, endMin,
             ) : (
               <div onClick={() => canEdit && setEditingTitle(true)} style={{ color: C.ink }} className={`font-semibold leading-tight ${canEdit ? "cursor-text" : ""}`}>{act.name}</div>
             )}
-            <div className="mt-1.5 flex items-center gap-2">
-              <button onClick={() => canEdit && onEditDuration(act)} disabled={!canEdit}
-                style={{ color: C.inkSoft, border: `1px solid ${C.line}`, background: "#fff" }}
-                className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs active:scale-95 transition">
-                <Clock size={12} /> {fmtDur(act.durationMin)}
-              </button>
-              {placeDirectUrl(act.place) && (
-                <a href={placeDirectUrl(act.place)} target="_blank" rel="noopener noreferrer"
-                  style={{ color: C.teal, border: `1px solid ${C.teal}` }}
-                  className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium bg-white active:scale-95 transition">
-                  <MapPin size={12} /> Lieu
-                </a>
-              )}
-              {act.place && (() => {
-                // Itinéraire depuis la position actuelle vers le lieu de cette activité.
-                // Mode déduit du trajet menant à cette activité (activité précédente), sinon voiture.
-                const mode = prev ? (prev.travelMode || "car") : "car";
-                const walk = mode === "walk";
-                const color = walk ? C.teal : C.amber;
-                return (
-                  <a href={mapsDirUrl(null, act.place, mode)} target="_blank" rel="noopener noreferrer"
-                    style={{ color, border: `1px solid ${color}` }}
+            {act.place && (
+              <div className="mt-1.5 flex items-center gap-2">
+                {placeDirectUrl(act.place) && (
+                  <a href={placeDirectUrl(act.place)} target="_blank" rel="noopener noreferrer"
+                    style={{ color: C.teal, border: `1px solid ${C.teal}` }}
                     className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium bg-white active:scale-95 transition">
-                    <Navigation size={12} /> Itin.
+                    <MapPin size={12} /> Lieu
                   </a>
-                );
-              })()}
-            </div>
+                )}
+                {(() => {
+                  // Itinéraire depuis la position actuelle vers le lieu de cette activité.
+                  // Mode déduit du trajet menant à cette activité (activité précédente), sinon voiture.
+                  const mode = prev ? (prev.travelMode || "car") : "car";
+                  const walk = mode === "walk";
+                  const color = walk ? C.teal : C.amber;
+                  return (
+                    <a href={mapsDirUrl(null, act.place, mode)} target="_blank" rel="noopener noreferrer"
+                      style={{ color, border: `1px solid ${color}` }}
+                      className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium bg-white active:scale-95 transition">
+                      <Navigation size={12} /> Itin.
+                    </a>
+                  );
+                })()}
+              </div>
+            )}
             {act.notes && <div style={{ color: C.inkSoft }} className="text-xs mt-1 clamp2">{act.notes}</div>}
           </div>
           {canEdit && (
