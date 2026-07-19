@@ -294,6 +294,51 @@ const legBetween = (a, b) => {
   return { mode: a.travelMode, min, km: est ? est.km : null, isEstimate: manual == null && est != null, hasManual: manual != null };
 };
 
+/* --- Horaires en cascade -------------------------------------------- */
+// Une heure de début vaut "auto" (calculée) ou "HH:MM" (fixe).
+const AUTO = "auto";
+const isAutoTime = (t) => !t || t === AUTO;
+
+// Calcule les heures effectives d'une liste d'activités (dans l'ordre donné) :
+// - une heure fixe est utilisée telle quelle ;
+// - une heure "auto" = fin de l'activité précédente + temps de trajet.
+// La première activité sans heure fixe retombe sur 09:00 par sécurité.
+function scheduleForDay(dayActs) {
+  let cursorEnd = null;
+  return dayActs.map((a, i) => {
+    let startMin;
+    if (!isAutoTime(a.startTime)) {
+      startMin = timeToMin(a.startTime);
+    } else if (cursorEnd == null) {
+      startMin = timeToMin("09:00");
+    } else {
+      const leg = legBetween(dayActs[i - 1], a);
+      const travel = leg && leg.min != null ? leg.min : 0;
+      startMin = cursorEnd + travel;
+    }
+    const endMin = startMin + (a.durationMin || 0);
+    cursorEnd = endMin;
+    return { ...a, _startMin: startMin, _endMin: endMin, _auto: isAutoTime(a.startTime) };
+  });
+}
+
+// Réordonne les activités de chaque jour par heure effective (ordre chronologique stable).
+function normalizeOrder(trips) {
+  return (trips || []).map((t) => {
+    const byDate = new Map();
+    for (const a of t.activities || []) {
+      if (!byDate.has(a.date)) byDate.set(a.date, []);
+      byDate.get(a.date).push(a);
+    }
+    const flat = [];
+    for (const date of [...byDate.keys()].sort()) {
+      const sched = scheduleForDay(byDate.get(date)).sort((x, y) => x._startMin - y._startMin);
+      for (const s of sched) { const { _startMin, _endMin, _auto, ...rest } = s; flat.push(rest); }
+    }
+    return { ...t, activities: flat };
+  });
+}
+
 /* ================================================================== */
 /* Sous-composants                                                     */
 /* ================================================================== */
@@ -443,8 +488,9 @@ function DaySummary({ acts, totalTravel }) {
 }
 
 /* --- Carte d'une activité ----------------------------------------- */
-function ActivityCard({ act, onEdit, onUpdate, onEditDuration, nextPlace, prev, canEdit = true }) {
-  const end = minToTime(timeToMin(act.startTime) + act.durationMin);
+function ActivityCard({ act, onEdit, onUpdate, onEditDuration, startMin, endMin, auto, prev, canEdit = true }) {
+  const start = minToTime(startMin != null ? startMin : timeToMin(act.startTime));
+  const end = minToTime(endMin != null ? endMin : timeToMin(act.startTime) + act.durationMin);
   const [editingTitle, setEditingTitle] = useState(false);
   const [title, setTitle] = useState(act.name);
   useEffect(() => { setTitle(act.name); }, [act.name]);
@@ -458,7 +504,8 @@ function ActivityCard({ act, onEdit, onUpdate, onEditDuration, nextPlace, prev, 
     <div className="flex gap-3">
       {/* colonne horaire + noeud */}
       <div className="shrink-0 flex flex-col items-center" style={{ width: 52 }}>
-        <div style={{ color: C.ink, fontFamily: MONO }} className="text-sm font-semibold">{act.startTime}</div>
+        <div style={{ color: C.ink, fontFamily: MONO }} className="text-sm font-semibold">{start}</div>
+        {auto && <div style={{ color: C.inkSoft }} className="t10 leading-none">auto</div>}
         <div style={{ background: C.teal, border: `3px solid ${C.paper}`, boxSizing: "content-box" }} className="mt-1 h-3.5 w-3.5 rounded-full"></div>
         <div style={{ background: C.line }} className="w-0.5 flex-1 mt-1" />
         <div style={{ border: `2px solid ${C.teal}`, background: C.paper, boxSizing: "content-box" }} className="h-2 w-2 rounded-full"></div>
@@ -571,16 +618,17 @@ function DurationPicker({ initial, onCancel, onValidate }) {
 }
 
 /* --- Segment de trajet entre deux étapes -------------------------- */
-function TravelLeg({ from, to, leg, onEdit, variant }) {
+function TravelLeg({ from, to, leg, onEdit, variant, fromEndMin, toStartMin }) {
   const walk = leg.mode === "walk";
   const color = walk ? C.teal : C.amber;
   const soft = walk ? C.tealSoft : C.amberSoft;
   const Icon = walk ? Footprints : Car;
   const isStart = variant === "start";
 
-  const prevEnd = timeToMin(from.startTime) + from.durationMin;
+  const prevEnd = fromEndMin != null ? fromEndMin : timeToMin(from.startTime) + from.durationMin;
+  const toStart = toStartMin != null ? toStartMin : timeToMin(to.startTime);
   const earliest = prevEnd + (leg.min ?? 0);
-  const gap = timeToMin(to.startTime) - earliest;
+  const gap = toStart - earliest;
 
   return (
     <div className="flex gap-3">
@@ -604,7 +652,7 @@ function TravelLeg({ from, to, leg, onEdit, variant }) {
 
         {isStart ? (
           leg.min != null ? (
-            <div style={{ color: C.inkSoft }} className="mt-1.5 t11">Partez à {minToTime(timeToMin(to.startTime) - leg.min)}</div>
+            <div style={{ color: C.inkSoft }} className="mt-1.5 t11">Partez à {minToTime(toStart - leg.min)}</div>
           ) : (
             <div style={{ color: C.inkSoft }} className="mt-1 t11">Ajoutez des coordonnées ou une durée pour connaître l'heure de départ.</div>
           )
@@ -695,8 +743,9 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onEditAct, onE
     const c = {}; trip.activities.forEach((a) => { c[a.date] = (c[a.date] || 0) + 1; }); return c;
   }, [trip.activities]);
 
+  // Activités du jour dans l'ordre de séquence, avec heures effectives calculées (auto = cascade).
   const acts = useMemo(
-    () => trip.activities.filter((a) => a.date === safeCurrent).sort((a, b) => timeToMin(a.startTime) - timeToMin(b.startTime)),
+    () => scheduleForDay(trip.activities.filter((a) => a.date === safeCurrent)),
     [trip.activities, safeCurrent]
   );
 
@@ -736,8 +785,10 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onEditAct, onE
             {acts.map((a, i) => (
               <div key={a.id}>
                 <ActivityCard act={a} onEdit={onEditAct} onUpdate={onUpdateAct} onEditDuration={onEditDuration}
-                  nextPlace={i < acts.length - 1 ? acts[i + 1].place : null} prev={i > 0 ? acts[i - 1] : null} canEdit={canEdit} />
-                {i < acts.length - 1 && <TravelLeg from={a} to={acts[i + 1]} leg={legBetween(a, acts[i + 1])} onEdit={canEdit ? onEditTravel : undefined} />}
+                  startMin={a._startMin} endMin={a._endMin} auto={a._auto}
+                  prev={i > 0 ? acts[i - 1] : null} canEdit={canEdit} />
+                {i < acts.length - 1 && <TravelLeg from={a} to={acts[i + 1]} leg={legBetween(a, acts[i + 1])}
+                  fromEndMin={a._endMin} toStartMin={acts[i + 1]._startMin} onEdit={canEdit ? onEditTravel : undefined} />}
               </div>
             ))}
             {/* fin de journée */}
@@ -746,7 +797,7 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onEditAct, onE
                 <div style={{ background: C.teal }} className="h-3.5 w-3.5 rounded-full mt-0" />
               </div>
               <div style={{ color: C.inkSoft }} className="text-xs pt-0.5">
-                Fin : {minToTime(timeToMin(acts[acts.length - 1].startTime) + acts[acts.length - 1].durationMin)}
+                Fin : {minToTime(acts[acts.length - 1]._endMin)}
               </div>
             </div>
           </div>
@@ -770,7 +821,7 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onEditAct, onE
 }
 
 /* --- Éditeur d'activité (feuille) --------------------------------- */
-function EditorSheet({ draft, setDraft, days, onSave, onClose, onDelete }) {
+function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onDelete }) {
   const [confirmDel, setConfirmDel] = useState(false);
   const [customOpen, setCustomOpen] = useState(false);
   const [ch, setCh] = useState(0);
@@ -780,6 +831,14 @@ function EditorSheet({ draft, setDraft, days, onSave, onClose, onDelete }) {
   const upd = (k, v) => setDraft({ ...draft, [k]: v });
   const isShortLink = draft.placeRaw && /goo\.gl|app\.goo\.gl|maps\.app/.test(draft.placeRaw) && !parsed;
   const nameError = !draft.name.trim();
+
+  // Heure : "auto" (calculée) ou fixe. La 1re activité du jour est forcément fixe.
+  const dayOrdered = scheduleForDay(allActs.filter((a) => a.date === draft.date)).sort((a, b) => a._startMin - b._startMin);
+  const isFirstOfDay = dayOrdered.length === 0 || dayOrdered[0].id === draft.id;
+  const timeAuto = isAutoTime(draft.startTime) && !isFirstOfDay;
+  const mine = dayOrdered.find((a) => a.id === draft.id);
+  const suggestedTime = mine ? minToTime(mine._startMin)
+    : (dayOrdered.length ? minToTime(dayOrdered[dayOrdered.length - 1]._endMin) : "09:00");
   const handleSave = async () => {
     if (saving || nameError) return;
     setSaving(true);
@@ -811,17 +870,42 @@ function EditorSheet({ draft, setDraft, days, onSave, onClose, onDelete }) {
               style={inputStyle} className="w-full rounded-xl px-3 py-2.5 outline-none" />
           </Field>
 
-          {/* jour + heure + durée */}
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Jour">
-              <select value={draft.date} onChange={(e) => upd("date", e.target.value)} style={inputStyle} className="w-full rounded-xl px-3 py-2.5 outline-none capitalize">
-                {days.map((d, i) => <option key={d} value={d}>J{i + 1} · {fmtShort(d)}</option>)}
-              </select>
-            </Field>
-            <Field label="Heure de début">
-              <input type="time" value={draft.startTime} onChange={(e) => upd("startTime", e.target.value)} style={{ ...inputStyle, fontFamily: MONO }} className="w-full rounded-xl px-3 py-2.5 outline-none" />
-            </Field>
-          </div>
+          {/* jour */}
+          <Field label="Jour">
+            <select value={draft.date} onChange={(e) => upd("date", e.target.value)} style={inputStyle} className="w-full rounded-xl px-3 py-2.5 outline-none capitalize">
+              {days.map((d, i) => <option key={d} value={d}>J{i + 1} · {fmtShort(d)}</option>)}
+            </select>
+          </Field>
+
+          {/* heure de début : auto (cascade) ou fixe */}
+          <Field label="Heure de début">
+            {isFirstOfDay ? (
+              <>
+                <input type="time" value={isAutoTime(draft.startTime) ? "09:00" : draft.startTime}
+                  onChange={(e) => upd("startTime", e.target.value)}
+                  style={{ ...inputStyle, fontFamily: MONO }} className="w-full rounded-xl px-3 py-2.5 outline-none" />
+                <div style={{ color: C.inkSoft }} className="t11 mt-1">Première activité du jour : heure de début fixe.</div>
+              </>
+            ) : (
+              <>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => upd("startTime", AUTO)}
+                    style={{ background: timeAuto ? C.teal : "#fff", color: timeAuto ? "#fff" : C.ink, border: `1px solid ${timeAuto ? C.teal : C.line}` }}
+                    className="flex-1 rounded-xl py-2 text-sm active:scale-95 transition">Auto</button>
+                  <button type="button" onClick={() => { if (isAutoTime(draft.startTime)) upd("startTime", suggestedTime); }}
+                    style={{ background: !timeAuto ? C.teal : "#fff", color: !timeAuto ? "#fff" : C.ink, border: `1px solid ${!timeAuto ? C.teal : C.line}` }}
+                    className="flex-1 rounded-xl py-2 text-sm active:scale-95 transition">Heure fixe</button>
+                </div>
+                {timeAuto ? (
+                  <div style={{ color: C.inkSoft }} className="t11 mt-1.5">Calculée d'après la fin de l'activité précédente et le temps de trajet.</div>
+                ) : (
+                  <input type="time" value={isAutoTime(draft.startTime) ? suggestedTime : draft.startTime}
+                    onChange={(e) => upd("startTime", e.target.value)}
+                    style={{ ...inputStyle, fontFamily: MONO }} className="w-full rounded-xl px-3 py-2.5 mt-2 outline-none" />
+                )}
+              </>
+            )}
+          </Field>
 
           <Field label="Durée">
             <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
@@ -989,20 +1073,24 @@ function buildExample() {
   const sun = addDays(sat, 1);
   const d1 = toISO(sat), d2 = toISO(sun);
   const mk = (o) => ({ id: uid(), travelMode: "walk", travelMinutes: "", notes: "", ...o });
+  // Lieu avec lien Google Maps (affiche le bouton "Lieu") construit à partir des coordonnées.
+  const P = (name, lat, lng) => ({ name, lat, lng, url: `https://www.google.com/maps/search/?api=1&query=${lat},${lng}` });
   return {
     id: uid(),
     name: "Week-end à Biarritz",
     startDate: d1,
     endDate: d2,
     activities: [
+      // Jour 1 — la 1re activité a une heure fixe, les suivantes sont en "auto".
       mk({ date: d1, name: "Petit-déjeuner", category: "cafe", startTime: "09:00", durationMin: 45, place: null }),
-      mk({ date: d1, name: "Les Halles de Biarritz", category: "shopping", startTime: "10:00", durationMin: 60, place: { name: "Les Halles de Biarritz", lat: 43.4796, lng: -1.5580 } }),
-      mk({ date: d1, name: "Rocher de la Vierge", category: "nature", startTime: "11:30", durationMin: 60, place: { name: "Rocher de la Vierge", lat: 43.4816, lng: -1.5665 } }),
-      mk({ date: d1, name: "Déjeuner au port des pêcheurs", category: "repas", startTime: "13:00", durationMin: 90, travelMode: "walk", place: { name: "Port des pêcheurs, Biarritz", lat: 43.4838, lng: -1.5636 } }),
-      mk({ date: d1, name: "Phare de Biarritz", category: "visite", startTime: "15:30", durationMin: 60, travelMode: "car", place: { name: "Phare de Biarritz", lat: 43.4933, lng: -1.5623 } }),
-      mk({ date: d1, name: "Grande Plage", category: "nature", startTime: "17:00", durationMin: 90, place: { name: "Grande Plage, Biarritz", lat: 43.4832, lng: -1.5586 } }),
-      mk({ date: d2, name: "Marché & village", category: "visite", startTime: "10:00", durationMin: 90, place: { name: "Biarritz", lat: 43.4832, lng: -1.5586 } }),
-      mk({ date: d2, name: "Déjeuner en ville", category: "repas", startTime: "12:30", durationMin: 90, place: null }),
+      mk({ date: d1, name: "Les Halles de Biarritz", category: "shopping", startTime: AUTO, durationMin: 60, place: P("Les Halles de Biarritz", 43.4796, -1.5580) }),
+      mk({ date: d1, name: "Rocher de la Vierge", category: "nature", startTime: AUTO, durationMin: 60, place: P("Rocher de la Vierge", 43.4816, -1.5665) }),
+      mk({ date: d1, name: "Déjeuner au port des pêcheurs", category: "repas", startTime: AUTO, durationMin: 90, travelMode: "walk", place: P("Port des pêcheurs, Biarritz", 43.4838, -1.5636) }),
+      mk({ date: d1, name: "Phare de Biarritz", category: "visite", startTime: AUTO, durationMin: 60, travelMode: "car", place: P("Phare de Biarritz", 43.4933, -1.5623) }),
+      mk({ date: d1, name: "Grande Plage", category: "nature", startTime: AUTO, durationMin: 90, place: P("Grande Plage, Biarritz", 43.4832, -1.5586) }),
+      // Jour 2
+      mk({ date: d2, name: "Marché & village", category: "visite", startTime: "10:00", durationMin: 90, place: P("Biarritz", 43.4832, -1.5586) }),
+      mk({ date: d2, name: "Déjeuner en ville", category: "repas", startTime: AUTO, durationMin: 90, place: null }),
     ],
   };
 }
@@ -1144,11 +1232,12 @@ function SejourApp() {
   const [userEmail, setUserEmail] = useState("");
   const [shareTripId, setShareTripId] = useState(null);
 
-  const reloadTrips = async () => { setTrips(await loadTrips()); };
-  useEffect(() => { (async () => { setTrips(await loadTrips()); setLoaded(true); })(); }, []);
+  const reloadTrips = async () => { setTrips(normalizeOrder(await loadTrips())); };
+  useEffect(() => { (async () => { setTrips(normalizeOrder(await loadTrips())); setLoaded(true); })(); }, []);
   useEffect(() => { (async () => { const { data } = await supabase.auth.getUser(); setUserEmail(data.user?.email || ""); })(); }, []);
 
-  const commit = (next) => { setTrips(next); saveTrips(next); };
+  // commit : réordonne par heure effective (les activités "auto" en cascade) puis persiste.
+  const commit = (next) => { const norm = normalizeOrder(next); setTrips(norm); saveTrips(norm); };
   const trip = trips.find((t) => t.id === tripId) || null;
   const canEditTrip = trip ? trip.role !== "viewer" : false;
 
@@ -1204,10 +1293,10 @@ function SejourApp() {
   const days = trip ? daysInRange(trip.startDate, trip.endDate) : [];
   const newActivity = () => {
     const day = curDay && days.includes(curDay) ? curDay : days[0];
-    const dayActs = trip.activities.filter((a) => a.date === day).sort((a, b) => timeToMin(a.startTime) - timeToMin(b.startTime));
-    let start = "09:00";
-    if (dayActs.length) { const last = dayActs[dayActs.length - 1]; start = minToTime(timeToMin(last.startTime) + last.durationMin + 15); }
-    setEditor({ mode: "new", id: uid(), date: day, name: "", category: "visite", startTime: start, durationMin: 60, placeRaw: "", travelMode: "walk", travelMinutes: "", notes: "" });
+    const dayActs = trip.activities.filter((a) => a.date === day);
+    // 1re activité du jour : heure fixe ; les suivantes : "auto" (calculées en cascade).
+    const startTime = dayActs.length ? AUTO : "09:00";
+    setEditor({ mode: "new", id: uid(), date: day, name: "", category: "visite", startTime, durationMin: 60, placeRaw: "", travelMode: "walk", travelMinutes: "", notes: "" });
   };
   const editActivity = (a) => setEditor({
     mode: "edit", id: a.id, date: a.date, name: a.name, category: a.category, startTime: a.startTime, durationMin: a.durationMin,
@@ -1319,7 +1408,7 @@ function SejourApp() {
       })()}
 
       {editor && (
-        <EditorSheet draft={editor} setDraft={setEditor} days={days}
+        <EditorSheet draft={editor} setDraft={setEditor} days={days} allActs={trip ? trip.activities : []}
           onSave={saveActivity} onClose={() => setEditor(null)} onDelete={deleteActivity} />
       )}
       {tripModal && (
