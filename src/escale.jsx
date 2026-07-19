@@ -1082,14 +1082,14 @@ function buildExample() {
     endDate: d2,
     activities: [
       // Jour 1 — la 1re activité a une heure fixe, les suivantes sont en "auto".
-      mk({ date: d1, name: "Petit-déjeuner", category: "cafe", startTime: "09:00", durationMin: 45, place: null }),
+      mk({ date: d1, name: "Petit-déjeuner", category: "cafe", startTime: "09:00", durationMin: 45, place: P("Café Miremont, Biarritz", 43.4831, -1.5589) }),
       mk({ date: d1, name: "Les Halles de Biarritz", category: "shopping", startTime: AUTO, durationMin: 60, place: P("Les Halles de Biarritz", 43.4796, -1.5580) }),
       mk({ date: d1, name: "Rocher de la Vierge", category: "nature", startTime: AUTO, durationMin: 60, place: P("Rocher de la Vierge", 43.4816, -1.5665) }),
       mk({ date: d1, name: "Déjeuner au port des pêcheurs", category: "repas", startTime: AUTO, durationMin: 90, travelMode: "walk", place: P("Port des pêcheurs, Biarritz", 43.4838, -1.5636) }),
       mk({ date: d1, name: "Phare de Biarritz", category: "visite", startTime: AUTO, durationMin: 60, travelMode: "car", place: P("Phare de Biarritz", 43.4933, -1.5623) }),
       mk({ date: d1, name: "Grande Plage", category: "nature", startTime: AUTO, durationMin: 90, place: P("Grande Plage, Biarritz", 43.4832, -1.5586) }),
       // Jour 2
-      mk({ date: d2, name: "Marché & village", category: "visite", startTime: "10:00", durationMin: 90, place: P("Biarritz", 43.4832, -1.5586) }),
+      mk({ date: d2, name: "Marché & village", category: "visite", startTime: "10:00", durationMin: 90, place: P("Église Sainte-Eugénie, Biarritz", 43.4836, -1.5607) }),
       mk({ date: d2, name: "Déjeuner en ville", category: "repas", startTime: AUTO, durationMin: 90, place: null }),
     ],
   };
