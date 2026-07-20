@@ -4,7 +4,7 @@ import {
   TrainFront, Sparkles, MapPin, Footprints, Car, Clock, Plus,
   ChevronLeft, Trash2, Pencil, Navigation, Calendar, X, AlertTriangle,
   Check, ExternalLink, MoreVertical, Route, Mail, LogOut,
-  Users, Share2, UserPlus
+  Users, Share2, UserPlus, User, Home as HomeIcon
 } from "lucide-react";
 import { supabase, redirectTo } from "./supabase";
 
@@ -368,27 +368,96 @@ function IconBtn({ onClick, children, label, danger }) {
   );
 }
 
-/* --- Accueil : liste des séjours ---------------------------------- */
-function Home({ trips, onOpen, onNew, onExample, userEmail, onSignOut }) {
+/* --- Barre de navigation du bas ----------------------------------- */
+function BottomNav({ tab, setTab, onSignOut }) {
+  const Item = ({ icon: Icon, label, onClick, active }) => (
+    <button onClick={onClick}
+      className="flex-1 flex flex-col items-center gap-0.5 py-2 active:scale-95 transition focus:outline-none"
+      style={{ color: active ? C.teal : C.inkSoft }}>
+      <Icon size={22} />
+      <span className="text-[11px] font-medium">{label}</span>
+    </button>
+  );
   return (
-    <div className="mx-auto max-w-md px-4 pt-6 pb-28">
+    <div className="fixed bottom-0 inset-x-0 z-30" style={{ background: C.card, borderTop: `1px solid ${C.line}` }}>
+      <div className="mx-auto max-w-md flex" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
+        <Item icon={Route} label="Séjours" active={tab === "trips"} onClick={() => setTab("trips")} />
+        <Item icon={User} label="Compte" active={tab === "account"} onClick={() => setTab("account")} />
+        <Item icon={LogOut} label="Quitter" active={false} onClick={onSignOut} />
+      </div>
+    </div>
+  );
+}
+
+/* --- Onglet Compte ------------------------------------------------- */
+function AccountPanel({ userEmail, home, onSaveHome }) {
+  const [label, setLabel] = useState(home?.label || "Maison");
+  const [address, setAddress] = useState(home?.address || "");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  useEffect(() => { setLabel(home?.label || "Maison"); setAddress(home?.address || ""); }, [home]);
+  const save = async () => {
+    setSaving(true); setSaved(false);
+    await onSaveHome(label.trim() || "Maison", address.trim());
+    setSaving(false); setSaved(true);
+  };
+  return (
+    <div>
       <div className="mb-6">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <div style={{ color: C.teal, fontFamily: MONO }} className="text-xs trk uppercase font-semibold">Planificateur de séjour · v{APP_VERSION}</div>
-            <h1 style={{ color: C.ink }} className="text-3xl font-bold tracking-tight mt-1">Séjour</h1>
-          </div>
-          <button onClick={onSignOut} title="Se déconnecter"
-            style={{ background: C.card, border: `1px solid ${C.line}`, color: C.inkSoft }}
-            className="shrink-0 h-10 px-3 rounded-full flex items-center gap-1.5 text-xs font-medium active:scale-95 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300">
-            <LogOut size={15} /> Quitter
-          </button>
-        </div>
-        <p style={{ color: C.inkSoft }} className="text-sm mt-1">Vos journées, étape par étape : horaires, durées et trajets.</p>
-        {userEmail && <p style={{ color: C.inkSoft }} className="text-[11px] mt-1">Connecté : {userEmail}</p>}
+        <div style={{ color: C.teal, fontFamily: MONO }} className="text-xs trk uppercase font-semibold">Mon compte</div>
+        <h1 style={{ color: C.ink }} className="text-3xl font-bold tracking-tight mt-1">Compte</h1>
       </div>
 
-      {trips.length === 0 ? (
+      {/* compte connecté */}
+      <div style={{ background: C.card, border: `1px solid ${C.line}` }} className="rounded-2xl p-4">
+        <div style={{ color: C.inkSoft }} className="text-xs font-medium uppercase tracking-wide mb-1.5">Connecté en tant que</div>
+        <div style={{ color: C.ink }} className="flex items-center gap-2 text-sm">
+          <Mail size={16} style={{ color: C.teal }} /> {userEmail || "—"}
+        </div>
+      </div>
+
+      {/* lieu de départ par défaut */}
+      <div style={{ background: C.card, border: `1px solid ${C.line}` }} className="rounded-2xl p-4 mt-4 space-y-3">
+        <div style={{ color: C.ink }} className="text-sm font-medium flex items-center gap-1.5">
+          <HomeIcon size={15} style={{ color: C.teal }} /> Lieu de départ par défaut
+        </div>
+        <Field label="Nom">
+          <input value={label} onChange={(e) => { setLabel(e.target.value); setSaved(false); }} placeholder="Maison"
+            style={inputStyle} className="w-full rounded-xl px-3 py-2.5 outline-none" />
+        </Field>
+        <Field label="Adresse ou coordonnées">
+          <input value={address} onChange={(e) => { setAddress(e.target.value); setSaved(false); }} placeholder="20 rue des grillons 31700 BEAUZELLE"
+            style={inputStyle} className="w-full rounded-xl px-3 py-2.5 outline-none text-sm" />
+        </Field>
+        <button onClick={save} disabled={saving}
+          style={{ background: C.teal, opacity: saving ? 0.7 : 1 }}
+          className="w-full text-white rounded-xl py-2.5 font-medium active:scale-95 transition">
+          {saving ? "Enregistrement…" : "Enregistrer"}
+        </button>
+        {saved && <div style={{ color: C.teal }} className="text-xs flex items-center gap-1"><Check size={13} /> Enregistré</div>}
+      </div>
+      <p style={{ color: C.inkSoft }} className="t11 mt-3">Ce lieu est proposé par défaut comme point de départ à la création d'un séjour.</p>
+    </div>
+  );
+}
+
+/* --- Accueil : liste des séjours + navigation ---------------------- */
+function Home({ trips, onOpen, onNew, onExample, userEmail, onSignOut, home, onSaveHome }) {
+  const [tab, setTab] = useState("trips");
+  return (
+    <div>
+      <div className="mx-auto max-w-md px-4 pt-6 pb-28">
+        {tab === "account" ? (
+          <AccountPanel userEmail={userEmail} home={home} onSaveHome={onSaveHome} />
+        ) : (
+          <>
+            <div className="mb-6">
+              <div style={{ color: C.teal, fontFamily: MONO }} className="text-xs trk uppercase font-semibold">Planificateur de séjour · v{APP_VERSION}</div>
+              <h1 style={{ color: C.ink }} className="text-3xl font-bold tracking-tight mt-1">Séjour</h1>
+              <p style={{ color: C.inkSoft }} className="text-sm mt-1">Vos journées, étape par étape : horaires, durées et trajets.</p>
+            </div>
+
+            {trips.length === 0 ? (
         <div style={{ background: C.card, border: `1px solid ${C.line}` }} className="rounded-2xl p-6 text-center">
           <div style={{ background: C.tealSoft, color: C.teal }} className="h-14 w-14 rounded-2xl mx-auto flex items-center justify-center">
             <Route size={26} />
@@ -437,7 +506,11 @@ function Home({ trips, onOpen, onNew, onExample, userEmail, onSignOut }) {
             <Plus size={18} /> Nouveau séjour
           </button>
         </div>
-      )}
+            )}
+          </>
+        )}
+      </div>
+      <BottomNav tab={tab} setTab={setTab} onSignOut={onSignOut} />
     </div>
   );
 }
@@ -1035,9 +1108,9 @@ function TripModal({ draft, setDraft, onSave, onClose, onDelete, isNew, canDelet
           {isNew && (
             <div style={{ background: "#fff", border: `1px solid ${C.line}` }} className="rounded-2xl p-3 space-y-3">
               <div style={{ color: C.ink }} className="text-sm font-medium flex items-center gap-1.5"><MapPin size={15} style={{ color: C.teal }} /> Point de départ (1er jour)</div>
-              <input value={draft.startName} onChange={(e) => upd("startName", e.target.value)} placeholder="Adresse de départ"
+              <input value={draft.startName} onChange={(e) => upd("startName", e.target.value)} placeholder="Nom (ex. Maison)"
                 style={inputStyle} className="w-full rounded-xl px-3 py-2.5 outline-none" />
-              <input value={draft.startRaw} onChange={(e) => upd("startRaw", e.target.value)} placeholder="Lien Google Maps ou coordonnées (facultatif)"
+              <input value={draft.startRaw} onChange={(e) => upd("startRaw", e.target.value)} placeholder="Adresse, lien Google Maps ou coordonnées"
                 style={inputStyle} className="w-full rounded-xl px-3 py-2.5 outline-none text-sm" />
               {parseCoords(draft.startRaw) && (
                 <div style={{ color: C.teal }} className="text-xs flex items-center gap-1"><Check size={13} /> Coordonnées détectées : {parseCoords(draft.startRaw).lat.toFixed(4)}, {parseCoords(draft.startRaw).lng.toFixed(4)}</div>
@@ -1238,10 +1311,26 @@ function SejourApp() {
   const [travelEdit, setTravelEdit] = useState(null); // { fromId, toId }
   const [userEmail, setUserEmail] = useState("");
   const [shareTripId, setShareTripId] = useState(null);
+  const [home, setHome] = useState({ label: "Maison", address: "20 rue des grillons 31700 BEAUZELLE" });
 
   const reloadTrips = async () => { setTrips(normalizeOrder(await loadTrips())); };
   useEffect(() => { (async () => { setTrips(normalizeOrder(await loadTrips())); setLoaded(true); })(); }, []);
-  useEffect(() => { (async () => { const { data } = await supabase.auth.getUser(); setUserEmail(data.user?.email || ""); })(); }, []);
+  useEffect(() => { (async () => {
+    const { data } = await supabase.auth.getUser();
+    setUserEmail(data.user?.email || "");
+    const md = data.user?.user_metadata || {};
+    setHome({
+      label: md.home_label || "Maison",
+      address: md.home_address != null ? md.home_address : "20 rue des grillons 31700 BEAUZELLE",
+    });
+  })(); }, []);
+
+  // Enregistre le lieu de départ par défaut dans les métadonnées de l'utilisateur.
+  const saveHome = async (label, address) => {
+    setHome({ label, address });
+    try { await supabase.auth.updateUser({ data: { home_label: label, home_address: address } }); }
+    catch (e) { console.error("Sauvegarde compte:", e); }
+  };
 
   // commit : réordonne par heure effective (les activités "auto" en cascade) puis persiste.
   const commit = (next) => { const norm = normalizeOrder(next); setTrips(norm); saveTrips(norm); };
@@ -1267,20 +1356,24 @@ function SejourApp() {
   }, [tripId, trips]);
 
   /* --- séjours --- */
-  const DEFAULT_START = "20 rue des grillons 31700 BEAUZELLE";
-  const newTrip = () => setTripModal({ isNew: true, id: null, name: "", startDate: toISO(new Date()), endDate: toISO(addDays(new Date(), 1)), startName: DEFAULT_START, startRaw: "", startTime: "09:00" });
+  const newTrip = () => setTripModal({ isNew: true, id: null, name: "", startDate: toISO(new Date()), endDate: toISO(addDays(new Date(), 1)), startName: home.label || "Maison", startRaw: home.address || "", startTime: "09:00" });
   const editTrip = () => trip && setTripModal({ isNew: false, id: trip.id, name: trip.name, startDate: trip.startDate, endDate: trip.endDate });
   const saveTrip = () => {
     const d = tripModal;
     if (d.isNew) {
       const activities = [];
-      const depName = (d.startName || "").trim();
-      const depCoords = parseCoords(d.startRaw);
-      if (depName || depCoords) {
+      const depName = (d.startName || "").trim();   // nom du départ (ex. "Maison")
+      const depRaw = (d.startRaw || "").trim();       // adresse, lien Google Maps ou coordonnées
+      const depCoords = parseCoords(depRaw);
+      let depPlace = null;
+      if (depCoords) depPlace = { name: depName || null, lat: depCoords.lat, lng: depCoords.lng, url: isUrl(depRaw) ? depRaw : null };
+      else if (depRaw) depPlace = { name: depRaw, lat: null, lng: null, url: isUrl(depRaw) ? depRaw : null };
+      else if (depName) depPlace = { name: depName, lat: null, lng: null };
+      if (depName || depRaw) {
         activities.push({
           id: uid(), date: d.startDate, name: depName || "Point de départ", category: "autre",
           startTime: d.startTime || "09:00", durationMin: 0,
-          place: buildPlace(depName, depCoords), travelMode: "car", travelMinutes: null, notes: "",
+          place: depPlace, travelMode: "car", travelMinutes: null, notes: "",
         });
       }
       const t = { id: uid(), name: d.name.trim(), startDate: d.startDate, endDate: d.endDate, activities, isOwner: true, role: "owner", members: [] };
@@ -1373,7 +1466,7 @@ function SejourApp() {
       <FontInject />
       {!trip ? (
         <Home trips={trips} onOpen={openTrip} onNew={newTrip} onExample={loadExample}
-          userEmail={userEmail} onSignOut={signOut} />
+          userEmail={userEmail} onSignOut={signOut} home={home} onSaveHome={saveHome} />
       ) : (
         <TripView
           trip={trip} current={curDay} onSelectDay={setCurDay}
