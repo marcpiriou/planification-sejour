@@ -856,19 +856,19 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
   const applyCustom = () => { const total = Math.max(0, (Number(ch) || 0) * 60 + (Number(cm) || 0)); upd("durationMin", total); setCustomOpen(false); };
 
   return (
-    <div className="fixed inset-0 z-40 flex items-end justify-center">
+    <div className="fixed inset-0 z-40 flex justify-center">
       <div className="absolute inset-0 dim" onClick={onClose} />
-      <div style={{ background: C.paper, maxHeight: "92vh" }} className="relative w-full max-w-md rounded-t-3xl overflow-y-auto">
-        {/* en-tête */}
-        <div style={{ background: C.paper }} className="sticky top-0 px-4 pt-3 pb-2 flex items-center gap-3 z-10">
-          <div style={{ background: C.line }} className="absolute left-1/2 -translate-x-1/2 top-1.5 h-1 w-10 rounded-full" />
-          <div style={{ color: C.ink }} className="font-semibold text-lg flex-1 mt-2">
+      <div style={{ background: C.paper, height: "100dvh" }} className="relative w-full max-w-md flex flex-col">
+        {/* en-tête fixe */}
+        <div style={{ background: C.paper, borderColor: C.line }} className="px-4 pt-4 pb-3 flex items-center gap-3 border-b">
+          <div style={{ color: C.ink }} className="font-semibold text-lg flex-1">
             {draft.mode === "new" ? "Nouvelle activité" : "Modifier l'activité"}
           </div>
           <IconBtn onClick={onClose} label="Fermer"><X size={22} /></IconBtn>
         </div>
 
-        <div className="px-4 pb-6 space-y-4">
+        {/* contenu défilant */}
+        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
           {/* nom */}
           <Field label="Nom de l'activité">
             <input value={draft.name} onChange={(e) => upd("name", e.target.value)} placeholder="Ex. Rocher de la Vierge"
@@ -947,14 +947,16 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
             <textarea value={draft.notes} onChange={(e) => upd("notes", e.target.value)} rows={2} placeholder="Réservation, adresse précise, remarque…"
               style={inputStyle} className="w-full rounded-xl px-3 py-2.5 outline-none resize-none" />
           </Field>
+        </div>
 
-          {/* actions */}
+        {/* barre d'action fixe en bas */}
+        <div style={{ background: C.paper, borderColor: C.line, paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }} className="px-4 pt-3 border-t space-y-2">
           <button onClick={handleSave} disabled={nameError || saving}
             style={{ background: (nameError || saving) ? C.inkSoft : C.teal, opacity: (nameError || saving) ? 0.6 : 1 }}
             className="w-full text-white rounded-xl py-3 font-medium active:scale-95 transition">
             {saving ? "Enregistrement…" : (draft.mode === "new" ? "Ajouter l'activité" : "Enregistrer")}
           </button>
-          {nameError && <div style={{ color: C.warn }} className="text-xs -mt-2">Le nom est requis.</div>}
+          {nameError && <div style={{ color: C.warn }} className="text-xs">Le nom est requis.</div>}
 
           {draft.mode === "edit" && (
             confirmDel ? (
