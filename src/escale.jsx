@@ -503,17 +503,17 @@ function ActivityCard({ act, onEdit, onUpdate, onEditDuration, startMin, endMin,
   return (
     <div className="flex gap-3">
       {/* colonne horaire + noeuds + durée (cliquable) */}
-      <div className="shrink-0 flex flex-col items-center" style={{ width: 60 }}>
+      <div className="shrink-0 flex flex-col items-center" style={{ width: 66 }}>
         <div style={{ color: C.ink, fontFamily: MONO }} className="text-sm font-semibold">{start}</div>
         {auto && <div style={{ color: C.inkSoft }} className="t10 leading-none">auto</div>}
         <div style={{ background: C.teal, border: `3px solid ${C.paper}`, boxSizing: "content-box" }} className="mt-1 h-3.5 w-3.5 rounded-full"></div>
-        {/* ligne verticale avec la durée centrée dessus */}
-        <div className="relative w-full flex-1 flex items-center justify-center my-1" style={{ minHeight: 30 }}>
+        {/* ligne verticale avec la durée centrée dessus (grande zone cliquable) */}
+        <div className="relative w-full flex-1 flex items-center justify-center py-2" style={{ minHeight: 54 }}>
           <div style={{ background: C.line }} className="absolute w-0.5 h-full" />
-          <button onClick={() => canEdit && onEditDuration(act)} disabled={!canEdit}
+          <button onClick={() => canEdit && onEditDuration(act)} disabled={!canEdit} aria-label="Modifier la durée"
             style={{ color: C.inkSoft, border: `1px solid ${C.line}`, background: "#fff" }}
-            className="relative inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[11px] font-medium leading-none active:scale-95 transition">
-            <Clock size={10} /> {compactDur(act.durationMin)}
+            className="relative inline-flex items-center gap-1 rounded-full px-2.5 py-2 text-xs font-medium leading-none shadow-sm active:scale-95 transition">
+            <Clock size={12} /> {compactDur(act.durationMin)}
           </button>
         </div>
         <div style={{ border: `2px solid ${C.teal}`, background: C.paper, boxSizing: "content-box" }} className="h-2 w-2 rounded-full"></div>
