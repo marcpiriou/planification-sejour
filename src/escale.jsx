@@ -623,8 +623,8 @@ function ActivityCard({ act, onEdit, onUpdate, onEditDuration, startMin, endMin,
         <div style={{ color: C.inkSoft, fontFamily: MONO }} className="t11 mt-1 leading-none">{end}</div>
       </div>
       {/* corps */}
-      <div style={{ background: C.card, border: `1px solid ${C.line}` }} className="flex-1 rounded-2xl p-3 mb-1">
-        <div className="flex items-start gap-2">
+      <div style={{ background: C.card, border: `1px solid ${C.line}`, minHeight: 104 }} className="flex-1 rounded-2xl mb-1 overflow-hidden flex items-stretch">
+        <div className="flex-1 min-w-0 p-3 flex flex-col">
           <div className="flex-1 min-w-0">
             {editingTitle ? (
               <input
@@ -669,18 +669,19 @@ function ActivityCard({ act, onEdit, onUpdate, onEditDuration, startMin, endMin,
             )}
             {act.notes && <div style={{ color: C.inkSoft }} className="text-xs mt-1 clamp2">{act.notes}</div>}
           </div>
-          {photo && (
-            <img src={photo} alt="" loading="lazy"
-              style={{ border: `1px solid ${C.line}` }}
-              className="shrink-0 h-16 w-16 rounded-xl object-cover" />
-          )}
+          {/* crayon : édition de l'activité, en bas à gauche */}
           {canEdit && (
             <button onClick={() => onEdit(act)} aria-label="Modifier l'activité"
-              className="shrink-0 -mt-1 -mr-1 h-9 w-9 flex items-center justify-center rounded-full active:scale-95 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300">
+              className="self-start mt-2 -ml-1 h-9 w-9 flex items-center justify-center rounded-full active:scale-95 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300">
               <Pencil size={16} style={{ color: C.inkSoft }} />
             </button>
           )}
         </div>
+        {photo && (
+          <div className="shrink-0 w-28 self-stretch"
+            style={{ backgroundImage: `url("${photo}")`, backgroundSize: "cover", backgroundPosition: "center", borderLeft: `1px solid ${C.line}` }}
+            role="img" aria-label={`Photo de ${act.name}`} />
+        )}
       </div>
     </div>
   );
