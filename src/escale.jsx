@@ -281,6 +281,28 @@ async function resolveMapsLink(url) {
   } catch { return null; }
 }
 
+// Récupère (et met en cache) l'URL d'une photo Google du lieu, via l'Edge Function place-photo.
+// Renvoie null s'il n'y a pas de photo (ou pas de nom exploitable).
+const photoCache = new Map(); // clé -> Promise<string|null>
+function fetchPlacePhoto(place) {
+  if (!place) return Promise.resolve(null);
+  const q = place.name && !isUrl(place.name) ? place.name.trim() : "";
+  if (!q) return Promise.resolve(null);
+  const key = `${q}|${place.lat ?? ""},${place.lng ?? ""}`;
+  if (photoCache.has(key)) return photoCache.get(key);
+  const p = (async () => {
+    try {
+      const body = { query: q };
+      if (place.lat != null && place.lng != null) { body.lat = place.lat; body.lng = place.lng; }
+      const { data, error } = await supabase.functions.invoke("place-photo", { body });
+      if (error || !data || !data.photoUri) return null;
+      return data.photoUri;
+    } catch { return null; }
+  })();
+  photoCache.set(key, p);
+  return p;
+}
+
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
 /* ------------------------------------------------------------------ */
@@ -567,6 +589,14 @@ function ActivityCard({ act, onEdit, onUpdate, onEditDuration, startMin, endMin,
   const [editingTitle, setEditingTitle] = useState(false);
   const [title, setTitle] = useState(act.name);
   useEffect(() => { setTitle(act.name); }, [act.name]);
+  // Photo Google du lieu (à droite), si disponible.
+  const [photo, setPhoto] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    setPhoto(null);
+    fetchPlacePhoto(act.place).then((u) => { if (alive) setPhoto(u); });
+    return () => { alive = false; };
+  }, [act.place?.name, act.place?.lat, act.place?.lng]);
   const commitTitle = () => {
     const t = title.trim();
     if (t && t !== act.name) onUpdate(act.id, { name: t });
@@ -639,6 +669,11 @@ function ActivityCard({ act, onEdit, onUpdate, onEditDuration, startMin, endMin,
             )}
             {act.notes && <div style={{ color: C.inkSoft }} className="text-xs mt-1 clamp2">{act.notes}</div>}
           </div>
+          {photo && (
+            <img src={photo} alt="" loading="lazy"
+              style={{ border: `1px solid ${C.line}` }}
+              className="shrink-0 h-16 w-16 rounded-xl object-cover" />
+          )}
           {canEdit && (
             <button onClick={() => onEdit(act)} aria-label="Modifier l'activité"
               className="shrink-0 -mt-1 -mr-1 h-9 w-9 flex items-center justify-center rounded-full active:scale-95 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300">
@@ -1150,27 +1185,20 @@ function buildExample() {
   const today = new Date();
   let sat = new Date(today.getFullYear(), today.getMonth(), today.getDate());
   while (sat.getDay() !== 6) sat = addDays(sat, 1); // prochain samedi
-  const sun = addDays(sat, 1);
-  const d1 = toISO(sat), d2 = toISO(sun);
+  const d1 = toISO(sat);
   const mk = (o) => ({ id: uid(), travelMode: "walk", travelMinutes: "", notes: "", ...o });
   // Lieu avec lien Google Maps (affiche le bouton "Lieu") construit à partir des coordonnées.
   const P = (name, lat, lng) => ({ name, lat, lng, url: `https://www.google.com/maps/search/?api=1&query=${lat},${lng}` });
   return {
     id: uid(),
-    name: "Week-end à Biarritz",
+    name: "Journée à Biarritz",
     startDate: d1,
-    endDate: d2,
+    endDate: d1,
     activities: [
-      // Jour 1 — la 1re activité a une heure fixe, les suivantes sont en "auto".
-      mk({ date: d1, name: "Petit-déjeuner", category: "cafe", startTime: "09:00", durationMin: 45, place: P("Café Miremont, Biarritz", 43.4831, -1.5589) }),
-      mk({ date: d1, name: "Les Halles de Biarritz", category: "shopping", startTime: AUTO, durationMin: 60, place: P("Les Halles de Biarritz", 43.4796, -1.5580) }),
-      mk({ date: d1, name: "Rocher de la Vierge", category: "nature", startTime: AUTO, durationMin: 60, place: P("Rocher de la Vierge", 43.4816, -1.5665) }),
-      mk({ date: d1, name: "Déjeuner au port des pêcheurs", category: "repas", startTime: AUTO, durationMin: 90, travelMode: "walk", place: P("Port des pêcheurs, Biarritz", 43.4838, -1.5636) }),
-      mk({ date: d1, name: "Phare de Biarritz", category: "visite", startTime: AUTO, durationMin: 60, travelMode: "car", place: P("Phare de Biarritz", 43.4933, -1.5623) }),
+      // Jour 1 — 3 lieux emblématiques (1re activité à heure fixe, les suivantes en "auto").
+      mk({ date: d1, name: "Rocher de la Vierge", category: "nature", startTime: "10:00", durationMin: 60, place: P("Rocher de la Vierge, Biarritz", 43.4816, -1.5665) }),
       mk({ date: d1, name: "Grande Plage", category: "nature", startTime: AUTO, durationMin: 90, place: P("Grande Plage, Biarritz", 43.4832, -1.5586) }),
-      // Jour 2
-      mk({ date: d2, name: "Marché & village", category: "visite", startTime: "10:00", durationMin: 90, place: P("Église Sainte-Eugénie, Biarritz", 43.4836, -1.5607) }),
-      mk({ date: d2, name: "Déjeuner en ville", category: "repas", startTime: AUTO, durationMin: 90, place: null }),
+      mk({ date: d1, name: "Phare de Biarritz", category: "visite", startTime: AUTO, durationMin: 45, travelMode: "car", place: P("Phare de Biarritz", 43.4933, -1.5623) }),
     ],
   };
 }
