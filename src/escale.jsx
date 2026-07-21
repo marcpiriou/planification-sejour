@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   Landmark, UtensilsCrossed, Coffee, Waves, ShoppingBag, BedDouble,
   TrainFront, Sparkles, MapPin, Footprints, Car, Clock, Plus,
@@ -950,15 +950,27 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
   const isShortLink = draft.placeRaw && /goo\.gl|app\.goo\.gl|maps\.app/.test(draft.placeRaw) && !parsed;
   const nameError = !draft.name.trim();
   const [nameLoading, setNameLoading] = useState(false);
+  const lastLinkRef = useRef("");
 
-  // Colle d'un lien Google Maps -> on récupère le nom du lieu et on remplit le nom
-  // de l'activité s'il est encore vide (évite de le saisir à la main).
+  // Récupère le nom du lieu depuis un lien Google Maps et remplit le nom de
+  // l'activité s'il est encore vide (évite de le saisir à la main).
   const fillNameFromLink = async (link) => {
     if (!isUrl(link)) return;
     setNameLoading(true);
     const info = await resolvePlaceInfo(link);
     setNameLoading(false);
     if (info?.name) setDraft((d) => (d.name && d.name.trim() ? d : { ...d, name: info.name }));
+  };
+
+  // Mise à jour du champ Lieu : dès qu'on y met un lien (collage OU saisie),
+  // on tente de renseigner le nom automatiquement (une seule fois par lien).
+  const onPlaceRawChange = (v) => {
+    upd("placeRaw", v);
+    const t = (v || "").trim();
+    if (isUrl(t) && t !== lastLinkRef.current) {
+      lastLinkRef.current = t;
+      fillNameFromLink(t);
+    }
   };
 
   // Heure : "auto" (calculée) ou fixe. La 1re activité du jour est forcément fixe.
@@ -1003,8 +1015,7 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
           <div style={{ background: "#fff", border: `1px solid ${C.line}` }} className="rounded-2xl p-3 space-y-3">
             <div style={{ color: C.ink }} className="text-sm font-medium flex items-center gap-1.5"><MapPin size={15} style={{ color: C.teal }} /> Lieu (facultatif)</div>
             <input value={draft.placeRaw}
-              onChange={(e) => upd("placeRaw", e.target.value)}
-              onPaste={(e) => { const t = (e.clipboardData?.getData("text") || "").trim(); if (isUrl(t)) fillNameFromLink(t); }}
+              onChange={(e) => onPlaceRawChange(e.target.value)}
               placeholder="Lien Google Maps ou coordonnées (43.48, -1.56)"
               style={inputStyle} className="w-full rounded-xl px-3 py-2.5 outline-none text-sm" />
             {nameLoading && (
