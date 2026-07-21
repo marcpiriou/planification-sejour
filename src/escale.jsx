@@ -1183,8 +1183,12 @@ function buildExample() {
   while (sat.getDay() !== 6) sat = addDays(sat, 1); // prochain samedi
   const d1 = toISO(sat);
   const mk = (o) => ({ id: uid(), travelMode: "walk", travelMinutes: "", notes: "", ...o });
-  // Lieu avec lien Google Maps (affiche le bouton "Lieu") construit à partir des coordonnées.
-  const P = (name, lat, lng) => ({ name, lat, lng, url: `https://www.google.com/maps/search/?api=1&query=${lat},${lng}` });
+  // Lieu avec lien Google Maps (bouton "Lieu"). Par défaut on cible le lieu par son NOM
+  // (ouvre la fiche du lieu, pas de simples coordonnées) ; un lien court peut être fourni.
+  const P = (name, lat, lng, url) => ({
+    name, lat, lng,
+    url: url || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(name)}`,
+  });
   return {
     id: uid(),
     name: "Journée à Biarritz",
@@ -1194,7 +1198,7 @@ function buildExample() {
       // Jour 1 — 3 lieux emblématiques (1re activité à heure fixe, les suivantes en "auto").
       mk({ date: d1, name: "Rocher de la Vierge", category: "nature", startTime: "10:00", durationMin: 60, place: P("Rocher de la Vierge, Biarritz", 43.4816, -1.5665) }),
       mk({ date: d1, name: "Grande Plage", category: "nature", startTime: AUTO, durationMin: 90, place: P("Grande Plage, Biarritz", 43.4832, -1.5586) }),
-      mk({ date: d1, name: "Phare de Biarritz", category: "visite", startTime: AUTO, durationMin: 45, travelMode: "car", place: P("Phare de Biarritz", 43.4933, -1.5623) }),
+      mk({ date: d1, name: "Phare de Biarritz", category: "visite", startTime: AUTO, durationMin: 45, travelMode: "car", place: P("Phare de Biarritz", 43.4933, -1.5623, "https://maps.app.goo.gl/KZoXMPR84rwKi4QAA") }),
     ],
   };
 }
