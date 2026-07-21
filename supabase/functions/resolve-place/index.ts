@@ -77,15 +77,14 @@ Deno.serve(async (req: Request) => {
     });
     const finalUrl = res.url || url;
 
-    // 1) coordonnées dans l'URL finale
+    // Coordonnées ET nom/adresse depuis l'URL finale (on renvoie les deux si dispo).
     let coords = extractCoords(finalUrl);
-    if (coords) return json({ lat: coords.lat, lng: coords.lng, finalUrl });
-
-    // 2) nom/adresse du lieu dans l'URL finale
     const name = extractPlaceName(finalUrl);
-    if (name) return json({ name, finalUrl });
+    if (coords || name) {
+      return json({ ...(coords ? { lat: coords.lat, lng: coords.lng } : {}), ...(name ? { name } : {}), finalUrl });
+    }
 
-    // 3) en dernier recours, coordonnées dans le corps de la page
+    // En dernier recours, coordonnées dans le corps de la page.
     const body = await res.text();
     coords = extractCoords(body);
     if (coords) return json({ lat: coords.lat, lng: coords.lng, finalUrl });

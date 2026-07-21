@@ -282,6 +282,15 @@ async function resolveMapsLink(url) {
   } catch { return null; }
 }
 
+// Renvoie les infos brutes d'un lien Google Maps : { name?, lat?, lng? } (ou null).
+async function resolvePlaceInfo(url) {
+  try {
+    const { data, error } = await supabase.functions.invoke("resolve-place", { body: { url } });
+    if (error || !data || data.error) return null;
+    return data;
+  } catch { return null; }
+}
+
 // Récupère (et met en cache) l'URL d'une photo Google du lieu, via l'Edge Function place-photo.
 // Renvoie null s'il n'y a pas de photo (ou pas de nom exploitable).
 const photoCache = new Map(); // clé -> Promise<string|null>
@@ -940,6 +949,17 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
   const upd = (k, v) => setDraft({ ...draft, [k]: v });
   const isShortLink = draft.placeRaw && /goo\.gl|app\.goo\.gl|maps\.app/.test(draft.placeRaw) && !parsed;
   const nameError = !draft.name.trim();
+  const [nameLoading, setNameLoading] = useState(false);
+
+  // Colle d'un lien Google Maps -> on récupère le nom du lieu et on remplit le nom
+  // de l'activité s'il est encore vide (évite de le saisir à la main).
+  const fillNameFromLink = async (link) => {
+    if (!isUrl(link)) return;
+    setNameLoading(true);
+    const info = await resolvePlaceInfo(link);
+    setNameLoading(false);
+    if (info?.name) setDraft((d) => (d.name && d.name.trim() ? d : { ...d, name: info.name }));
+  };
 
   // Heure : "auto" (calculée) ou fixe. La 1re activité du jour est forcément fixe.
   const dayOrdered = scheduleForDay(allActs.filter((a) => a.date === draft.date)).sort((a, b) => a._startMin - b._startMin);
@@ -978,6 +998,26 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
             <input value={draft.name} onChange={(e) => upd("name", e.target.value)} placeholder="Ex. Rocher de la Vierge"
               style={inputStyle} className="w-full rounded-xl px-3 py-2.5 outline-none" />
           </Field>
+
+          {/* lieu (2e champ) — coller un lien Google Maps remplit le nom automatiquement */}
+          <div style={{ background: "#fff", border: `1px solid ${C.line}` }} className="rounded-2xl p-3 space-y-3">
+            <div style={{ color: C.ink }} className="text-sm font-medium flex items-center gap-1.5"><MapPin size={15} style={{ color: C.teal }} /> Lieu (facultatif)</div>
+            <input value={draft.placeRaw}
+              onChange={(e) => upd("placeRaw", e.target.value)}
+              onPaste={(e) => { const t = (e.clipboardData?.getData("text") || "").trim(); if (isUrl(t)) fillNameFromLink(t); }}
+              placeholder="Lien Google Maps ou coordonnées (43.48, -1.56)"
+              style={inputStyle} className="w-full rounded-xl px-3 py-2.5 outline-none text-sm" />
+            {nameLoading && (
+              <div style={{ color: C.inkSoft }} className="text-xs">Récupération du nom du lieu…</div>
+            )}
+            {parsed && (
+              <div style={{ color: C.teal }} className="text-xs flex items-center gap-1"><Check size={13} /> Coordonnées détectées : {parsed.lat.toFixed(4)}, {parsed.lng.toFixed(4)}</div>
+            )}
+            {isShortLink && (
+              <div style={{ color: C.amber }} className="text-xs flex items-start gap-1"><AlertTriangle size={13} className="mt-0.5 shrink-0" /> Lien court : à l'enregistrement, l'app en extrait les coordonnées pour l'itinéraire.</div>
+            )}
+            <div style={{ color: C.inkSoft }} className="t11">Collez un lien Google Maps : le nom de l'activité se remplit tout seul, et l'itinéraire/les trajets sont estimés.</div>
+          </div>
 
           {/* jour */}
           <Field label="Jour">
@@ -1031,20 +1071,6 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
                 className="shrink-0 rounded-full px-2.5 py-1 text-xs active:scale-95 transition">{!isPreset ? compactDur(draft.durationMin) : "…"}</button>
             </div>
           </Field>
-
-          {/* lieu */}
-          <div style={{ background: "#fff", border: `1px solid ${C.line}` }} className="rounded-2xl p-3 space-y-3">
-            <div style={{ color: C.ink }} className="text-sm font-medium flex items-center gap-1.5"><MapPin size={15} style={{ color: C.teal }} /> Lieu (facultatif)</div>
-            <input value={draft.placeRaw} onChange={(e) => upd("placeRaw", e.target.value)} placeholder="Lien Google Maps ou coordonnées (43.48, -1.56)"
-              style={inputStyle} className="w-full rounded-xl px-3 py-2.5 outline-none text-sm" />
-            {parsed && (
-              <div style={{ color: C.teal }} className="text-xs flex items-center gap-1"><Check size={13} /> Coordonnées détectées : {parsed.lat.toFixed(4)}, {parsed.lng.toFixed(4)}</div>
-            )}
-            {isShortLink && (
-              <div style={{ color: C.amber }} className="text-xs flex items-start gap-1"><AlertTriangle size={13} className="mt-0.5 shrink-0" /> Lien court : à l'enregistrement, l'app tente d'en extraire les coordonnées pour l'itinéraire.</div>
-            )}
-            <div style={{ color: C.inkSoft }} className="t11">Un lien Google Maps ou des coordonnées permettent d'estimer les trajets et d'ouvrir l'itinéraire.</div>
-          </div>
 
           {/* notes */}
           <Field label="Notes (facultatif)">
