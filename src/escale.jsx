@@ -959,7 +959,9 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
     setNameLoading(true);
     const info = await resolvePlaceInfo(link);
     setNameLoading(false);
-    if (info?.name) setDraft((d) => (d.name && d.name.trim() ? d : { ...d, name: info.name }));
+    // On garde le nom court : la partie avant la 1re virgule (Google renvoie "Nom, code postal ville").
+    const shortName = info?.name ? info.name.split(",")[0].trim() : "";
+    if (shortName) setDraft((d) => (d.name && d.name.trim() ? d : { ...d, name: shortName }));
   };
 
   // Mise à jour du champ Lieu : dès qu'on y met un lien (collage OU saisie),
