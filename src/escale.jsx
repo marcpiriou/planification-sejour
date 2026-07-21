@@ -61,6 +61,7 @@ const fmtShort = (iso) => new Intl.DateTimeFormat("fr-FR", { weekday: "short", d
 const fmtLong = (iso) => new Intl.DateTimeFormat("fr-FR", { weekday: "long", day: "numeric", month: "long" }).format(parseDate(iso));
 const fmtWd = (iso) => new Intl.DateTimeFormat("fr-FR", { weekday: "short" }).format(parseDate(iso)).replace(".", "");
 const fmtDay = (iso) => parseDate(iso).getDate();
+const fmtMonthShort = (iso) => new Intl.DateTimeFormat("fr-FR", { month: "short" }).format(parseDate(iso));
 const fmtRange = (a, b) => (a === b ? fmtShort(a) : `${fmtShort(a)} – ${fmtShort(b)}`);
 
 /* ------------------------------------------------------------------ */
@@ -549,7 +550,7 @@ function DateStrip({ days, current, onSelect, counts }) {
               style={{ background: active ? C.teal : C.paper, color: active ? "#fff" : C.ink, border: `1px solid ${active ? C.teal : C.line}` }}
               className="shrink-0 rounded-xl px-3 py-2 text-center minw62 active:scale-95 transition">
               <div style={{ fontFamily: MONO }} className="t10 uppercase tracking-wider opacity-80">J{i + 1} · {fmtWd(d)}</div>
-              <div className="text-lg font-bold leading-none mt-0.5">{fmtDay(d)}</div>
+              <div className="leading-none mt-0.5"><span className="text-lg font-bold">{fmtDay(d)}</span> <span className="text-xs font-semibold">{fmtMonthShort(d)}</span></div>
             </button>
           );
         })}
@@ -643,7 +644,7 @@ function ActivityCard({ act, onEdit, onUpdate, onEditDuration, startMin, endMin,
               <div onClick={() => canEdit && setEditingTitle(true)} style={{ color: C.ink }} className={`font-semibold leading-tight ${canEdit ? "cursor-text" : ""}`}>{act.name}</div>
             )}
             {act.place && (
-              <div className="mt-1.5 flex items-center gap-2">
+              <div className="mt-1.5 flex flex-col items-start gap-1.5">
                 {placeDirectUrl(act.place) && (
                   <a href={placeDirectUrl(act.place)} target="_blank" rel="noopener noreferrer"
                     style={{ color: C.teal, border: `1px solid ${C.teal}` }}
@@ -760,8 +761,6 @@ function TravelLeg({ from, to, leg, onEdit, variant, fromEndMin, toStartMin }) {
             {leg.km != null && <span style={{ fontFamily: MONO }} className="t11 opacity-80">· {leg.km.toFixed(leg.km < 10 ? 1 : 0)} km</span>}
             {onEdit && <Pencil size={11} className="opacity-70" />}
           </button>
-
-          {leg.isEstimate && <span style={{ color: C.inkSoft }} className="t11">≈ estimation</span>}
         </div>
 
         {isStart ? (
@@ -884,11 +883,7 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onEditAct, onE
       />
       <DateStrip days={days} current={safeCurrent} onSelect={onSelectDay} counts={counts} />
 
-      <div className="mx-auto max-w-md px-4">
-        <div style={{ color: C.inkSoft }} className="text-sm mt-4 mb-2 capitalize">{fmtLong(safeCurrent)}</div>
-      </div>
-
-      <div className="mx-auto max-w-md px-4 pb-28">
+      <div className="mx-auto max-w-md px-4 pt-4 pb-28">
         {acts.length === 0 ? (
           <div style={{ background: C.card, border: `1px dashed ${C.line}` }} className="rounded-2xl p-8 text-center">
             <div style={{ color: C.inkSoft }} className="text-sm">Aucune activité ce jour.</div>
