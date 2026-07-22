@@ -291,6 +291,22 @@ async function resolvePlaceInfo(url) {
   } catch { return null; }
 }
 
+// Géocode un texte libre (adresse ou nom de lieu) en coordonnées via l'Edge Function.
+// Renvoie { lat, lng, name } ou null. Sert à donner des coordonnées aux lieux saisis en texte
+// (ex. adresse du départ "Maison"), pour que les temps de trajet puissent être estimés.
+async function geocodeText(query) {
+  const q = (query || "").trim();
+  if (!q) return null;
+  try {
+    const { data, error } = await supabase.functions.invoke("resolve-place", { body: { query: q } });
+    if (error || !data || data.error) return null;
+    if (typeof data.lat === "number" && typeof data.lng === "number") {
+      return { lat: data.lat, lng: data.lng, name: typeof data.name === "string" ? data.name : q };
+    }
+    return null;
+  } catch { return null; }
+}
+
 // Récupère (et met en cache) l'URL d'une photo Google du lieu, via l'Edge Function place-photo.
 // Renvoie null s'il n'y a pas de photo (ou pas de nom exploitable).
 const photoCache = new Map(); // clé -> Promise<string|null>
@@ -1425,7 +1441,7 @@ function SejourApp() {
   /* --- séjours --- */
   const newTrip = () => setTripModal({ isNew: true, id: null, name: "", startDate: toISO(new Date()), endDate: toISO(addDays(new Date(), 1)), startName: home.label || "Maison", startRaw: home.address || "", startTime: "09:00" });
   const editTrip = () => trip && setTripModal({ isNew: false, id: trip.id, name: trip.name, startDate: trip.startDate, endDate: trip.endDate });
-  const saveTrip = () => {
+  const saveTrip = async () => {
     const d = tripModal;
     if (d.isNew) {
       const activities = [];
@@ -1433,9 +1449,20 @@ function SejourApp() {
       const depRaw = (d.startRaw || "").trim();       // adresse, lien Google Maps ou coordonnées
       const depCoords = parseCoords(depRaw);
       let depPlace = null;
-      if (depCoords) depPlace = { name: depName || null, lat: depCoords.lat, lng: depCoords.lng, url: isUrl(depRaw) ? depRaw : null };
-      else if (depRaw) depPlace = { name: depRaw, lat: null, lng: null, url: isUrl(depRaw) ? depRaw : null };
-      else if (depName) depPlace = { name: depName, lat: null, lng: null };
+      if (depCoords) {
+        depPlace = { name: depName || null, lat: depCoords.lat, lng: depCoords.lng, url: isUrl(depRaw) ? depRaw : null };
+      } else if (depRaw && isUrl(depRaw)) {
+        // Lien Google Maps : on le déplie côté serveur pour des coordonnées (sinon l'adresse).
+        const r = await resolveMapsLink(depRaw);
+        if (r && r.lat != null) depPlace = { name: depName || null, lat: r.lat, lng: r.lng, url: depRaw };
+        else depPlace = { name: depName || depRaw, lat: null, lng: null, url: depRaw };
+      } else if (depRaw) {
+        // Adresse en texte : on géocode pour obtenir des coordonnées (trajets estimables).
+        const g = await geocodeText(depRaw);
+        depPlace = g ? { name: depName || depRaw, lat: g.lat, lng: g.lng, url: null } : { name: depName || depRaw, lat: null, lng: null, url: null };
+      } else if (depName) {
+        depPlace = { name: depName, lat: null, lng: null };
+      }
       if (depName || depRaw) {
         activities.push({
           id: uid(), date: d.startDate, name: depName || "Point de départ", category: "autre",
@@ -1494,7 +1521,10 @@ function SejourApp() {
         else if (r && r.name) place = { name: r.name, lat: null, lng: null, url: raw };
         else place = { name: raw, lat: null, lng: null, url: raw };
       } else {
-        place = { name: raw, lat: null, lng: null, url: null };
+        // Texte libre (adresse ou nom) : on géocode pour obtenir des coordonnées,
+        // afin que le temps de trajet depuis/vers ce lieu puisse être estimé.
+        const g = await geocodeText(raw);
+        place = g ? { name: raw, lat: g.lat, lng: g.lng, url: null } : { name: raw, lat: null, lng: null, url: null };
       }
     }
     const act = {
