@@ -267,16 +267,17 @@ async function leaveTrip(tripId) {
 }
 
 // Déplie un lien Google Maps (court ou complet) via l'Edge Function.
-// Renvoie { lat, lng } (coordonnées) ou { name } (adresse) ou null si non résolu.
+// Renvoie { lat, lng, name? } (coordonnées) ou { name } (adresse) ou null si non résolu.
 async function resolveMapsLink(url) {
   try {
     const { data, error } = await supabase.functions.invoke("resolve-place", { body: { url } });
     if (error || !data) return null;
+    const name = typeof data.name === "string" && data.name.trim() ? data.name.trim() : null;
     if (typeof data.lat === "number" && typeof data.lng === "number") {
-      return { lat: data.lat, lng: data.lng };
+      return { lat: data.lat, lng: data.lng, name };
     }
-    if (typeof data.name === "string" && data.name.trim()) {
-      return { name: data.name.trim() };
+    if (name) {
+      return { name };
     }
     return null;
   } catch { return null; }
@@ -1517,7 +1518,8 @@ function SejourApp() {
         // Lien Google Maps sans coordonnées lisibles (lien court) : on le déplie côté serveur
         // pour en tirer des coordonnées ou, à défaut, l'adresse du lieu (destination d'itinéraire).
         const r = await resolveMapsLink(raw);
-        if (r && r.lat != null) place = { name: null, lat: r.lat, lng: r.lng, url: raw };
+        // On conserve le nom résolu (r.name) pour pouvoir récupérer la photo du lieu.
+        if (r && r.lat != null) place = { name: r.name || null, lat: r.lat, lng: r.lng, url: raw };
         else if (r && r.name) place = { name: r.name, lat: null, lng: null, url: raw };
         else place = { name: raw, lat: null, lng: null, url: raw };
       } else {
