@@ -73,17 +73,30 @@ const haversineKm = (a, b) => {
   const s = Math.sin(dLat / 2) ** 2 + Math.cos(toR(a.lat)) * Math.cos(toR(b.lat)) * Math.sin(dLng / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s));
 };
-// Estimation à vol d'oiseau corrigée d'un facteur de sinuosité. Approximation volontairement simple.
+// Cache des temps de trajet réels renvoyés par Google (Edge Function travel-time).
+// Clé -> { min, km } quand Google a répondu, null quand il n'a pas d'itinéraire.
+const travelCache = new Map();
+const travelKey = (from, to, mode) => {
+  if (!from || !to || from.lat == null || from.lng == null || to.lat == null || to.lng == null) return null;
+  const r = (n) => Number(n).toFixed(5);
+  return `${r(from.lat)},${r(from.lng)}>${r(to.lat)},${r(to.lng)}|${mode === "walk" ? "walk" : "car"}`;
+};
+
+// Durée d'un trajet : temps réel Google s'il est connu, sinon estimation à vol
+// d'oiseau corrigée d'un facteur de sinuosité (approximation de repli).
 const estimateTravel = (from, to, mode) => {
   if (!from || !to || from.lat == null || to.lat == null) return null;
+  const key = travelKey(from, to, mode);
+  const real = key ? travelCache.get(key) : null;
+  if (real) return { km: real.km, min: real.min, source: "google" };
   const straight = haversineKm(from, to);
   if (mode === "walk") {
     const km = straight * 1.35;
-    return { km, min: Math.max(1, Math.round((km / 4.5) * 60)) };
+    return { km, min: Math.max(1, Math.round((km / 4.5) * 60)), source: "estimate" };
   }
   const km = straight * 1.4;
   const speed = Math.min(65, 22 + straight * 3.5); // km/h : urbain -> interurbain
-  return { km, min: Math.max(1, Math.round((km / speed) * 60)) };
+  return { km, min: Math.max(1, Math.round((km / speed) * 60)), source: "estimate" };
 };
 
 const parseCoords = (input) => {
@@ -308,6 +321,50 @@ async function geocodeText(query) {
   } catch { return null; }
 }
 
+// Demande à Google les durées de trajet manquantes, via l'Edge Function travel-time.
+// Renvoie true si le cache a changé (l'appelant peut alors relancer un rendu).
+// En cas de panne réseau on ne mémorise rien : une pause évite d'insister,
+// et l'app continue avec son estimation à vol d'oiseau.
+const travelPending = new Set();
+let travelPauseUntil = 0;
+
+const travelRequestFor = (a, b) => {
+  const key = travelKey(a.place, b.place, a.travelMode);
+  if (!key) return null;
+  return {
+    key,
+    from: { lat: a.place.lat, lng: a.place.lng },
+    to: { lat: b.place.lat, lng: b.place.lng },
+    mode: a.travelMode === "walk" ? "walk" : "car",
+  };
+};
+
+async function fetchTravelTimes(legs) {
+  if (Date.now() < travelPauseUntil) return false;
+  const seen = new Set();
+  const todo = (legs || []).filter((l) => {
+    if (!l || travelCache.has(l.key) || travelPending.has(l.key) || seen.has(l.key)) return false;
+    seen.add(l.key);
+    return true;
+  });
+  if (!todo.length) return false;
+  todo.forEach((l) => travelPending.add(l.key));
+  try {
+    const { data, error } = await supabase.functions.invoke("travel-time", { body: { legs: todo } });
+    if (error || !data || !data.results) { travelPauseUntil = Date.now() + 60000; return false; }
+    for (const l of todo) {
+      const r = data.results[l.key];
+      travelCache.set(l.key, r && typeof r.min === "number" ? { min: r.min, km: Number(r.km) || 0 } : null);
+    }
+    return true;
+  } catch {
+    travelPauseUntil = Date.now() + 60000;
+    return false;
+  } finally {
+    todo.forEach((l) => travelPending.delete(l.key));
+  }
+}
+
 // Récupère (et met en cache) l'URL d'une photo Google du lieu, via l'Edge Function place-photo.
 // Renvoie null s'il n'y a pas de photo (ou pas de nom exploitable).
 const photoCache = new Map(); // clé -> Promise<string|null>
@@ -340,7 +397,12 @@ const legBetween = (a, b) => {
   const est = estimateTravel(a.place, b.place, a.travelMode);
   const manual = a.travelMinutes != null && a.travelMinutes !== "" ? Number(a.travelMinutes) : null;
   const min = manual != null ? manual : est ? est.min : null;
-  return { mode: a.travelMode, min, km: est ? est.km : null, isEstimate: manual == null && est != null, hasManual: manual != null };
+  return {
+    mode: a.travelMode, min, km: est ? est.km : null,
+    source: est ? est.source : null,
+    isEstimate: manual == null && est != null && est.source !== "google",
+    hasManual: manual != null,
+  };
 };
 
 /* --- Horaires en cascade -------------------------------------------- */
@@ -891,7 +953,16 @@ function TravelLeg({ from, to, leg, onEdit, variant, fromEndMin, toStartMin }) {
 function TravelPicker({ from, to, onCancel, onValidate }) {
   const [mode, setMode] = useState(from.travelMode || "walk");
   const [manual, setManual] = useState(from.travelMinutes != null && from.travelMinutes !== "" ? String(from.travelMinutes) : "");
-  const est = estimateTravel(from.place, to.place, mode);
+  // Le mode peut changer ici : on demande à Google la durée du mode choisi.
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    const leg = travelRequestFor({ ...from, travelMode: mode }, to);
+    if (!leg) return;
+    fetchTravelTimes([leg]).then((changed) => { if (alive && changed) setTick((t) => t + 1); });
+    return () => { alive = false; };
+  }, [from.place?.lat, from.place?.lng, to.place?.lat, to.place?.lng, mode]);
+  const est = useMemo(() => estimateTravel(from.place, to.place, mode), [from.place, to.place, mode, tick]);
   const effective = manual !== "" ? Math.max(0, parseInt(manual, 10) || 0) : (est ? est.min : null);
   const MODES = [
     { id: "walk", label: "À pied", Icon: Footprints, col: C.teal },
@@ -919,7 +990,8 @@ function TravelPicker({ from, to, onCancel, onValidate }) {
 
         {est && (
           <div style={{ color: C.inkSoft }} className="text-xs mt-3">
-            Estimation automatique : ≈ {fmtDur(est.min)}{est.km != null ? ` · ${est.km.toFixed(est.km < 10 ? 1 : 0)} km` : ""}
+            {est.source === "google" ? "Temps Google Maps : " : "Estimation automatique : ≈ "}
+            {fmtDur(est.min)}{est.km != null ? ` · ${est.km.toFixed(est.km < 10 ? 1 : 0)} km` : ""}
           </div>
         )}
 
@@ -954,10 +1026,26 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onEditAct, onE
     const c = {}; trip.activities.forEach((a) => { c[a.date] = (c[a.date] || 0) + 1; }); return c;
   }, [trip.activities]);
 
+  // Temps de trajet réels (Google) pour la journée affichée : dès qu'ils arrivent,
+  // le compteur change et les heures "auto" sont recalculées avec ces durées.
+  const [travelTick, setTravelTick] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    const seq = trip.activities.filter((a) => a.date === safeCurrent);
+    const legs = [];
+    for (let i = 0; i < seq.length - 1; i++) {
+      const l = travelRequestFor(seq[i], seq[i + 1]);
+      if (l) legs.push(l);
+    }
+    if (!legs.length) return;
+    fetchTravelTimes(legs).then((changed) => { if (alive && changed) setTravelTick((t) => t + 1); });
+    return () => { alive = false; };
+  }, [trip.activities, safeCurrent]);
+
   // Activités du jour dans l'ordre de séquence, avec heures effectives calculées (auto = cascade).
   const acts = useMemo(
     () => scheduleForDay(trip.activities.filter((a) => a.date === safeCurrent)),
-    [trip.activities, safeCurrent]
+    [trip.activities, safeCurrent, travelTick]
   );
 
   const totalTravel = useMemo(() => {
