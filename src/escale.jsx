@@ -1417,11 +1417,16 @@ const WEEKDAYS = ["L", "M", "M", "J", "V", "S", "D"];
 const fmtMonthYear = (dt) => new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric" }).format(dt);
 const firstOfMonth = (iso) => { const d = parseDate(iso || toISO(new Date())); return new Date(d.getFullYear(), d.getMonth(), 1); };
 
-// Un seul calendrier pour choisir le début ET la fin : 1er appui = date de début,
-// 2e appui = date de fin (les deux dates sont interverties si besoin).
-function DateRangePicker({ startDate, endDate, onChange }) {
+const rangeDays = (a, b) => (a && b ? daysInRange(a, b).length : 0);
+const rangeLabel = (a, b) => {
+  const n = rangeDays(a, b);
+  return `${fmtShort(a)} → ${fmtShort(b)} · ${n} jour${n > 1 ? "s" : ""}`;
+};
+
+// Calendrier d'un mois : 1er appui = date de début, 2e appui = date de fin
+// (les deux dates sont interverties si la 2e est antérieure).
+function DateRangeCalendar({ startDate, endDate, onChange, awaitingEnd, setAwaitingEnd }) {
   const [view, setView] = useState(() => firstOfMonth(startDate));
-  const [awaitingEnd, setAwaitingEnd] = useState(false);
   const today = toISO(new Date());
 
   const cells = useMemo(() => {
@@ -1443,21 +1448,19 @@ function DateRangePicker({ startDate, endDate, onChange }) {
       setAwaitingEnd(false);
     }
   };
-
-  const nights = startDate && endDate ? daysInRange(startDate, endDate).length : 0;
   const shiftMonth = (n) => setView(new Date(view.getFullYear(), view.getMonth() + n, 1));
 
   return (
-    <div style={{ background: "#fff", border: `1px solid ${C.line}` }} className="rounded-2xl p-3">
+    <div>
       <div className="flex items-center justify-between">
-        <IconBtn onClick={() => shiftMonth(-1)} label="Mois précédent"><ChevronLeft size={20} /></IconBtn>
-        <div style={{ color: C.ink }} className="font-semibold text-sm capitalize">{fmtMonthYear(view)}</div>
-        <IconBtn onClick={() => shiftMonth(1)} label="Mois suivant"><ChevronLeft size={20} style={{ transform: "rotate(180deg)" }} /></IconBtn>
+        <IconBtn onClick={() => shiftMonth(-1)} label="Mois précédent"><ChevronLeft size={22} /></IconBtn>
+        <div style={{ color: C.ink }} className="font-semibold capitalize">{fmtMonthYear(view)}</div>
+        <IconBtn onClick={() => shiftMonth(1)} label="Mois suivant"><ChevronLeft size={22} style={{ transform: "rotate(180deg)" }} /></IconBtn>
       </div>
 
-      <div className="grid grid-cols-7 mt-1">
+      <div className="grid grid-cols-7 mt-2">
         {WEEKDAYS.map((w, i) => (
-          <div key={i} style={{ color: C.inkSoft }} className="t11 text-center py-1 font-medium">{w}</div>
+          <div key={i} style={{ color: C.inkSoft }} className="text-xs text-center py-1.5 font-medium">{w}</div>
         ))}
         {cells.map((iso, i) => {
           if (!iso) return <div key={`b${i}`} />;
@@ -1473,19 +1476,66 @@ function DateRangePicker({ startDate, endDate, onChange }) {
                 fontFamily: MONO,
                 ...(iso === today && !edge ? { boxShadow: `inset 0 0 0 1px ${C.teal}`, borderRadius: 999 } : {}),
               }}
-              className={`h-9 text-sm active:scale-95 transition ${round}`}>
+              className={`h-11 active:scale-95 transition ${round}`}>
               {parseDate(iso).getDate()}
             </button>
           );
         })}
       </div>
+    </div>
+  );
+}
 
-      <div style={{ color: C.inkSoft }} className="text-xs mt-2 text-center">
-        {awaitingEnd
-          ? "Choisissez la date de fin (ou validez pour un séjour d'un jour)."
-          : `${fmtShort(startDate)} → ${fmtShort(endDate)} · ${nights} jour${nights > 1 ? "s" : ""}`}
+// Plein écran : ouvert depuis la ligne compacte, il ne modifie la période
+// du séjour qu'à la validation.
+function DateRangeSheet({ startDate, endDate, onValidate, onCancel }) {
+  const [range, setRange] = useState({ startDate, endDate });
+  const [awaitingEnd, setAwaitingEnd] = useState(false);
+  return (
+    <div className="fixed inset-0 z-50 flex justify-center">
+      <div className="absolute inset-0 dim" onClick={onCancel} />
+      <div style={{ background: C.paper, height: "100dvh" }} className="relative w-full max-w-md flex flex-col">
+        <div style={{ background: C.paper, borderColor: C.line }} className="px-4 pt-4 pb-3 flex items-center gap-3 border-b">
+          <div style={{ color: C.ink }} className="font-semibold text-lg flex-1">Période du séjour</div>
+          <IconBtn onClick={onCancel} label="Fermer"><X size={22} /></IconBtn>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-4 py-4">
+          <DateRangeCalendar {...range} onChange={setRange}
+            awaitingEnd={awaitingEnd} setAwaitingEnd={setAwaitingEnd} />
+          <div style={{ color: C.inkSoft }} className="text-sm mt-4 text-center">
+            {awaitingEnd ? "Choisissez la date de fin (ou validez pour un séjour d'un jour)."
+              : rangeLabel(range.startDate, range.endDate)}
+          </div>
+        </div>
+
+        <div style={{ background: C.paper, borderColor: C.line, paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }} className="px-4 pt-3 border-t space-y-2">
+          <button onClick={() => onValidate(range)} style={{ background: C.teal }}
+            className="w-full text-white rounded-xl py-3 font-medium active:scale-95 transition">Valider</button>
+          <button onClick={onCancel} style={{ border: `1px solid ${C.line}`, color: C.ink }}
+            className="w-full rounded-xl py-3 font-medium bg-white active:scale-95 transition">Annuler</button>
+        </div>
       </div>
     </div>
+  );
+}
+
+// Ligne compacte affichée dans le formulaire ; le calendrier s'ouvre au clic.
+function DateRangeField({ startDate, endDate, onChange }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button onClick={() => setOpen(true)} style={inputStyle}
+        className="w-full rounded-xl px-3 py-2.5 flex items-center gap-2 text-left active:scale-95 transition">
+        <Calendar size={16} style={{ color: C.teal }} className="shrink-0" />
+        <span className="flex-1 truncate text-sm">{rangeLabel(startDate, endDate)}</span>
+        <Pencil size={14} style={{ color: C.inkSoft }} className="shrink-0" />
+      </button>
+      {open && (
+        <DateRangeSheet startDate={startDate} endDate={endDate}
+          onValidate={(r) => { onChange(r); setOpen(false); }} onCancel={() => setOpen(false)} />
+      )}
+    </>
   );
 }
 
@@ -1512,7 +1562,7 @@ function TripModal({ draft, setDraft, onSave, onClose, onDelete, isNew, canDelet
           </Field>
           <div>
             <div style={{ color: C.inkSoft }} className="text-xs font-medium uppercase tracking-wide mb-1.5">Période</div>
-            <DateRangePicker startDate={draft.startDate} endDate={draft.endDate}
+            <DateRangeField startDate={draft.startDate} endDate={draft.endDate}
               onChange={({ startDate, endDate }) => setDraft({ ...draft, startDate, endDate })} />
           </div>
           {dateError && <div style={{ color: C.warn }} className="text-xs -mt-2">La date de fin doit être postérieure ou égale à la date de début.</div>}
