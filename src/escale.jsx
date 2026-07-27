@@ -1141,11 +1141,6 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onEditAct, onE
           </div>
         ) : (
           <div>
-            {canEdit && acts.length > 1 && (
-              <div style={{ color: C.inkSoft }} className="t11 mb-2 flex items-center gap-1">
-                <MoreVertical size={12} /> Appui long sur une activité pour la déplacer
-              </div>
-            )}
             {acts.map((a, i) => {
               const isDragged = drag && drag.id === a.id;
               return (
@@ -1177,6 +1172,11 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onEditAct, onE
                 Fin : {minToTime(acts[acts.length - 1]._endMin)}
               </div>
             </div>
+            {canEdit && acts.length > 1 && (
+              <div style={{ color: C.inkSoft }} className="t11 mt-5 flex items-center gap-1">
+                <MoreVertical size={12} /> Appui long sur une activité pour la déplacer
+              </div>
+            )}
           </div>
         )}
       </div>
