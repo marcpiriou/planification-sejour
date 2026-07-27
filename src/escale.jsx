@@ -157,6 +157,30 @@ function onSyncStatus(fn) { syncListeners.add(fn); return () => syncListeners.de
 function setSyncError(msg) { syncError = msg; syncListeners.forEach((f) => f(msg)); }
 const errText = (e) => (e && (e.message || e.error_description || e.msg)) || String(e || "erreur inconnue");
 
+// Lecture des revendications d'un JWT (partie publique, aucun secret).
+function jwtClaims(token) {
+  try {
+    const p = token.split(".")[1];
+    return JSON.parse(atob(p.replace(/-/g, "+").replace(/_/g, "/")));
+  } catch { return null; }
+}
+
+// Un refus de la RLS peut venir de deux côtés : la session envoyée par
+// l'application, ou les règles d'accès de la base. On tranche ici pour
+// éviter de chercher du mauvais côté.
+async function explainRlsError(base, meId) {
+  if (!/row-level security|violates row-level/i.test(base)) return base;
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token;
+  if (!token) return `${base} — aucune session active : déconnectez-vous puis reconnectez-vous.`;
+  const c = jwtClaims(token);
+  if (!c) return `${base} — jeton illisible : déconnectez-vous puis reconnectez-vous.`;
+  if (c.role !== "authenticated") return `${base} — jeton non authentifié (role=${c.role || "?"}) : reconnectez-vous.`;
+  if (c.sub !== meId) return `${base} — identités incohérentes (jeton ${String(c.sub).slice(0, 8)}… / compte ${String(meId).slice(0, 8)}…) : reconnectez-vous.`;
+  if (c.exp && c.exp * 1000 < Date.now()) return `${base} — jeton expiré : reconnectez-vous.`;
+  return `${base} — compte bien authentifié (uid ${String(meId).slice(0, 8)}…) : ce sont les règles d'accès de la base qui refusent. Appliquez la migration 0003_repair_rls.sql.`;
+}
+
 // Sauvegardes sérialisées : deux modifications rapprochées ne doivent pas
 // s'entrelacer (sinon la seconde peut écrire par-dessus la première).
 let saveQueue = Promise.resolve();
@@ -248,7 +272,7 @@ async function saveTrips(trips) {
     // reprise) effacerait des séjours bien présents en base.
     setSyncError(null);
   } catch (e) {
-    setSyncError(errText(e));
+    setSyncError(await explainRlsError(errText(e), me));
     console.error("Sauvegarde séjours:", e);
   }
 }
