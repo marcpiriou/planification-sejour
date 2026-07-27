@@ -371,6 +371,38 @@ function scheduleForDay(dayActs) {
   });
 }
 
+// Rend un ordre choisi à la main compatible avec le tri chronologique :
+// - la 1re activité du jour porte toujours une heure fixe (elle amorce la cascade) ;
+// - une heure fixe qui commencerait avant la fin de l'activité qui la précède
+//   désormais contredit l'ordre voulu : elle repasse en "auto" et suit le trajet.
+//   Une heure fixe encore cohérente (ex. réservation à 13:00) est conservée.
+// En sortie les heures de début sont croissantes : normalizeOrder (tri stable)
+// conserve donc l'ordre manuel.
+function enforceManualOrder(dayActs, firstStartMin) {
+  const out = dayActs.map((a) => ({ ...a }));
+  if (!out.length) return out;
+  if (isAutoTime(out[0].startTime)) out[0].startTime = minToTime(firstStartMin != null ? firstStartMin : timeToMin("09:00"));
+  let cursorEnd = null;
+  for (let i = 0; i < out.length; i++) {
+    const a = out[i];
+    const cascade = () => {
+      const leg = legBetween(out[i - 1], a);
+      return cursorEnd + (leg && leg.min != null ? leg.min : 0);
+    };
+    let startMin;
+    if (!isAutoTime(a.startTime)) {
+      startMin = timeToMin(a.startTime);
+      if (cursorEnd != null && startMin < cursorEnd) { a.startTime = AUTO; startMin = cascade(); }
+    } else if (cursorEnd == null) {
+      startMin = timeToMin("09:00");
+    } else {
+      startMin = cascade();
+    }
+    cursorEnd = startMin + (a.durationMin || 0);
+  }
+  return out;
+}
+
 // Réordonne les activités de chaque jour par heure effective (ordre chronologique stable).
 function normalizeOrder(trips) {
   return (trips || []).map((t) => {
@@ -391,6 +423,37 @@ function normalizeOrder(trips) {
 /* ================================================================== */
 /* Sous-composants                                                     */
 /* ================================================================== */
+
+// Appui long (~420 ms) sans déplacement du doigt : sert à saisir une activité
+// pour la déplacer. Un défilement (mouvement > 10 px) annule l'appui.
+function useLongPress(onLongPress, enabled, delay = 420) {
+  const timer = useRef(null);
+  const origin = useRef(null);
+  const cbRef = useRef(onLongPress);
+  cbRef.current = onLongPress;
+  const clear = () => { if (timer.current) { clearTimeout(timer.current); timer.current = null; } };
+  useEffect(() => clear, []);
+  if (!enabled) return {};
+  return {
+    onPointerDown: (e) => {
+      if (e.button === 2) return;
+      origin.current = { x: e.clientX, y: e.clientY };
+      clear();
+      timer.current = setTimeout(() => {
+        timer.current = null;
+        if (navigator.vibrate) navigator.vibrate(15);
+        cbRef.current(e.clientY);
+      }, delay);
+    },
+    onPointerMove: (e) => {
+      if (!timer.current || !origin.current) return;
+      if (Math.abs(e.clientY - origin.current.y) > 10 || Math.abs(e.clientX - origin.current.x) > 10) clear();
+    },
+    onPointerUp: clear,
+    onPointerCancel: clear,
+    onContextMenu: (e) => e.preventDefault(),
+  };
+}
 
 function TopBar({ left, title, subtitle, right }) {
   return (
@@ -610,7 +673,8 @@ function DaySummary({ acts, totalTravel }) {
 }
 
 /* --- Carte d'une activité ----------------------------------------- */
-function ActivityCard({ act, onEdit, onUpdate, onEditDuration, startMin, endMin, auto, prev, canEdit = true }) {
+function ActivityCard({ act, onEdit, onUpdate, onEditDuration, startMin, endMin, auto, prev, canEdit = true, onDragStart, dragging = false }) {
+  const longPress = useLongPress(onDragStart, !!onDragStart);
   const start = minToTime(startMin != null ? startMin : timeToMin(act.startTime));
   const end = minToTime(endMin != null ? endMin : timeToMin(act.startTime) + act.durationMin);
   const [editingTitle, setEditingTitle] = useState(false);
@@ -649,8 +713,16 @@ function ActivityCard({ act, onEdit, onUpdate, onEditDuration, startMin, endMin,
         <div style={{ border: `2px solid ${C.teal}`, background: C.paper, boxSizing: "content-box" }} className="h-2 w-2 rounded-full"></div>
         <div style={{ color: C.inkSoft, fontFamily: MONO }} className="t11 mt-1 leading-none">{end}</div>
       </div>
-      {/* corps */}
-      <div style={{ background: C.card, border: `1px solid ${C.line}`, minHeight: 104 }} className="flex-1 rounded-2xl mb-1 overflow-hidden flex items-stretch">
+      {/* corps — un appui long (photo comprise) démarre le déplacement */}
+      <div {...longPress}
+        style={{
+          background: C.card,
+          border: `1px solid ${dragging ? C.teal : C.line}`,
+          minHeight: 104,
+          ...(onDragStart ? { WebkitTouchCallout: "none", WebkitUserSelect: "none", userSelect: "none" } : {}),
+          ...(dragging ? { boxShadow: "0 10px 22px rgba(15,23,42,0.18)" } : {}),
+        }}
+        className="flex-1 rounded-2xl mb-1 overflow-hidden flex items-stretch">
         <div className="flex-1 min-w-0 p-3 flex flex-col">
           <div className="flex-1 min-w-0">
             {editingTitle ? (
@@ -663,7 +735,7 @@ function ActivityCard({ act, onEdit, onUpdate, onEditDuration, startMin, endMin,
                   if (e.key === "Enter") { e.preventDefault(); e.currentTarget.blur(); }
                   else if (e.key === "Escape") { setTitle(act.name); setEditingTitle(false); }
                 }}
-                style={{ background: "#fff", border: `1px solid ${C.teal}`, color: C.ink }}
+                style={{ background: "#fff", border: `1px solid ${C.teal}`, color: C.ink, userSelect: "text", WebkitUserSelect: "text" }}
                 className="w-full rounded-lg px-2 py-1 font-semibold outline-none"
               />
             ) : (
@@ -875,7 +947,7 @@ function TravelPicker({ from, to, onCancel, onValidate }) {
 }
 
 /* --- Vue d'un séjour ---------------------------------------------- */
-function TripView({ trip, current, onSelectDay, onBack, onAddAct, onEditAct, onEditTrip, onUpdateAct, onEditDuration, onEditTravel, canEdit = true, canShare = false, onShare }) {
+function TripView({ trip, current, onSelectDay, onBack, onAddAct, onEditAct, onEditTrip, onUpdateAct, onEditDuration, onEditTravel, onReorder, canEdit = true, canShare = false, onShare }) {
   const days = daysInRange(trip.startDate, trip.endDate);
   const safeCurrent = current && days.includes(current) ? current : days[0];
   const counts = useMemo(() => {
@@ -893,6 +965,70 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onEditAct, onE
     for (let i = 0; i < acts.length - 1; i++) { const l = legBetween(acts[i], acts[i + 1]); if (l.min != null) t += l.min; }
     return t;
   }, [acts]);
+
+  /* --- Réorganisation manuelle (appui long puis glisser) ------------ */
+  const cardRefs = useRef(new Map());
+  const [drag, setDrag] = useState(null);   // { id, from, over, dy, rects }
+  const dragRef = useRef(null);
+  const dropRef = useRef(null);
+  // Toujours à jour sans relancer l'effet à chaque mouvement.
+  dropRef.current = (from, to) => onReorder && onReorder(safeCurrent, from, to);
+
+  const startDrag = (from, id, clientY) => {
+    // Positions figées au démarrage : rien ne reflue ensuite (translate + repère de hauteur nulle).
+    const rects = acts.map((a) => {
+      const el = cardRefs.current.get(a.id);
+      const r = el ? el.getBoundingClientRect() : null;
+      return { top: r ? r.top : 0, height: r ? r.height : 0 };
+    });
+    const d = { id, from, over: from, dy: 0, startY: clientY, rects };
+    dragRef.current = d;
+    setDrag(d);
+  };
+
+  const dragging = !!drag;
+  useEffect(() => {
+    if (!dragging) return;
+    const onMove = (e) => {
+      const d = dragRef.current; if (!d) return;
+      let over = d.rects.findIndex((r) => e.clientY < r.top + r.height / 2);
+      if (over === -1) over = d.rects.length;
+      const next = { ...d, dy: e.clientY - d.startY, over };
+      dragRef.current = next; setDrag(next);
+    };
+    const onUp = () => {
+      const d = dragRef.current;
+      dragRef.current = null; setDrag(null);
+      if (d) {
+        // Le relâchement suit un appui long : on avale le clic qui suivrait.
+        const swallow = (ev) => { ev.stopPropagation(); ev.preventDefault(); };
+        window.addEventListener("click", swallow, { capture: true, once: true });
+        setTimeout(() => window.removeEventListener("click", swallow, { capture: true }), 400);
+        dropRef.current(d.from, d.over);
+      }
+    };
+    const blockScroll = (e) => e.preventDefault();
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    document.addEventListener("touchmove", blockScroll, { passive: false });
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      document.removeEventListener("touchmove", blockScroll);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [dragging]);
+
+  // Repère d'insertion : hauteur nulle pour ne pas décaler les positions mesurées.
+  const InsertBar = () => (
+    <div style={{ position: "relative", height: 0 }} aria-hidden="true">
+      <div style={{ position: "absolute", left: 78, right: 0, top: -3, height: 3, borderRadius: 999, background: C.teal }} />
+    </div>
+  );
 
   return (
     <div>
@@ -917,15 +1053,33 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onEditAct, onE
           </div>
         ) : (
           <div>
-            {acts.map((a, i) => (
-              <div key={a.id}>
-                <ActivityCard act={a} onEdit={onEditAct} onUpdate={onUpdateAct} onEditDuration={onEditDuration}
-                  startMin={a._startMin} endMin={a._endMin} auto={a._auto}
-                  prev={i > 0 ? acts[i - 1] : null} canEdit={canEdit} />
-                {i < acts.length - 1 && <TravelLeg from={a} to={acts[i + 1]} leg={legBetween(a, acts[i + 1])}
-                  fromEndMin={a._endMin} toStartMin={acts[i + 1]._startMin} onEdit={canEdit ? onEditTravel : undefined} />}
+            {canEdit && acts.length > 1 && (
+              <div style={{ color: C.inkSoft }} className="t11 mb-2 flex items-center gap-1">
+                <MoreVertical size={12} /> Appui long sur une activité pour la déplacer
               </div>
-            ))}
+            )}
+            {acts.map((a, i) => {
+              const isDragged = drag && drag.id === a.id;
+              return (
+              <div key={a.id}>
+                {drag && drag.over === i && <InsertBar />}
+                <div
+                  ref={(el) => { if (el) cardRefs.current.set(a.id, el); else cardRefs.current.delete(a.id); }}
+                  style={isDragged
+                    ? { transform: `translateY(${drag.dy}px) scale(1.02)`, position: "relative", zIndex: 40, touchAction: "none" }
+                    : (drag ? { opacity: 0.55, transition: "opacity .15s" } : undefined)}
+                >
+                  <ActivityCard act={a} onEdit={onEditAct} onUpdate={onUpdateAct} onEditDuration={onEditDuration}
+                    startMin={a._startMin} endMin={a._endMin} auto={a._auto}
+                    prev={i > 0 ? acts[i - 1] : null} canEdit={canEdit} dragging={!!isDragged}
+                    onDragStart={canEdit && acts.length > 1 && !drag ? (y) => startDrag(i, a.id, y) : null} />
+                </div>
+                {i < acts.length - 1 && <TravelLeg from={a} to={acts[i + 1]} leg={legBetween(a, acts[i + 1])}
+                  fromEndMin={a._endMin} toStartMin={acts[i + 1]._startMin} onEdit={canEdit && !drag ? onEditTravel : undefined} />}
+                {drag && drag.over === acts.length && i === acts.length - 1 && <InsertBar />}
+              </div>
+              );
+            })}
             {/* fin de journée */}
             <div className="flex gap-3">
               <div className="shrink-0 flex justify-center" style={{ width: 52 }}>
@@ -1542,6 +1696,23 @@ function SejourApp() {
     const next = trips.map((t) => t.id === trip.id ? { ...t, activities: t.activities.filter((a) => a.id !== editor.id) } : t);
     commit(next); setEditor(null);
   };
+  // Déplacement manuel d'une activité dans la journée (appui long + glisser).
+  // `to` est l'emplacement d'insertion mesuré sur la liste d'origine.
+  const reorderActivities = (date, from, to) => {
+    if (!trip) return;
+    const insertAt = to > from ? to - 1 : to;
+    if (insertAt === from) return;
+    const dayActs = scheduleForDay(trip.activities.filter((a) => a.date === date));
+    if (from < 0 || from >= dayActs.length) return;
+    const firstStart = dayActs.length ? dayActs[0]._startMin : null;
+    const moved = dayActs.map(({ _startMin, _endMin, _auto, ...rest }) => rest);
+    const [item] = moved.splice(from, 1);
+    moved.splice(Math.max(0, Math.min(insertAt, moved.length)), 0, item);
+    // Heures "auto" et trajets sont recalculés en cascade sur le nouvel ordre.
+    const reordered = enforceManualOrder(moved, firstStart);
+    const others = trip.activities.filter((a) => a.date !== date);
+    commit(trips.map((t) => t.id === trip.id ? { ...t, activities: [...others, ...reordered] } : t));
+  };
   const updateActivity = (actId, patch) => {
     if (!trip) return;
     const next = trips.map((t) => t.id === trip.id
@@ -1570,7 +1741,8 @@ function SejourApp() {
         <TripView
           trip={trip} current={curDay} onSelectDay={setCurDay}
           onBack={() => setTripId(null)} onAddAct={newActivity} onEditAct={editActivity} onEditTrip={editTrip}
-          onUpdateAct={updateActivity} onEditDuration={(a) => setDurEdit({ id: a.id, durationMin: a.durationMin })}
+          onUpdateAct={updateActivity} onReorder={reorderActivities}
+          onEditDuration={(a) => setDurEdit({ id: a.id, durationMin: a.durationMin })}
           onEditTravel={(from, to) => setTravelEdit({ fromId: from.id, toId: to.id })}
           canEdit={canEditTrip} onShare={() => setShareTripId(trip.id)}
         />
