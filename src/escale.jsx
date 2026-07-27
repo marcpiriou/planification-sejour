@@ -1419,12 +1419,17 @@ function TripModal({ draft, setDraft, onSave, onClose, onDelete, isNew, canDelet
   const dateError = draft.startDate && draft.endDate && parseDate(draft.endDate) < parseDate(draft.startDate);
   const nameError = !draft.name.trim();
   return (
-    <div className="fixed inset-0 z-40 flex items-end justify-center">
+    <div className="fixed inset-0 z-40 flex justify-center">
       <div className="absolute inset-0 dim" onClick={onClose} />
-      <div style={{ background: C.paper }} className="relative w-full max-w-md rounded-t-3xl p-4 pb-8">
-        <div style={{ background: C.line }} className="mx-auto h-1 w-10 rounded-full mb-3" />
-        <div style={{ color: C.ink }} className="font-semibold text-lg mb-4">{isNew ? "Nouveau séjour" : "Modifier le séjour"}</div>
-        <div className="space-y-4">
+      <div style={{ background: C.paper, height: "100dvh" }} className="relative w-full max-w-md flex flex-col">
+        {/* en-tête fixe */}
+        <div style={{ background: C.paper, borderColor: C.line }} className="px-4 pt-4 pb-3 flex items-center gap-3 border-b">
+          <div style={{ color: C.ink }} className="font-semibold text-lg flex-1">{isNew ? "Nouveau séjour" : "Modifier le séjour"}</div>
+          <IconBtn onClick={onClose} label="Fermer"><X size={22} /></IconBtn>
+        </div>
+
+        {/* contenu défilant */}
+        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
           <Field label="Nom du séjour">
             <input value={draft.name} onChange={(e) => upd("name", e.target.value)} placeholder="Ex. Week-end à Biarritz" style={inputStyle} className="w-full rounded-xl px-3 py-2.5 outline-none" />
           </Field>
@@ -1452,14 +1457,20 @@ function TripModal({ draft, setDraft, onSave, onClose, onDelete, isNew, canDelet
               <div style={{ color: C.inkSoft }} className="t11">Le point de départ devient la première activité du 1er jour, à l'heure indiquée (éditable ensuite comme toute activité).</div>
             </div>
           )}
+        </div>
 
+        {/* barre d'action fixe en bas */}
+        <div style={{ background: C.paper, borderColor: C.line, paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }} className="px-4 pt-3 border-t space-y-2">
           <button onClick={onSave} disabled={nameError || dateError} style={{ background: nameError || dateError ? C.inkSoft : C.teal, opacity: nameError || dateError ? 0.6 : 1 }} className="w-full text-white rounded-xl py-3 font-medium active:scale-95 transition">
             {isNew ? "Créer le séjour" : "Enregistrer"}
+          </button>
+          <button onClick={onClose} style={{ border: `1px solid ${C.line}`, color: C.ink }} className="w-full rounded-xl py-3 font-medium bg-white active:scale-95 transition">
+            Annuler
           </button>
           {!isNew && canDelete && (
             confirmDel ? (
               <div className="flex gap-2">
-                <button onClick={() => setConfirmDel(false)} style={{ border: `1px solid ${C.line}`, color: C.ink }} className="flex-1 rounded-xl py-2.5 bg-white">Annuler</button>
+                <button onClick={() => setConfirmDel(false)} style={{ border: `1px solid ${C.line}`, color: C.ink }} className="flex-1 rounded-xl py-2.5 bg-white">Garder</button>
                 <button onClick={onDelete} style={{ background: C.warn }} className="flex-1 rounded-xl py-2.5 text-white font-medium">Supprimer le séjour</button>
               </div>
             ) : (
