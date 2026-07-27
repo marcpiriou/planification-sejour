@@ -148,18 +148,36 @@ function rowToActivity(a) {
   };
 }
 
+/* --- État de synchronisation (visible dans l'interface) ------------- */
+// Une sauvegarde qui échoue ne doit jamais passer inaperçue : le message
+// remonte à l'application, qui l'affiche et propose de réessayer.
+const syncListeners = new Set();
+let syncError = null;
+function onSyncStatus(fn) { syncListeners.add(fn); return () => syncListeners.delete(fn); }
+function setSyncError(msg) { syncError = msg; syncListeners.forEach((f) => f(msg)); }
+const errText = (e) => (e && (e.message || e.error_description || e.msg)) || String(e || "erreur inconnue");
+
+// Sauvegardes sérialisées : deux modifications rapprochées ne doivent pas
+// s'entrelacer (sinon la seconde peut écrire par-dessus la première).
+let saveQueue = Promise.resolve();
+function queueSaveTrips(trips) {
+  saveQueue = saveQueue.then(() => saveTrips(trips), () => saveTrips(trips));
+  return saveQueue;
+}
+
 // Charge les séjours accessibles à l'utilisateur (les siens + ceux partagés avec lui,
 // filtrage assuré par la RLS). Attache à chaque séjour : ownerId, isOwner, role, members.
 async function loadTrips() {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return [];
+  const { data: { user }, error: ue } = await supabase.auth.getUser();
+  if (ue || !user) { setSyncError(ue ? `session illisible (${errText(ue)})` : "session expirée — reconnectez-vous"); return []; }
   const myEmail = (user.email || "").toLowerCase();
   const [{ data: trips, error: te }, { data: acts, error: ae }, { data: members }] = await Promise.all([
     supabase.from("trips").select("*").order("start_date", { ascending: true }),
     supabase.from("activities").select("*").order("position", { ascending: true }),
     supabase.from("trip_members").select("*"),
   ]);
-  if (te || ae) { console.error("Chargement séjours:", te || ae); return []; }
+  if (te || ae) { setSyncError(`chargement impossible (${errText(te || ae)})`); return []; }
+  setSyncError(null);
   return (trips || []).map((t) => {
     const isOwner = t.owner_id === user.id;
     const tripMembers = (members || []).filter((m) => m.trip_id === t.id);
@@ -185,8 +203,8 @@ async function loadTrips() {
 // Synchronise l'état vers la base. Ne touche qu'aux séjours modifiables
 // (propriétaire ou éditeur). Les séjours d'un autre propriétaire conservent leur owner_id.
 async function saveTrips(trips) {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return;
+  const { data: { user }, error: ue } = await supabase.auth.getUser();
+  if (ue || !user) { setSyncError(ue ? `session illisible (${errText(ue)})` : "session expirée — reconnectez-vous"); return; }
   const me = user.id;
   const now = new Date().toISOString();
   const list = trips || [];
@@ -223,21 +241,28 @@ async function saveTrips(trips) {
         const { error } = await supabase.from("activities").upsert(rows);
         if (error) throw error;
       }
-      // Activités orphelines de CE séjour (portée par trip_id, gère l'édition collaborative)
-      const keep = rows.map((r) => r.id);
-      const { data: existA } = await supabase.from("activities").select("id").eq("trip_id", t.id);
-      const orphA = (existA || []).map((r) => r.id).filter((id) => !keep.includes(id));
-      if (orphA.length) await supabase.from("activities").delete().in("id", orphA);
     }
-
-    // Séjours dont JE suis propriétaire, supprimés localement -> suppression (cascade activités)
-    const keepTripIds = list.map((t) => t.id);
-    const { data: existTrips } = await supabase.from("trips").select("id").eq("owner_id", me);
-    const orphanTrips = (existTrips || []).map((r) => r.id).filter((id) => !keepTripIds.includes(id));
-    if (orphanTrips.length) await supabase.from("trips").delete().in("id", orphanTrips);
+    // Volontairement : aucune suppression déduite d'une comparaison avec la base.
+    // Les suppressions sont explicites (deleteTripRemote / deleteActivityRemote),
+    // sinon un état local incomplet (chargement raté, autre onglet, session
+    // reprise) effacerait des séjours bien présents en base.
+    setSyncError(null);
   } catch (e) {
+    setSyncError(errText(e));
     console.error("Sauvegarde séjours:", e);
   }
+}
+
+// Suppressions explicites : seul un geste de l'utilisateur efface en base.
+async function deleteTripRemote(id) {
+  const { error } = await supabase.from("trips").delete().eq("id", id); // cascade sur les activités
+  if (error) { setSyncError(`suppression impossible (${errText(error)})`); return false; }
+  return true;
+}
+async function deleteActivityRemote(id) {
+  const { error } = await supabase.from("activities").delete().eq("id", id);
+  if (error) { setSyncError(`suppression impossible (${errText(error)})`); return false; }
+  return true;
 }
 
 // Supprime tous les séjours dont l'utilisateur est propriétaire (garde-fou d'erreur).
@@ -1778,6 +1803,9 @@ function SejourApp() {
   const [shareTripId, setShareTripId] = useState(null);
   const [home, setHome] = useState({ label: "Maison", address: "20 rue des grillons 31700 BEAUZELLE" });
 
+  const [syncMsg, setSyncMsg] = useState(null);   // erreur de synchronisation à afficher
+  useEffect(() => onSyncStatus(setSyncMsg), []);
+
   const reloadTrips = async () => { setTrips(normalizeOrder(await loadTrips())); };
   useEffect(() => { (async () => { setTrips(normalizeOrder(await loadTrips())); setLoaded(true); })(); }, []);
   useEffect(() => { (async () => {
@@ -1798,7 +1826,7 @@ function SejourApp() {
   };
 
   // commit : réordonne par heure effective (les activités "auto" en cascade) puis persiste.
-  const commit = (next) => { const norm = normalizeOrder(next); setTrips(norm); saveTrips(norm); };
+  const commit = (next) => { const norm = normalizeOrder(next); setTrips(norm); return queueSaveTrips(norm); };
   const trip = trips.find((t) => t.id === tripId) || null;
   const canEditTrip = trip ? trip.role !== "viewer" : false;
 
@@ -1861,7 +1889,12 @@ function SejourApp() {
       if (!days.includes(curDay)) setCurDay(days[0]);
     }
   };
-  const deleteTrip = () => { commit(trips.filter((t) => t.id !== tripModal.id)); setTripModal(null); setTripId(null); };
+  const deleteTrip = () => {
+    const id = tripModal.id;
+    commit(trips.filter((t) => t.id !== id));
+    deleteTripRemote(id);            // suppression explicite en base (cascade activités)
+    setTripModal(null); setTripId(null);
+  };
 
   const loadExample = () => { const ex = { ...buildExample(), isOwner: true, role: "owner", members: [] }; commit([...trips, ex]); enterTrip(ex); };
 
@@ -1920,8 +1953,11 @@ function SejourApp() {
     commit(next); if (d.date !== curDay) setCurDay(d.date); setEditor(null);
   };
   const deleteActivity = () => {
-    const next = trips.map((t) => t.id === trip.id ? { ...t, activities: t.activities.filter((a) => a.id !== editor.id) } : t);
-    commit(next); setEditor(null);
+    const id = editor.id;
+    const next = trips.map((t) => t.id === trip.id ? { ...t, activities: t.activities.filter((a) => a.id !== id) } : t);
+    commit(next);
+    deleteActivityRemote(id);        // suppression explicite en base
+    setEditor(null);
   };
   // Déplacement manuel d'une activité dans la journée (appui long + glisser).
   // `to` est l'emplacement d'insertion mesuré sur la liste d'origine.
@@ -1961,6 +1997,23 @@ function SejourApp() {
   return (
     <div style={{ background: C.paper, fontFamily: SANS, minHeight: "100vh", fontSize: "15px" }}>
       <FontInject />
+      {/* Une modification non enregistrée ne doit jamais rester invisible. */}
+      {syncMsg && (
+        <div className="fixed inset-x-0 bottom-0 z-50" style={{ paddingBottom: "calc(4.5rem + env(safe-area-inset-bottom))" }}>
+          <div className="mx-auto max-w-md px-4">
+            <div style={{ background: C.warnSoft, border: `1px solid ${C.warn}`, color: C.warn }}
+              className="rounded-xl px-3 py-2 flex items-start gap-2 shadow-lg">
+              <AlertTriangle size={15} className="shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <div className="text-xs font-semibold">Modifications non enregistrées</div>
+                <div className="t11 break-words">{syncMsg}</div>
+              </div>
+              <button onClick={() => commit(trips)} className="shrink-0 text-xs font-semibold underline">Réessayer</button>
+              <button onClick={() => setSyncMsg(null)} aria-label="Masquer" className="shrink-0"><X size={15} /></button>
+            </div>
+          </div>
+        </div>
+      )}
       {!trip ? (
         <Home trips={trips} onOpen={openTrip} onNew={newTrip} onExample={loadExample}
           userEmail={userEmail} onSignOut={signOut} home={home} onSaveHome={saveHome} />
@@ -2022,13 +2075,14 @@ function SejourApp() {
 class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
-    this.state = { error: null, epoch: 0 };
+    this.state = { error: null, epoch: 0, confirmWipe: false };
     this.reset = this.reset.bind(this);
     this.clearData = this.clearData.bind(this);
   }
   static getDerivedStateFromError(error) { return { error }; }
   componentDidCatch(error, info) { try { console.error("Séjour:", error, info); } catch { /* silencieux */ } }
-  reset() { this.setState((s) => ({ error: null, epoch: s.epoch + 1 })); }
+  reset() { this.setState((s) => ({ error: null, epoch: s.epoch + 1, confirmWipe: false })); }
+  // Destructif : efface TOUS les séjours en base. Uniquement après confirmation explicite.
   async clearData() {
     try { await clearAllTrips(); } catch { /* silencieux */ }
     this.reset();
@@ -2044,7 +2098,19 @@ class ErrorBoundary extends React.Component {
               v{APP_VERSION} — {msg}
             </div>
             <button onClick={this.reset} style={{ background: C.teal }} className="mt-4 w-full text-white rounded-xl py-3 font-medium">Réessayer</button>
-            <button onClick={this.clearData} style={{ color: C.warn, border: `1px solid ${C.line}` }} className="mt-2 w-full rounded-xl py-3 font-medium bg-white">Effacer les données et réessayer</button>
+            <button onClick={() => window.location.reload()} style={{ color: C.ink, border: `1px solid ${C.line}` }} className="mt-2 w-full rounded-xl py-3 font-medium bg-white">Recharger l'application</button>
+            {/* Option destructive : deux temps, formulation sans ambiguïté. */}
+            {this.state.confirmWipe ? (
+              <div className="mt-4">
+                <div style={{ color: C.warn }} className="text-xs">Cette action supprime définitivement tous vos séjours, pour vous et pour les personnes avec qui vous les avez partagés.</div>
+                <div className="flex gap-2 mt-2">
+                  <button onClick={() => this.setState({ confirmWipe: false })} style={{ border: `1px solid ${C.line}`, color: C.ink }} className="flex-1 rounded-xl py-2.5 bg-white">Garder mes séjours</button>
+                  <button onClick={this.clearData} style={{ background: C.warn }} className="flex-1 rounded-xl py-2.5 text-white font-medium">Tout supprimer</button>
+                </div>
+              </div>
+            ) : (
+              <button onClick={() => this.setState({ confirmWipe: true })} style={{ color: C.inkSoft }} className="mt-3 w-full text-xs underline">Supprimer définitivement tous mes séjours</button>
+            )}
           </div>
         </div>
       );
