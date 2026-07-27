@@ -1412,6 +1412,83 @@ function Field({ label, children }) {
   );
 }
 
+/* --- Sélecteur de période (un seul calendrier) --------------------- */
+const WEEKDAYS = ["L", "M", "M", "J", "V", "S", "D"];
+const fmtMonthYear = (dt) => new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric" }).format(dt);
+const firstOfMonth = (iso) => { const d = parseDate(iso || toISO(new Date())); return new Date(d.getFullYear(), d.getMonth(), 1); };
+
+// Un seul calendrier pour choisir le début ET la fin : 1er appui = date de début,
+// 2e appui = date de fin (les deux dates sont interverties si besoin).
+function DateRangePicker({ startDate, endDate, onChange }) {
+  const [view, setView] = useState(() => firstOfMonth(startDate));
+  const [awaitingEnd, setAwaitingEnd] = useState(false);
+  const today = toISO(new Date());
+
+  const cells = useMemo(() => {
+    const y = view.getFullYear(), m = view.getMonth();
+    const lead = (new Date(y, m, 1).getDay() + 6) % 7;          // semaine commençant lundi
+    const nb = new Date(y, m + 1, 0).getDate();
+    const out = new Array(lead).fill(null);
+    for (let d = 1; d <= nb; d++) out.push(toISO(new Date(y, m, d)));
+    return out;
+  }, [view]);
+
+  const pick = (iso) => {
+    if (!awaitingEnd || !startDate) {
+      onChange({ startDate: iso, endDate: iso });   // séjour d'un jour tant que la fin n'est pas choisie
+      setAwaitingEnd(true);
+    } else {
+      const before = parseDate(iso) < parseDate(startDate);
+      onChange(before ? { startDate: iso, endDate: startDate } : { startDate, endDate: iso });
+      setAwaitingEnd(false);
+    }
+  };
+
+  const nights = startDate && endDate ? daysInRange(startDate, endDate).length : 0;
+  const shiftMonth = (n) => setView(new Date(view.getFullYear(), view.getMonth() + n, 1));
+
+  return (
+    <div style={{ background: "#fff", border: `1px solid ${C.line}` }} className="rounded-2xl p-3">
+      <div className="flex items-center justify-between">
+        <IconBtn onClick={() => shiftMonth(-1)} label="Mois précédent"><ChevronLeft size={20} /></IconBtn>
+        <div style={{ color: C.ink }} className="font-semibold text-sm capitalize">{fmtMonthYear(view)}</div>
+        <IconBtn onClick={() => shiftMonth(1)} label="Mois suivant"><ChevronLeft size={20} style={{ transform: "rotate(180deg)" }} /></IconBtn>
+      </div>
+
+      <div className="grid grid-cols-7 mt-1">
+        {WEEKDAYS.map((w, i) => (
+          <div key={i} style={{ color: C.inkSoft }} className="t11 text-center py-1 font-medium">{w}</div>
+        ))}
+        {cells.map((iso, i) => {
+          if (!iso) return <div key={`b${i}`} />;
+          const isStart = iso === startDate, isEnd = iso === endDate;
+          const inside = startDate && endDate && iso > startDate && iso < endDate;
+          const edge = isStart || isEnd;
+          const round = isStart && isEnd ? "rounded-full" : isStart ? "rounded-l-full" : isEnd ? "rounded-r-full" : "";
+          return (
+            <button key={iso} onClick={() => pick(iso)}
+              style={{
+                background: edge ? C.teal : inside ? C.tealSoft : "transparent",
+                color: edge ? "#fff" : C.ink,
+                fontFamily: MONO,
+                ...(iso === today && !edge ? { boxShadow: `inset 0 0 0 1px ${C.teal}`, borderRadius: 999 } : {}),
+              }}
+              className={`h-9 text-sm active:scale-95 transition ${round}`}>
+              {parseDate(iso).getDate()}
+            </button>
+          );
+        })}
+      </div>
+
+      <div style={{ color: C.inkSoft }} className="text-xs mt-2 text-center">
+        {awaitingEnd
+          ? "Choisissez la date de fin (ou validez pour un séjour d'un jour)."
+          : `${fmtShort(startDate)} → ${fmtShort(endDate)} · ${nights} jour${nights > 1 ? "s" : ""}`}
+      </div>
+    </div>
+  );
+}
+
 /* --- Modale séjour (création / édition) --------------------------- */
 function TripModal({ draft, setDraft, onSave, onClose, onDelete, isNew, canDelete = true }) {
   const [confirmDel, setConfirmDel] = useState(false);
@@ -1433,9 +1510,10 @@ function TripModal({ draft, setDraft, onSave, onClose, onDelete, isNew, canDelet
           <Field label="Nom du séjour">
             <input value={draft.name} onChange={(e) => upd("name", e.target.value)} placeholder="Ex. Week-end à Biarritz" style={inputStyle} className="w-full rounded-xl px-3 py-2.5 outline-none" />
           </Field>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Du"><input type="date" value={draft.startDate} onChange={(e) => upd("startDate", e.target.value)} style={{ ...inputStyle, fontFamily: MONO }} className="w-full rounded-xl px-3 py-2.5 outline-none" /></Field>
-            <Field label="Au"><input type="date" value={draft.endDate} onChange={(e) => upd("endDate", e.target.value)} style={{ ...inputStyle, fontFamily: MONO }} className="w-full rounded-xl px-3 py-2.5 outline-none" /></Field>
+          <div>
+            <div style={{ color: C.inkSoft }} className="text-xs font-medium uppercase tracking-wide mb-1.5">Période</div>
+            <DateRangePicker startDate={draft.startDate} endDate={draft.endDate}
+              onChange={({ startDate, endDate }) => setDraft({ ...draft, startDate, endDate })} />
           </div>
           {dateError && <div style={{ color: C.warn }} className="text-xs -mt-2">La date de fin doit être postérieure ou égale à la date de début.</div>}
 
