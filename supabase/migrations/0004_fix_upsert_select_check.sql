@@ -1,0 +1,38 @@
+-- ============================================================
+-- Débloque l'enregistrement d'un séjour tout juste créé
+--
+-- Symptôme corrigé : à l'enregistrement d'un NOUVEAU séjour, la base répond
+--   « new row violates row-level security policy for table "trips" »
+-- alors que les policies de la 0003 sont bien en place et que le compte est
+-- correctement authentifié.
+--
+-- Cause : l'application enregistre les séjours avec un upsert, que PostgREST
+-- traduit en « insert ... on conflict (id) do update ». Pour cette forme,
+-- PostgreSQL ajoute une vérification supplémentaire (WCO_RLS_CONFLICT_CHECK) :
+-- la ligne proposée doit être VISIBLE sous la policy SELECT — pour garantir
+-- qu'on ne peut pas déduire l'existence d'une ligne qu'on n'a pas le droit de
+-- lire. Or la policy SELECT posée en 0003 était :
+--
+--   using (public.can_read_trip(id))
+--
+-- et can_read_trip() est une fonction « stable » qui va chercher la ligne dans
+-- trips. Pour un séjour qui n'existe pas encore, elle renvoie false : le tout
+-- premier enregistrement était donc refusé, quelles que soient les policies
+-- INSERT et UPDATE. (Les policies INSERT/UPDATE ne sont pas en cause : mises à
+-- « true », le refus persistait ; mise à « true », la seule policy SELECT
+-- laissait passer.)
+--
+-- Correctif : rendre la propriété lisible sans détour par la table, en
+-- ajoutant le test direct « owner_id = auth.uid() ». Aucun élargissement
+-- d'accès : can_read_trip() testait déjà cette même condition, en plus du
+-- partage via trip_members.
+--
+-- Les tables activities et trip_members n'ont pas besoin du même traitement :
+-- leur policy SELECT porte sur can_read_trip(trip_id), et le séjour parent
+-- existe déjà au moment où leurs lignes sont écrites.
+--
+-- Ce script est idempotent et ne touche à aucune donnée.
+-- ============================================================
+
+alter policy trips_select on public.trips
+  using (owner_id = auth.uid() or public.can_read_trip(id));
