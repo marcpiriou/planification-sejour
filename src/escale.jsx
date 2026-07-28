@@ -659,7 +659,6 @@ function AccountPanel({ userEmail, home, onSaveHome }) {
         </button>
         {saved && <div style={{ color: C.teal }} className="text-xs flex items-center gap-1"><Check size={13} /> Enregistré</div>}
       </div>
-      <p style={{ color: C.inkSoft }} className="t11 mt-3">Ce lieu est proposé par défaut comme point de départ à la création d'un séjour.</p>
     </div>
   );
 }
