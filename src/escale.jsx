@@ -4,7 +4,7 @@ import {
   TrainFront, Sparkles, MapPin, Footprints, Car, Clock, Plus,
   ChevronLeft, Trash2, Pencil, Navigation, Calendar, X, AlertTriangle,
   Check, ExternalLink, MoreVertical, Route, Mail, LogOut,
-  Users, Share2, UserPlus, User, Home as HomeIcon
+  Users, Share2, UserPlus, User, Home as HomeIcon, Building2
 } from "lucide-react";
 import { supabase, redirectTo } from "./supabase";
 
@@ -416,10 +416,18 @@ async function fetchTravelTimes(legs) {
 
 // Récupère (et met en cache) l'URL d'une photo Google du lieu, via l'Edge Function place-photo.
 // Renvoie null s'il n'y a pas de photo (ou pas de nom exploitable).
+//
+// On interroge Google avec l'ADRESSE quand on l'a, pas avec le nom : le nom est
+// choisi par l'utilisateur ("Maison") et ferait remonter le commerce voisin qui
+// s'en approche le plus (« Maisons du Monde »). L'adresse, elle, désigne un point
+// unique. L'Edge Function vérifie en plus que le lieu trouvé correspond bien à la
+// recherche, et ne renvoie rien sinon.
 const photoCache = new Map(); // clé -> Promise<string|null>
 function fetchPlacePhoto(place) {
   if (!place) return Promise.resolve(null);
-  const q = place.name && !isUrl(place.name) ? place.name.trim() : "";
+  const addr = place.address && !isUrl(place.address) ? place.address.trim() : "";
+  const nm = place.name && !isUrl(place.name) ? place.name.trim() : "";
+  const q = addr || nm;
   if (!q) return Promise.resolve(null);
   const key = `${q}|${place.lat ?? ""},${place.lng ?? ""}`;
   if (photoCache.has(key)) return photoCache.get(key);
@@ -797,7 +805,7 @@ function ActivityCard({ act, onEdit, onUpdate, onEditDuration, startMin, endMin,
     setPhoto(null);
     fetchPlacePhoto(act.place).then((u) => { if (alive) setPhoto(u); });
     return () => { alive = false; };
-  }, [act.place?.name, act.place?.lat, act.place?.lng]);
+  }, [act.place?.address, act.place?.name, act.place?.lat, act.place?.lng]);
   const commitTitle = () => {
     const t = title.trim();
     if (t && t !== act.name) onUpdate(act.id, { name: t });
@@ -886,10 +894,19 @@ function ActivityCard({ act, onEdit, onUpdate, onEditDuration, startMin, endMin,
             </button>
           )}
         </div>
-        {photo && (
-          <div className="shrink-0 w-28 self-stretch"
-            style={{ backgroundImage: `url("${photo}")`, backgroundSize: "cover", backgroundPosition: "center", borderLeft: `1px solid ${C.line}` }}
-            role="img" aria-label={`Photo de ${act.name}`} />
+        {/* Vignette du lieu : photo Google si elle correspond, sinon bâtiment
+            générique. Le bloc est présent dès qu'un lieu est renseigné, pour que
+            la carte ne change pas de largeur quand la photo arrive. */}
+        {act.place && (
+          <div className="shrink-0 w-28 self-stretch flex items-center justify-center"
+            style={{
+              borderLeft: `1px solid ${C.line}`,
+              background: photo ? undefined : C.paper,
+              ...(photo ? { backgroundImage: `url("${photo}")`, backgroundSize: "cover", backgroundPosition: "center" } : {}),
+            }}
+            role="img" aria-label={photo ? `Photo de ${act.name}` : `Aucune photo pour ${act.name}`}>
+            {!photo && <Building2 size={22} style={{ color: C.inkSoft, opacity: 0.45 }} />}
+          </div>
         )}
       </div>
     </div>
@@ -1891,8 +1908,10 @@ function SejourApp() {
         else depPlace = { name: depName || depRaw, lat: null, lng: null, url: depRaw };
       } else if (depRaw) {
         // Adresse en texte : on géocode pour obtenir des coordonnées (trajets estimables).
+        // On garde l'adresse à part : le nom du départ est un libellé libre ("Maison"),
+        // inexploitable pour retrouver le lieu chez Google.
         const g = await geocodeText(depRaw);
-        depPlace = g ? { name: depName || depRaw, lat: g.lat, lng: g.lng, url: null } : { name: depName || depRaw, lat: null, lng: null, url: null };
+        depPlace = g ? { name: depName || depRaw, address: depRaw, lat: g.lat, lng: g.lng, url: null } : { name: depName || depRaw, address: depRaw, lat: null, lng: null, url: null };
       } else if (depName) {
         depPlace = { name: depName, lat: null, lng: null };
       }
@@ -1932,7 +1951,7 @@ function SejourApp() {
   };
   const editActivity = (a) => setEditor({
     mode: "edit", id: a.id, date: a.date, name: a.name, category: a.category, startTime: a.startTime, durationMin: a.durationMin,
-    placeRaw: a.place ? (a.place.url || (a.place.lat != null ? `${a.place.lat}, ${a.place.lng}` : (a.place.name || ""))) : "",
+    placeRaw: a.place ? (a.place.url || a.place.address || (a.place.lat != null ? `${a.place.lat}, ${a.place.lng}` : (a.place.name || ""))) : "",
     travelMode: a.travelMode, travelMinutes: a.travelMinutes ?? "", notes: a.notes || "",
   });
   const buildPlace = (name, coords) => {
@@ -1963,7 +1982,7 @@ function SejourApp() {
         // Texte libre (adresse ou nom) : on géocode pour obtenir des coordonnées,
         // afin que le temps de trajet depuis/vers ce lieu puisse être estimé.
         const g = await geocodeText(raw);
-        place = g ? { name: raw, lat: g.lat, lng: g.lng, url: null } : { name: raw, lat: null, lng: null, url: null };
+        place = g ? { name: raw, address: raw, lat: g.lat, lng: g.lng, url: null } : { name: raw, address: raw, lat: null, lng: null, url: null };
       }
     }
     const act = {
