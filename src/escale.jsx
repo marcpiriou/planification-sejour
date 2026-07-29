@@ -7,6 +7,7 @@ import {
   Users, Share2, UserPlus, User, Home as HomeIcon, Building2, ClipboardPaste
 } from "lucide-react";
 import { supabase, redirectTo } from "./supabase";
+import { takeSharedLink } from "./shared-link";
 
 /* ------------------------------------------------------------------ */
 /* Palette & thème                                                     */
@@ -686,7 +687,7 @@ function AccountPanel({ userEmail, home, onSaveHome }) {
 }
 
 /* --- Accueil : liste des séjours + navigation ---------------------- */
-function Home({ trips, onOpen, onNew, onExample, userEmail, onSignOut, home, onSaveHome }) {
+function Home({ trips, onOpen, onNew, onExample, userEmail, onSignOut, home, onSaveHome, sharedLink, onDismissShared }) {
   const [tab, setTab] = useState("trips");
   return (
     <div>
@@ -700,6 +701,23 @@ function Home({ trips, onOpen, onNew, onExample, userEmail, onSignOut, home, onS
               <h1 style={{ color: C.ink }} className="text-3xl font-bold tracking-tight mt-1">Séjour</h1>
               <p style={{ color: C.inkSoft }} className="text-sm mt-1">Vos journées, étape par étape : horaires, durées et trajets.</p>
             </div>
+
+            {/* Lien reçu par partage, mais plusieurs séjours possibles : c'est à
+                l'utilisateur de désigner lequel. Le lien est posé dans le
+                formulaire dès qu'un séjour est ouvert. */}
+            {sharedLink && (
+              <div style={{ background: C.tealSoft, border: `1px solid ${C.teal}` }} className="rounded-2xl p-3 mb-4 flex items-start gap-2">
+                <MapPin size={16} style={{ color: C.teal }} className="mt-0.5 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div style={{ color: C.ink }} className="text-sm font-medium">Lien partagé reçu</div>
+                  <div style={{ color: C.inkSoft }} className="t11 mt-0.5">Ouvrez le séjour où l'ajouter : le formulaire d'activité s'ouvrira avec ce lieu.</div>
+                </div>
+                <button onClick={onDismissShared} aria-label="Ignorer le lien partagé"
+                  className="shrink-0 h-7 w-7 flex items-center justify-center rounded-full active:scale-95 transition">
+                  <X size={16} style={{ color: C.inkSoft }} />
+                </button>
+              </div>
+            )}
 
             {trips.length === 0 ? (
         <div style={{ background: C.card, border: `1px solid ${C.line}` }} className="rounded-2xl p-6 text-center">
@@ -1315,6 +1333,17 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
     }
   };
 
+  // Formulaire ouvert avec un lieu déjà rempli (lien reçu par partage) : on
+  // renseigne le nom comme pour un collage, sinon il resterait vide alors que le
+  // lien le contient.
+  useEffect(() => {
+    const t = (draft.placeRaw || "").trim();
+    if (draft.mode !== "new" || !isUrl(t) || t === lastLinkRef.current) return;
+    lastLinkRef.current = t;
+    fillNameFromLink(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Bouton « Coller » : la lecture du presse-papier est déclenchée par l'utilisateur,
   // et non à l'ouverture du formulaire — selon le navigateur elle demande une
   // confirmation, qui apparaissait alors même quand on n'en avait pas besoin.
@@ -1891,6 +1920,10 @@ function SejourApp() {
   const [userEmail, setUserEmail] = useState("");
   const [shareTripId, setShareTripId] = useState(null);
   const [home, setHome] = useState({ label: "Maison", address: "20 rue des grillons 31700 BEAUZELLE" });
+  // Lien reçu par partage Android (voir shared-link.js). Lu une seule fois au
+  // démarrage : il survit donc à l'écran de connexion, puisque celui-ci ne
+  // remonte pas jusqu'ici sans session.
+  const [sharedLink, setSharedLink] = useState(takeSharedLink);
 
   const [syncMsg, setSyncMsg] = useState(null);   // erreur de synchronisation à afficher
   useEffect(() => onSyncStatus(setSyncMsg), []);
@@ -1927,8 +1960,21 @@ function SejourApp() {
   const handleLeaveTrip = async () => { await leaveTrip(shareTripId); setShareTripId(null); setTripId(null); await reloadTrips(); };
 
   // Ouvre un séjour à partir de l'objet lui-même : évite de lire un état périmé
-  const enterTrip = (t) => { setTripId(t.id); setCurDay(daysInRange(t.startDate, t.endDate)[0]); };
+  const enterTrip = (t) => {
+    const day = daysInRange(t.startDate, t.endDate)[0];
+    setTripId(t.id); setCurDay(day);
+    // Un lien attend d'être placé (reçu par partage) : le formulaire s'ouvre dessus.
+    if (sharedLink) { openNewActivity(t, day, sharedLink); setSharedLink(null); }
+  };
   const openTrip = (id) => { const t = trips.find((x) => x.id === id); if (t) enterTrip(t); };
+
+  // Partage reçu : avec un seul séjour il n'y a rien à choisir, on y entre
+  // directement. Sinon l'accueil affiche un bandeau et attend le choix.
+  useEffect(() => {
+    if (!loaded || !sharedLink || tripId || trips.length !== 1) return;
+    enterTrip(trips[0]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, sharedLink, trips, tripId]);
 
   // Filet de sécurité : si le jour courant est nul ou hors plage, on le recale
   useEffect(() => {
@@ -1993,12 +2039,18 @@ function SejourApp() {
 
   /* --- activités --- */
   const days = trip ? daysInRange(trip.startDate, trip.endDate) : [];
-  const newActivity = () => {
-    const day = curDay && days.includes(curDay) ? curDay : days[0];
-    const dayActs = trip.activities.filter((a) => a.date === day);
+  // Ouvre le formulaire d'une nouvelle activité, éventuellement avec un lieu déjà
+  // rempli (lien reçu par partage). Prend le séjour en paramètre : à l'arrivée
+  // d'un partage, l'état `trip` n'est pas encore à jour.
+  const openNewActivity = (t, day, placeRaw = "") => {
+    const dayActs = (t.activities || []).filter((a) => a.date === day);
     // 1re activité du jour : heure fixe ; les suivantes : "auto" (calculées en cascade).
     const startTime = dayActs.length ? AUTO : "09:00";
-    setEditor({ mode: "new", id: uid(), date: day, name: "", category: "visite", startTime, durationMin: 60, placeRaw: "", travelMode: "walk", travelMinutes: "", notes: "" });
+    setEditor({ mode: "new", id: uid(), date: day, name: "", category: "visite", startTime, durationMin: 60, placeRaw, travelMode: "walk", travelMinutes: "", notes: "" });
+  };
+  const newActivity = () => {
+    const day = curDay && days.includes(curDay) ? curDay : days[0];
+    openNewActivity(trip, day);
   };
   const editActivity = (a) => setEditor({
     mode: "edit", id: a.id, date: a.date, name: a.name, category: a.category, startTime: a.startTime, durationMin: a.durationMin,
@@ -2113,7 +2165,8 @@ function SejourApp() {
       )}
       {!trip ? (
         <Home trips={trips} onOpen={openTrip} onNew={newTrip} onExample={loadExample}
-          userEmail={userEmail} onSignOut={signOut} home={home} onSaveHome={saveHome} />
+          userEmail={userEmail} onSignOut={signOut} home={home} onSaveHome={saveHome}
+          sharedLink={sharedLink} onDismissShared={() => setSharedLink(null)} />
       ) : (
         <TripView
           trip={trip} current={curDay} onSelectDay={setCurDay}

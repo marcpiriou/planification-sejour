@@ -24,6 +24,18 @@ export default defineConfig({
         orientation: "portrait",
         scope: base,
         start_url: base,
+        // Cible de partage Android : « Partager » depuis Google Maps propose
+        // l'application, qui reçoit le lien et ouvre le formulaire d'activité
+        // pré-rempli. Évite tout passage par le presse-papier — et donc la
+        // confirmation que les navigateurs imposent pour le lire.
+        // Google Maps place généralement le lien dans "text" (précédé du nom du
+        // lieu), pas dans "url" : on déclare les trois et l'app cherche l'URL.
+        share_target: {
+          action: base,
+          method: "GET",
+          enctype: "application/x-www-form-urlencoded",
+          params: { title: "title", text: "text", url: "url" }
+        },
         icons: [
           { src: "icon-192.png", sizes: "192x192", type: "image/png" },
           { src: "icon-512.png", sizes: "512x512", type: "image/png" },
