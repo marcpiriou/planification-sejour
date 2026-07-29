@@ -15,9 +15,10 @@ const CORS = {
 
 function extractCoords(text: string): { lat: number; lng: number } | null {
   if (!text) return null;
+  // !3d…!4d… (point épinglé) avant @… (centre de la vue, qui peut s'en écarter).
   const pats: RegExp[] = [
-    /@(-?\d{1,3}\.\d+),(-?\d{1,3}\.\d+)/,
     /!3d(-?\d{1,3}\.\d+)!4d(-?\d{1,3}\.\d+)/,
+    /@(-?\d{1,3}\.\d+),(-?\d{1,3}\.\d+)/,
     /[?&](?:q|query|ll|center|destination|daddr)=(-?\d{1,3}\.\d+),(-?\d{1,3}\.\d+)/,
     /\/(-?\d{1,3}\.\d+),(-?\d{1,3}\.\d+)/,
     /"(-?\d{1,3}\.\d+),(-?\d{1,3}\.\d+)"/,

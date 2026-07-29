@@ -47,10 +47,28 @@ function tokens(s: string): string[] {
   return normalize(s).split(" ").filter((t) => t && !IGNORED.has(t));
 }
 
-// Le lieu trouvé correspond-il à la recherche ? On exige qu'une nette majorité
-// des mots significatifs cherchés se retrouve dans le nom ou l'adresse du
-// résultat, en comparant des mots ENTIERS : « maison » ne vaut pas « maisons »,
-// ce qui est précisément ce qui distinguait le domicile du magasin.
+// Distance en mètres entre deux points (haversine).
+function distanceM(aLat: number, aLng: number, bLat: number, bLng: number): number {
+  const R = 6371000;
+  const rad = Math.PI / 180;
+  const dLat = (bLat - aLat) * rad;
+  const dLng = (bLng - aLng) * rad;
+  const h = Math.sin(dLat / 2) ** 2 +
+    Math.cos(aLat * rad) * Math.cos(bLat * rad) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+// Tolérance autour des coordonnées du lien. Large, parce qu'un grand lieu
+// (aéroport, parc, monument) a un centre officiel qui peut s'écarter du point
+// épinglé dans l'URL. C'est une garde grossière : ce qui identifie le lieu, c'est
+// le nom que Google a écrit dans l'URL.
+const MAX_DISTANCE_M = 500;
+
+// Le lieu trouvé correspond-il à la recherche ? Repli lexical, utilisé seulement
+// quand on n'a pas de coordonnées pour ancrer la vérification : on exige qu'une
+// nette majorité des mots significatifs cherchés se retrouve dans le nom ou
+// l'adresse du résultat, en comparant des mots ENTIERS — « maison » ne vaut pas
+// « maisons », ce qui est précisément ce qui distinguait le domicile du magasin.
 function looksLikeMatch(query: string, displayName: string, address: string): boolean {
   const wanted = tokens(query);
   if (!wanted.length) return false;
@@ -75,11 +93,13 @@ Deno.serve(async (req: Request) => {
     const q = (query || "").toString().trim();
     if (!q) return json({}); // rien à chercher -> pas de photo
 
-    // 1) Recherche du lieu (Text Search New). languageCode force des noms en
-    //    français, sinon « Musée du Louvre » peut revenir en « Louvre Museum »
-    //    et la vérification ci-dessous rejetterait un bon résultat.
-    const searchBody: Record<string, unknown> = { textQuery: q, maxResultCount: 1, languageCode: "fr" };
-    if (typeof lat === "number" && typeof lng === "number") {
+    // 1) Recherche du lieu (Text Search New). Pas de languageCode : le nom
+    //    cherché vient de l'URL Google, donc de la nomenclature de Google —
+    //    forcer une langue ferait diverger les deux (« Belém Tower » d'un côté,
+    //    « Tour de Belém » de l'autre).
+    const hasCoords = typeof lat === "number" && typeof lng === "number";
+    const searchBody: Record<string, unknown> = { textQuery: q, maxResultCount: 1 };
+    if (hasCoords) {
       searchBody.locationBias = { circle: { center: { latitude: lat, longitude: lng }, radius: 2000 } };
     }
     const searchRes = await fetch("https://places.googleapis.com/v1/places:searchText", {
@@ -87,7 +107,7 @@ Deno.serve(async (req: Request) => {
       headers: {
         "Content-Type": "application/json",
         "X-Goog-Api-Key": KEY,
-        "X-Goog-FieldMask": "places.photos,places.displayName,places.formattedAddress",
+        "X-Goog-FieldMask": "places.photos,places.displayName,places.formattedAddress,places.location",
       },
       body: JSON.stringify(searchBody),
     });
@@ -102,9 +122,25 @@ Deno.serve(async (req: Request) => {
     const displayName = (place?.displayName?.text || "").toString();
     const address = (place?.formattedAddress || "").toString();
 
-    // 2) Le résultat correspond-il vraiment ? Sinon : pas de photo.
-    if (!looksLikeMatch(q, displayName, address)) {
-      return json({ reason: "lieu trouvé sans rapport avec la recherche", found: displayName });
+    // 2) Le résultat est-il bien le lieu pointé ? Deux indices indépendants :
+    //    le nom (celui de l'URL vient de Google, il doit retomber sur le même
+    //    lieu) et la position (les coordonnées viennent du même lien). Un seul
+    //    suffit — un grand lieu peut être loin de son point épinglé, un nom peut
+    //    revenir dans une autre langue. Les deux en échec : pas de photo.
+    const loc = place?.location;
+    const lexicalOk = looksLikeMatch(q, displayName, address);
+    let distance: number | null = null;
+    if (hasCoords && typeof loc?.latitude === "number" && typeof loc?.longitude === "number") {
+      distance = Math.round(distanceM(lat, lng, loc.latitude, loc.longitude));
+    }
+    const distanceOk = distance !== null && distance <= MAX_DISTANCE_M;
+    if (!lexicalOk && !distanceOk) {
+      return json({
+        reason: distance === null
+          ? "lieu trouvé sans rapport avec la recherche"
+          : `lieu trouvé à ${distance} m du lien collé, et sous un autre nom`,
+        found: displayName,
+      });
     }
 
     const photoName = place?.photos?.[0]?.name;

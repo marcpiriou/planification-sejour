@@ -102,10 +102,14 @@ const estimateTravel = (from, to, mode) => {
 const parseCoords = (input) => {
   if (!input) return null;
   const s = input.trim();
+  // Ordre important : dans une URL Google Maps, !3d…!4d… porte les coordonnées
+  // du point épinglé, tandis que @… n'est que le centre de la vue (il peut s'en
+  // écarter si la carte a été déplacée avant la copie du lien). On prend donc le
+  // point avant la vue.
   const pats = [
     /^(-?\d{1,3}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)$/,
-    /@(-?\d{1,3}\.\d+),(-?\d{1,3}\.\d+)/,
     /!3d(-?\d{1,3}\.\d+)!4d(-?\d{1,3}\.\d+)/,
+    /@(-?\d{1,3}\.\d+),(-?\d{1,3}\.\d+)/,
     /(?:[?&](?:q|query|ll|center|destination|daddr|api=1&query)=)(-?\d{1,3}\.\d+),(-?\d{1,3}\.\d+)/,
   ];
   for (const p of pats) { const m = s.match(p); if (m) { const lat = +m[1], lng = +m[2]; if (Math.abs(lat) <= 90 && Math.abs(lng) <= 180) return { lat, lng }; } }
@@ -121,6 +125,17 @@ const mapsDirUrl = (from, to, mode) => {
 const mapsPlaceUrl = (p) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(placeQuery(p))}`;
 // Lien direct : quand le lieu vient d'une URL collée (ex. lien Google Maps), on l'ouvre telle quelle.
 const isUrl = (s) => /^https?:\/\//i.test((s || "").trim());
+// Nom du lieu contenu dans un lien Google Maps complet (/maps/place/<NOM>/…).
+// C'est Google qui l'écrit dans l'URL : il désigne donc exactement le lieu
+// affiché, contrairement à un libellé saisi à la main.
+const mapsPlaceName = (u) => {
+  const m = (u || "").match(/\/maps\/place\/([^/@?]+)/);
+  if (!m) return null;
+  let n = m[1].replace(/\+/g, " ");
+  try { n = decodeURIComponent(n); } catch { /* garde la version non décodée */ }
+  n = n.trim();
+  return n || null;
+};
 const placeDirectUrl = (p) => {
   if (!p) return null;
   if (p.url && isUrl(p.url)) return p.url.trim();
@@ -415,19 +430,18 @@ async function fetchTravelTimes(legs) {
 }
 
 // Récupère (et met en cache) l'URL d'une photo Google du lieu, via l'Edge Function place-photo.
-// Renvoie null s'il n'y a pas de photo (ou pas de nom exploitable).
 //
-// On interroge Google avec l'ADRESSE quand on l'a, pas avec le nom : le nom est
-// choisi par l'utilisateur ("Maison") et ferait remonter le commerce voisin qui
-// s'en approche le plus (« Maisons du Monde »). L'adresse, elle, désigne un point
-// unique. L'Edge Function vérifie en plus que le lieu trouvé correspond bien à la
-// recherche, et ne renvoie rien sinon.
+// La photo provient UNIQUEMENT du lieu Google Maps désigné par le lien collé
+// dans le champ « Lieu » : on n'interroge Google qu'avec le nom que Google
+// lui-même a écrit dans l'URL (place.mapsName), ancré sur les coordonnées du
+// lien. Une adresse tapée ou un libellé libre ("Maison") ne donnent aucune
+// photo : la recherche textuelle renverrait le lieu le plus proche du texte,
+// pas le bon — c'est ainsi qu'une vitrine de Maisons du Monde se retrouvait en
+// photo d'un domicile. Sans lien, l'application affiche l'icône générique.
 const photoCache = new Map(); // clé -> Promise<string|null>
 function fetchPlacePhoto(place) {
   if (!place) return Promise.resolve(null);
-  const addr = place.address && !isUrl(place.address) ? place.address.trim() : "";
-  const nm = place.name && !isUrl(place.name) ? place.name.trim() : "";
-  const q = addr || nm;
+  const q = place.mapsName && !isUrl(place.mapsName) ? place.mapsName.trim() : "";
   if (!q) return Promise.resolve(null);
   const key = `${q}|${place.lat ?? ""},${place.lng ?? ""}`;
   if (photoCache.has(key)) return photoCache.get(key);
@@ -805,7 +819,7 @@ function ActivityCard({ act, onEdit, onUpdate, onEditDuration, startMin, endMin,
     setPhoto(null);
     fetchPlacePhoto(act.place).then((u) => { if (alive) setPhoto(u); });
     return () => { alive = false; };
-  }, [act.place?.address, act.place?.name, act.place?.lat, act.place?.lng]);
+  }, [act.place?.mapsName, act.place?.lat, act.place?.lng]);
   const commitTitle = () => {
     const t = title.trim();
     if (t && t !== act.name) onUpdate(act.id, { name: t });
@@ -1900,12 +1914,14 @@ function SejourApp() {
       const depCoords = parseCoords(depRaw);
       let depPlace = null;
       if (depCoords) {
-        depPlace = { name: depName || null, lat: depCoords.lat, lng: depCoords.lng, url: isUrl(depRaw) ? depRaw : null };
+        depPlace = { name: depName || null, mapsName: isUrl(depRaw) ? mapsPlaceName(depRaw) : null, lat: depCoords.lat, lng: depCoords.lng, url: isUrl(depRaw) ? depRaw : null };
       } else if (depRaw && isUrl(depRaw)) {
         // Lien Google Maps : on le déplie côté serveur pour des coordonnées (sinon l'adresse).
+        // Le libellé du départ reste celui saisi, mais on garde à part le nom du
+        // lieu vu par Google : c'est lui, et lui seul, qui autorise une photo.
         const r = await resolveMapsLink(depRaw);
-        if (r && r.lat != null) depPlace = { name: depName || null, lat: r.lat, lng: r.lng, url: depRaw };
-        else depPlace = { name: depName || depRaw, lat: null, lng: null, url: depRaw };
+        if (r && r.lat != null) depPlace = { name: depName || null, mapsName: r.name || null, lat: r.lat, lng: r.lng, url: depRaw };
+        else depPlace = { name: depName || depRaw, mapsName: r?.name || null, lat: null, lng: null, url: depRaw };
       } else if (depRaw) {
         // Adresse en texte : on géocode pour obtenir des coordonnées (trajets estimables).
         // On garde l'adresse à part : le nom du départ est un libellé libre ("Maison"),
@@ -1968,15 +1984,19 @@ function SejourApp() {
     const coords = parseCoords(raw);
     let place = null;
     if (coords) {
-      place = { name: null, lat: coords.lat, lng: coords.lng, url: isUrl(raw) ? raw : null };
+      // Un lien Google Maps complet porte ses coordonnées : il est traité ici et
+      // non plus bas. On y récupère quand même le nom du lieu, seule source
+      // autorisée pour la photo.
+      const mn = isUrl(raw) ? mapsPlaceName(raw) : null;
+      place = { name: mn || null, mapsName: mn, lat: coords.lat, lng: coords.lng, url: isUrl(raw) ? raw : null };
     } else if (raw) {
       if (isUrl(raw)) {
         // Lien Google Maps sans coordonnées lisibles (lien court) : on le déplie côté serveur
         // pour en tirer des coordonnées ou, à défaut, l'adresse du lieu (destination d'itinéraire).
         const r = await resolveMapsLink(raw);
         // On conserve le nom résolu (r.name) pour pouvoir récupérer la photo du lieu.
-        if (r && r.lat != null) place = { name: r.name || null, lat: r.lat, lng: r.lng, url: raw };
-        else if (r && r.name) place = { name: r.name, lat: null, lng: null, url: raw };
+        if (r && r.lat != null) place = { name: r.name || null, mapsName: r.name || null, lat: r.lat, lng: r.lng, url: raw };
+        else if (r && r.name) place = { name: r.name, mapsName: r.name, lat: null, lng: null, url: raw };
         else place = { name: raw, lat: null, lng: null, url: raw };
       } else {
         // Texte libre (adresse ou nom) : on géocode pour obtenir des coordonnées,
