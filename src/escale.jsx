@@ -1719,7 +1719,12 @@ function buildExample() {
       // Jour 1 — 3 lieux emblématiques (1re activité à heure fixe, les suivantes en "auto").
       mk({ date: d1, name: "Rocher de la Vierge", category: "nature", startTime: "10:00", durationMin: 60, place: P("Rocher de la Vierge", 43.4816, -1.5665) }),
       mk({ date: d1, name: "Grande Plage", category: "nature", startTime: AUTO, durationMin: 90, place: P("Grande Plage", 43.4832, -1.5586) }),
-      mk({ date: d1, name: "Phare de Biarritz", category: "visite", startTime: AUTO, durationMin: 45, travelMode: "car", place: P("Phare de Biarritz", 43.4933, -1.5623) }),
+      // travelMode décrit le trajet VERS L'ACTIVITÉ SUIVANTE. En donner un autre
+      // que celui des voisins à la dernière activité ne s'affiche nulle part —
+      // il n'y a pas de suivante — mais resurgit dès qu'on la déplace : un
+      // trajet en voiture apparaissait après réorganisation. L'exemple reste
+      // donc à pied de bout en bout (les trois lieux sont à moins de 2 km).
+      mk({ date: d1, name: "Phare de Biarritz", category: "visite", startTime: AUTO, durationMin: 45, place: P("Phare de Biarritz", 43.4933, -1.5623) }),
     ],
   };
 }
