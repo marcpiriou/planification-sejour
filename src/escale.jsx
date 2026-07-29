@@ -1394,6 +1394,23 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
             <div style={{ color: C.inkSoft }} className="t11">Collez un lien Google Maps : le nom de l'activité se remplit tout seul, et l'itinéraire/les trajets sont estimés.</div>
           </div>
 
+          {/* durée */}
+          <Field label="Durée">
+            <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
+              {durChips.map((d) => {
+                const active = draft.durationMin === d;
+                return (
+                  <button key={d} onClick={() => upd("durationMin", d)}
+                    style={{ background: active ? C.ink : "#fff", color: active ? "#fff" : C.ink, border: `1px solid ${active ? C.ink : C.line}`, fontFamily: MONO }}
+                    className="shrink-0 rounded-full px-2.5 py-1 text-xs active:scale-95 transition">{compactDur(d)}</button>
+                );
+              })}
+              <button onClick={openCustom}
+                style={{ background: !isPreset ? C.ink : "#fff", color: !isPreset ? "#fff" : C.ink, border: `1px solid ${!isPreset ? C.ink : C.line}`, fontFamily: MONO }}
+                className="shrink-0 rounded-full px-2.5 py-1 text-xs active:scale-95 transition">{!isPreset ? compactDur(draft.durationMin) : "…"}</button>
+            </div>
+          </Field>
+
           {/* jour */}
           <Field label="Jour">
             <select value={draft.date} onChange={(e) => upd("date", e.target.value)} style={inputStyle} className="w-full rounded-xl px-3 py-2.5 outline-none capitalize">
@@ -1429,22 +1446,6 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
                 )}
               </>
             )}
-          </Field>
-
-          <Field label="Durée">
-            <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
-              {durChips.map((d) => {
-                const active = draft.durationMin === d;
-                return (
-                  <button key={d} onClick={() => upd("durationMin", d)}
-                    style={{ background: active ? C.ink : "#fff", color: active ? "#fff" : C.ink, border: `1px solid ${active ? C.ink : C.line}`, fontFamily: MONO }}
-                    className="shrink-0 rounded-full px-2.5 py-1 text-xs active:scale-95 transition">{compactDur(d)}</button>
-                );
-              })}
-              <button onClick={openCustom}
-                style={{ background: !isPreset ? C.ink : "#fff", color: !isPreset ? "#fff" : C.ink, border: `1px solid ${!isPreset ? C.ink : C.line}`, fontFamily: MONO }}
-                className="shrink-0 rounded-full px-2.5 py-1 text-xs active:scale-95 transition">{!isPreset ? compactDur(draft.durationMin) : "…"}</button>
-            </div>
           </Field>
 
           {/* notes */}
