@@ -1699,11 +1699,16 @@ function buildExample() {
   while (sat.getDay() !== 6) sat = addDays(sat, 1); // prochain samedi
   const d1 = toISO(sat);
   const mk = (o) => ({ id: uid(), travelMode: "walk", travelMinutes: "", notes: "", ...o });
-  // Lieu avec lien Google Maps (bouton "Lieu"). Par défaut on cible le lieu par son NOM
-  // (ouvre la fiche du lieu, pas de simples coordonnées) ; un lien court peut être fourni.
-  const P = (name, lat, lng, url) => ({
-    name, lat, lng,
-    url: url || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(name)}`,
+  // Lieu de l'exemple : lien de partage Google Maps au format /maps/place/<NOM>/@lat,lng
+  // — celui qu'on obtient en partageant une fiche de lieu. On renseigne aussi mapsName,
+  // le nom du lieu tel que Google l'écrit : c'est la seule source autorisée pour la
+  // photo (voir fetchPlacePhoto), et l'exemple ne passe pas par le collage d'un lien
+  // qui l'extrairait. Les activités de l'exemple ont donc leurs images.
+  const P = (mapsName, lat, lng) => ({
+    name: mapsName,
+    mapsName,
+    lat, lng,
+    url: `https://www.google.com/maps/place/${encodeURIComponent(mapsName).replace(/%20/g, "+")}/@${lat},${lng},17z`,
   });
   return {
     id: uid(),
@@ -1712,9 +1717,9 @@ function buildExample() {
     endDate: d1,
     activities: [
       // Jour 1 — 3 lieux emblématiques (1re activité à heure fixe, les suivantes en "auto").
-      mk({ date: d1, name: "Rocher de la Vierge", category: "nature", startTime: "10:00", durationMin: 60, place: P("Rocher de la Vierge, Biarritz", 43.4816, -1.5665) }),
-      mk({ date: d1, name: "Grande Plage", category: "nature", startTime: AUTO, durationMin: 90, place: P("Grande Plage, Biarritz", 43.4832, -1.5586) }),
-      mk({ date: d1, name: "Phare de Biarritz", category: "visite", startTime: AUTO, durationMin: 45, travelMode: "car", place: P("Phare de Biarritz", 43.4933, -1.5623, "https://maps.app.goo.gl/KZoXMPR84rwKi4QAA") }),
+      mk({ date: d1, name: "Rocher de la Vierge", category: "nature", startTime: "10:00", durationMin: 60, place: P("Rocher de la Vierge", 43.4816, -1.5665) }),
+      mk({ date: d1, name: "Grande Plage", category: "nature", startTime: AUTO, durationMin: 90, place: P("Grande Plage", 43.4832, -1.5586) }),
+      mk({ date: d1, name: "Phare de Biarritz", category: "visite", startTime: AUTO, durationMin: 45, travelMode: "car", place: P("Phare de Biarritz", 43.4933, -1.5623) }),
     ],
   };
 }
