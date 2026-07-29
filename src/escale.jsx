@@ -125,6 +125,22 @@ const mapsDirUrl = (from, to, mode) => {
 const mapsPlaceUrl = (p) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(placeQuery(p))}`;
 // Lien direct : quand le lieu vient d'une URL collée (ex. lien Google Maps), on l'ouvre telle quelle.
 const isUrl = (s) => /^https?:\/\//i.test((s || "").trim());
+// Est-ce un lien Google Maps ? Même périmètre que l'Edge Function resolve-place,
+// qui seule sait déplier ces liens. Sert à ne coller depuis le presse-papier que
+// ce que l'application saura exploiter.
+const isMapsUrl = (s) => {
+  const t = (s || "").trim();
+  if (!isUrl(t)) return false;
+  try {
+    const u = new URL(t);
+    const h = u.hostname.toLowerCase();
+    if (h === "maps.app.goo.gl") return true;
+    if (h === "goo.gl") return u.pathname.startsWith("/maps");
+    if (h.startsWith("maps.google.")) return true;
+    if (/(^|\.)google\.[a-z.]+$/.test(h)) return u.pathname.startsWith("/maps");
+    return false;
+  } catch { return false; }
+};
 // Nom du lieu contenu dans un lien Google Maps complet (/maps/place/<NOM>/…).
 // C'est Google qui l'écrit dans l'URL : il désigne donc exactement le lieu
 // affiché, contrairement à un libellé saisi à la main.
@@ -1304,7 +1320,9 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
 
   // Mise à jour du champ Lieu : dès qu'on y met un lien (collage OU saisie),
   // on tente de renseigner le nom automatiquement (une seule fois par lien).
+  const placeTouched = useRef(false);
   const onPlaceRawChange = (v) => {
+    placeTouched.current = true;
     upd("placeRaw", v);
     const t = (v || "").trim();
     if (isUrl(t) && t !== lastLinkRef.current) {
@@ -1312,6 +1330,31 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
       fillNameFromLink(t);
     }
   };
+
+  // À l'ouverture d'une nouvelle activité : si le presse-papier contient un lien
+  // Google Maps, on le colle dans « Lieu ». On lit le presse-papier après
+  // l'affichage du formulaire, pas avant : selon le navigateur la lecture demande
+  // une confirmation, qui retarderait sinon l'ouverture. Tout échec est silencieux
+  // (API absente, permission refusée) et laisse le champ vide comme avant.
+  useEffect(() => {
+    if (draft.mode !== "new" || draft.placeRaw) return;
+    let alive = true;
+    (async () => {
+      let txt = "";
+      try {
+        const perm = await navigator.permissions?.query?.({ name: "clipboard-read" }).catch(() => null);
+        if (perm && perm.state === "denied") return;
+        txt = ((await navigator.clipboard?.readText?.()) || "").trim();
+      } catch { return; }
+      // Rien à faire si l'utilisateur a déjà touché le champ pendant la lecture.
+      if (!alive || placeTouched.current || !isMapsUrl(txt)) return;
+      setDraft((d) => ({ ...d, placeRaw: txt }));
+      lastLinkRef.current = txt;
+      fillNameFromLink(txt);
+    })();
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Heure : "auto" (calculée) ou fixe. La 1re activité du jour est forcément fixe.
   const dayOrdered = scheduleForDay(allActs.filter((a) => a.date === draft.date)).sort((a, b) => a._startMin - b._startMin);
