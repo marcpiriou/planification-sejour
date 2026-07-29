@@ -1,0 +1,59 @@
+<!--
+  Gabarit « Confirm signup » (confirmation d'inscription) — Supabase Auth
+  Objet à saisir dans le champ « Subject » du tableau de bord :
+      Confirmez votre adresse e-mail
+
+  Envoyé quand une adresse INCONNUE demande un lien via signInWithOtp() :
+  l'option shouldCreateUser vaut true par défaut, donc la toute première
+  connexion passe par ce gabarit et non par « Magic Link ». Les deux doivent
+  être traduits, sinon un nouvel utilisateur reçoit encore l'anglais.
+
+  Variables disponibles : {{ .ConfirmationURL }} {{ .Token }} {{ .TokenHash }}
+                          {{ .SiteURL }} {{ .Email }} {{ .RedirectTo }}
+-->
+<div style="margin:0;padding:24px 0;background:#F4F6F8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+    <tr>
+      <td align="center">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width:480px;background:#FFFFFF;border-radius:16px;padding:32px;">
+          <tr>
+            <td style="font-size:20px;font-weight:600;color:#16324A;padding-bottom:12px;">
+              Confirmez votre adresse e-mail
+            </td>
+          </tr>
+          <tr>
+            <td style="font-size:15px;line-height:1.5;color:#5B6B7A;padding-bottom:24px;">
+              Bienvenue sur Séjour. Confirmez votre adresse pour activer votre
+              compte et accéder à vos séjours. Ce lien expire rapidement et ne
+              peut servir qu’une seule fois.
+            </td>
+          </tr>
+          <tr>
+            <td align="center" style="padding-bottom:24px;">
+              <a href="{{ .ConfirmationURL }}"
+                 style="display:inline-block;background:#0F8A80;color:#FFFFFF;text-decoration:none;font-size:15px;font-weight:600;padding:12px 28px;border-radius:12px;">
+                Confirmer mon adresse
+              </a>
+            </td>
+          </tr>
+          <tr>
+            <td style="font-size:12px;line-height:1.5;color:#5B6B7A;padding-bottom:8px;">
+              Si le bouton ne fonctionne pas, copiez cette adresse dans votre navigateur :
+            </td>
+          </tr>
+          <tr>
+            <td style="font-size:12px;line-height:1.5;word-break:break-all;padding-bottom:24px;">
+              <a href="{{ .ConfirmationURL }}" style="color:#0F8A80;">{{ .ConfirmationURL }}</a>
+            </td>
+          </tr>
+          <tr>
+            <td style="font-size:12px;line-height:1.5;color:#5B6B7A;border-top:1px solid #E6EAEE;padding-top:16px;">
+              Vous n’êtes pas à l’origine de cette demande ? Ignorez simplement
+              ce message, aucun compte ne sera activé.
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</div>
