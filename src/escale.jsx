@@ -4,7 +4,7 @@ import {
   TrainFront, Sparkles, MapPin, Footprints, Car, Clock, Plus,
   ChevronLeft, Trash2, Pencil, Navigation, Calendar, X, AlertTriangle,
   Check, ExternalLink, MoreVertical, Route, Mail, LogOut,
-  Users, Share2, UserPlus, User, Home as HomeIcon, Building2
+  Users, Share2, UserPlus, User, Home as HomeIcon, Building2, ClipboardPaste
 } from "lucide-react";
 import { supabase, redirectTo } from "./supabase";
 
@@ -125,22 +125,6 @@ const mapsDirUrl = (from, to, mode) => {
 const mapsPlaceUrl = (p) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(placeQuery(p))}`;
 // Lien direct : quand le lieu vient d'une URL collée (ex. lien Google Maps), on l'ouvre telle quelle.
 const isUrl = (s) => /^https?:\/\//i.test((s || "").trim());
-// Est-ce un lien Google Maps ? Même périmètre que l'Edge Function resolve-place,
-// qui seule sait déplier ces liens. Sert à ne coller depuis le presse-papier que
-// ce que l'application saura exploiter.
-const isMapsUrl = (s) => {
-  const t = (s || "").trim();
-  if (!isUrl(t)) return false;
-  try {
-    const u = new URL(t);
-    const h = u.hostname.toLowerCase();
-    if (h === "maps.app.goo.gl") return true;
-    if (h === "goo.gl") return u.pathname.startsWith("/maps");
-    if (h.startsWith("maps.google.")) return true;
-    if (/(^|\.)google\.[a-z.]+$/.test(h)) return u.pathname.startsWith("/maps");
-    return false;
-  } catch { return false; }
-};
 // Nom du lieu contenu dans un lien Google Maps complet (/maps/place/<NOM>/…).
 // C'est Google qui l'écrit dans l'URL : il désigne donc exactement le lieu
 // affiché, contrairement à un libellé saisi à la main.
@@ -1301,7 +1285,6 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
   const [saving, setSaving] = useState(false);
   const parsed = parseCoords(draft.placeRaw);
   const upd = (k, v) => setDraft({ ...draft, [k]: v });
-  const isShortLink = draft.placeRaw && /goo\.gl|app\.goo\.gl|maps\.app/.test(draft.placeRaw) && !parsed;
   const nameError = !draft.name.trim();
   const [nameLoading, setNameLoading] = useState(false);
   const lastLinkRef = useRef("");
@@ -1318,11 +1301,12 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
     if (shortName) setDraft((d) => (d.name && d.name.trim() ? d : { ...d, name: shortName }));
   };
 
+  const [pasteError, setPasteError] = useState("");
+
   // Mise à jour du champ Lieu : dès qu'on y met un lien (collage OU saisie),
   // on tente de renseigner le nom automatiquement (une seule fois par lien).
-  const placeTouched = useRef(false);
   const onPlaceRawChange = (v) => {
-    placeTouched.current = true;
+    setPasteError("");
     upd("placeRaw", v);
     const t = (v || "").trim();
     if (isUrl(t) && t !== lastLinkRef.current) {
@@ -1331,30 +1315,20 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
     }
   };
 
-  // À l'ouverture d'une nouvelle activité : si le presse-papier contient un lien
-  // Google Maps, on le colle dans « Lieu ». On lit le presse-papier après
-  // l'affichage du formulaire, pas avant : selon le navigateur la lecture demande
-  // une confirmation, qui retarderait sinon l'ouverture. Tout échec est silencieux
-  // (API absente, permission refusée) et laisse le champ vide comme avant.
-  useEffect(() => {
-    if (draft.mode !== "new" || draft.placeRaw) return;
-    let alive = true;
-    (async () => {
-      let txt = "";
-      try {
-        const perm = await navigator.permissions?.query?.({ name: "clipboard-read" }).catch(() => null);
-        if (perm && perm.state === "denied") return;
-        txt = ((await navigator.clipboard?.readText?.()) || "").trim();
-      } catch { return; }
-      // Rien à faire si l'utilisateur a déjà touché le champ pendant la lecture.
-      if (!alive || placeTouched.current || !isMapsUrl(txt)) return;
-      setDraft((d) => ({ ...d, placeRaw: txt }));
-      lastLinkRef.current = txt;
-      fillNameFromLink(txt);
-    })();
-    return () => { alive = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // Bouton « Coller » : la lecture du presse-papier est déclenchée par l'utilisateur,
+  // et non à l'ouverture du formulaire — selon le navigateur elle demande une
+  // confirmation, qui apparaissait alors même quand on n'en avait pas besoin.
+  const pasteFromClipboard = async () => {
+    let txt = "";
+    try {
+      txt = ((await navigator.clipboard?.readText?.()) || "").trim();
+    } catch {
+      setPasteError("Presse-papier illisible : collez le lien à la main.");
+      return;
+    }
+    if (!txt) { setPasteError("Presse-papier vide."); return; }
+    onPlaceRawChange(txt);
+  };
 
   // Heure : "auto" (calculée) ou fixe. La 1re activité du jour est forcément fixe.
   const dayOrdered = scheduleForDay(allActs.filter((a) => a.date === draft.date)).sort((a, b) => a._startMin - b._startMin);
@@ -1397,18 +1371,25 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
           {/* lieu (2e champ) — coller un lien Google Maps remplit le nom automatiquement */}
           <div style={{ background: "#fff", border: `1px solid ${C.line}` }} className="rounded-2xl p-3 space-y-3">
             <div style={{ color: C.ink }} className="text-sm font-medium flex items-center gap-1.5"><MapPin size={15} style={{ color: C.teal }} /> Lieu (facultatif)</div>
-            <input value={draft.placeRaw}
-              onChange={(e) => onPlaceRawChange(e.target.value)}
-              placeholder="Lien Google Maps ou coordonnées (43.48, -1.56)"
-              style={inputStyle} className="w-full rounded-xl px-3 py-2.5 outline-none text-sm" />
+            <div className="flex gap-2">
+              <input value={draft.placeRaw}
+                onChange={(e) => onPlaceRawChange(e.target.value)}
+                placeholder="Lien Google Maps ou coordonnées (43.48, -1.56)"
+                style={inputStyle} className="flex-1 min-w-0 rounded-xl px-3 py-2.5 outline-none text-sm" />
+              <button type="button" onClick={pasteFromClipboard} aria-label="Coller depuis le presse-papier" title="Coller"
+                style={{ border: `1px solid ${C.line}`, background: "#fff", color: C.teal }}
+                className="shrink-0 w-11 rounded-xl flex items-center justify-center active:scale-95 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300">
+                <ClipboardPaste size={18} />
+              </button>
+            </div>
             {nameLoading && (
               <div style={{ color: C.inkSoft }} className="text-xs">Récupération du nom du lieu…</div>
             )}
             {parsed && (
               <div style={{ color: C.teal }} className="text-xs flex items-center gap-1"><Check size={13} /> Coordonnées détectées : {parsed.lat.toFixed(4)}, {parsed.lng.toFixed(4)}</div>
             )}
-            {isShortLink && (
-              <div style={{ color: C.amber }} className="text-xs flex items-start gap-1"><AlertTriangle size={13} className="mt-0.5 shrink-0" /> Lien court : à l'enregistrement, l'app en extrait les coordonnées pour l'itinéraire.</div>
+            {pasteError && (
+              <div style={{ color: C.amber }} className="text-xs">{pasteError}</div>
             )}
             <div style={{ color: C.inkSoft }} className="t11">Collez un lien Google Maps : le nom de l'activité se remplit tout seul, et l'itinéraire/les trajets sont estimés.</div>
           </div>
