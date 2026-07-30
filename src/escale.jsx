@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef, createContext, useContext } from "react";
 import {
   Landmark, UtensilsCrossed, Coffee, Waves, ShoppingBag, BedDouble,
   TrainFront, Sparkles, MapPin, Footprints, Car, Clock, Plus,
@@ -142,6 +142,29 @@ const mapsDirUrl = (from, to, mode) => {
   return `https://www.google.com/maps/dir/?${params.toString()}`;
 };
 const mapsPlaceUrl = (p) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(placeQuery(p))}`;
+
+// Applications d'itinéraire proposées dans l'écran Compte.
+const NAV_APPS = [
+  { id: "gmaps", label: "Google Maps" },
+  { id: "waze", label: "Waze" },
+];
+// Waze navigue toujours depuis la position actuelle : il n'a pas de point de
+// départ à lui indiquer, ce qui convient puisque le bouton « Itin. » part de là.
+const wazeDirUrl = (to) => {
+  const params = new URLSearchParams({ navigate: "yes" });
+  if (to && to.lat != null) params.set("ll", `${to.lat},${to.lng}`);
+  else params.set("q", (to && to.name) || "");
+  return `https://www.waze.com/ul?${params.toString()}`;
+};
+// Itinéraire dans l'application choisie. Waze ne connaît que la voiture : un
+// trajet à pied reste donc sur Google Maps, sinon l'itinéraire ouvert ne
+// correspondrait pas au mode affiché sur le trajet.
+const dirUrl = (from, to, mode, app) =>
+  (app === "waze" && mode !== "walk") ? wazeDirUrl(to) : mapsDirUrl(from, to, mode);
+
+// La préférence est lue au moment du rendu du bouton « Itin. », profondément dans
+// l'arborescence : un contexte évite de la faire descendre par tous les niveaux.
+const NavAppContext = createContext("gmaps");
 // Lien direct : quand le lieu vient d'une URL collée (ex. lien Google Maps), on l'ouvre telle quelle.
 const isUrl = (s) => /^https?:\/\//i.test((s || "").trim());
 // Nom du lieu contenu dans un lien Google Maps complet (/maps/place/<NOM>/…).
@@ -659,7 +682,7 @@ function BottomNav({ tab, setTab, onSignOut }) {
 }
 
 /* --- Onglet Compte ------------------------------------------------- */
-function AccountPanel({ userEmail, home, onSaveHome }) {
+function AccountPanel({ userEmail, home, onSaveHome, navApp, onSaveNavApp }) {
   const [label, setLabel] = useState(home?.label || "Maison");
   const [address, setAddress] = useState(home?.address || "");
   const [saving, setSaving] = useState(false);
@@ -705,18 +728,42 @@ function AccountPanel({ userEmail, home, onSaveHome }) {
         </button>
         {saved && <div style={{ color: C.teal }} className="text-xs flex items-center gap-1"><Check size={13} /> Enregistré</div>}
       </div>
+
+      {/* application d'itinéraire — le choix s'applique tout de suite, sans bouton */}
+      <div style={{ background: C.card, border: `1px solid ${C.line}` }} className="rounded-2xl p-4 mt-4 space-y-3">
+        <div style={{ color: C.ink }} className="text-sm font-medium flex items-center gap-1.5">
+          <Navigation size={15} style={{ color: C.teal }} /> Application d'itinéraire
+        </div>
+        <div className="flex gap-2">
+          {NAV_APPS.map((a) => {
+            const active = navApp === a.id;
+            return (
+              <button key={a.id} type="button" onClick={() => onSaveNavApp(a.id)}
+                style={{ background: active ? C.teal : "#fff", color: active ? "#fff" : C.ink, border: `1px solid ${active ? C.teal : C.line}` }}
+                className="flex-1 rounded-xl py-2.5 text-sm font-medium active:scale-95 transition">
+                {a.label}
+              </button>
+            );
+          })}
+        </div>
+        <div style={{ color: C.inkSoft }} className="t11">
+          Ouvre le bouton « Itin. » d'une activité dans cette application. Waze ne connaissant
+          que la voiture, un trajet à pied reste sur Google Maps.
+        </div>
+      </div>
     </div>
   );
 }
 
 /* --- Accueil : liste des séjours + navigation ---------------------- */
-function Home({ trips, onOpen, onNew, onExample, userEmail, onSignOut, home, onSaveHome, sharedLink, onDismissShared }) {
+function Home({ trips, onOpen, onNew, onExample, userEmail, onSignOut, home, onSaveHome, sharedLink, onDismissShared, navApp, onSaveNavApp }) {
   const [tab, setTab] = useState("trips");
   return (
     <div>
       <div className="mx-auto max-w-md px-4 pt-6 pb-28">
         {tab === "account" ? (
-          <AccountPanel userEmail={userEmail} home={home} onSaveHome={onSaveHome} />
+          <AccountPanel userEmail={userEmail} home={home} onSaveHome={onSaveHome}
+            navApp={navApp} onSaveNavApp={onSaveNavApp} />
         ) : (
           <>
             <div className="mb-6">
@@ -847,6 +894,7 @@ function DaySummary({ acts, totalTravel }) {
 
 /* --- Carte d'une activité ----------------------------------------- */
 function ActivityCard({ act, onEdit, onUpdate, onEditDuration, startMin, endMin, auto, prev, canEdit = true, onDragStart, dragging = false }) {
+  const navApp = useContext(NavAppContext);
   const longPress = useLongPress(onDragStart, !!onDragStart);
   const start = minToTime(startMin != null ? startMin : timeToMin(act.startTime));
   const end = minToTime(endMin != null ? endMin : timeToMin(act.startTime) + act.durationMin);
@@ -930,7 +978,7 @@ function ActivityCard({ act, onEdit, onUpdate, onEditDuration, startMin, endMin,
                   const walk = mode === "walk";
                   const color = walk ? C.teal : C.amber;
                   return (
-                    <a href={mapsDirUrl(null, act.place, mode)} target="_blank" rel="noopener noreferrer"
+                    <a href={dirUrl(null, act.place, mode, navApp)} target="_blank" rel="noopener noreferrer"
                       style={{ color, border: `1px solid ${color}` }}
                       className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium bg-white active:scale-95 transition">
                       <Navigation size={12} /> Itin.
@@ -1945,6 +1993,7 @@ function SejourApp() {
   const [userEmail, setUserEmail] = useState("");
   const [shareTripId, setShareTripId] = useState(null);
   const [home, setHome] = useState({ label: "Maison", address: "20 rue des grillons 31700 BEAUZELLE" });
+  const [navApp, setNavApp] = useState("gmaps");
   // Lien reçu par partage Android (voir shared-link.js). Lu une seule fois au
   // démarrage : il survit donc à l'écran de connexion, puisque celui-ci ne
   // remonte pas jusqu'ici sans session.
@@ -1963,12 +2012,21 @@ function SejourApp() {
       label: md.home_label || "Maison",
       address: md.home_address != null ? md.home_address : "20 rue des grillons 31700 BEAUZELLE",
     });
+    if (NAV_APPS.some((a) => a.id === md.nav_app)) setNavApp(md.nav_app);
   })(); }, []);
 
   // Enregistre le lieu de départ par défaut dans les métadonnées de l'utilisateur.
   const saveHome = async (label, address) => {
     setHome({ label, address });
     try { await supabase.auth.updateUser({ data: { home_label: label, home_address: address } }); }
+    catch (e) { console.error("Sauvegarde compte:", e); }
+  };
+
+  // Application d'itinéraire : appliquée aussitôt à l'écran, puis mémorisée sur
+  // le compte pour être retrouvée sur les autres appareils.
+  const saveNavApp = async (app) => {
+    setNavApp(app);
+    try { await supabase.auth.updateUser({ data: { nav_app: app } }); }
     catch (e) { console.error("Sauvegarde compte:", e); }
   };
 
@@ -2177,6 +2235,7 @@ function SejourApp() {
   }
 
   return (
+    <NavAppContext.Provider value={navApp}>
     <div style={{ background: C.paper, fontFamily: SANS, minHeight: "100vh", fontSize: "15px" }}>
       <FontInject />
       {/* Une modification non enregistrée ne doit jamais rester invisible. */}
@@ -2199,7 +2258,8 @@ function SejourApp() {
       {!trip ? (
         <Home trips={trips} onOpen={openTrip} onNew={newTrip} onExample={loadExample}
           userEmail={userEmail} onSignOut={signOut} home={home} onSaveHome={saveHome}
-          sharedLink={sharedLink} onDismissShared={() => setSharedLink(null)} />
+          sharedLink={sharedLink} onDismissShared={() => setSharedLink(null)}
+          navApp={navApp} onSaveNavApp={saveNavApp} />
       ) : (
         <TripView
           trip={trip} current={curDay} onSelectDay={setCurDay}
@@ -2251,6 +2311,7 @@ function SejourApp() {
           canDelete={tripModal.isNew ? true : (trip ? trip.isOwner : true)} />
       )}
     </div>
+    </NavAppContext.Provider>
   );
 }
 
