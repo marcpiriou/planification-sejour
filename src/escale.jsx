@@ -231,8 +231,15 @@ const wazeDirUrl = (to) => {
 // Itinéraire dans l'application choisie. Waze ne connaît que la voiture : un
 // trajet à pied reste donc sur Google Maps, sinon l'itinéraire ouvert ne
 // correspondrait pas au mode affiché sur le trajet.
-const dirUrl = (from, to, mode, app) =>
-  (app === "waze" && mode !== "walk") ? wazeDirUrl(to) : mapsDirUrl(from, to, mode);
+// preferAddress : cas de l'hébergement. Un lien Airbnb ou Booking ne désigne
+// qu'un quartier, et les coordonnées tirées du nom mènent au mieux devant la
+// façade. L'adresse donnée par l'hôte, elle, mène à la bonne porte : on la passe
+// telle quelle à l'application de navigation, qui la géocode elle-même.
+const dirUrl = (from, to, mode, app, preferAddress = false) => {
+  const addr = preferAddress && to && typeof to.address === "string" ? to.address.trim() : "";
+  const dest = addr ? { name: addr } : to;
+  return (app === "waze" && mode !== "walk") ? wazeDirUrl(dest) : mapsDirUrl(from, dest, mode);
+};
 
 // La préférence est lue au moment du rendu du bouton « Itin. », profondément dans
 // l'arborescence : un contexte évite de la faire descendre par tous les niveaux.
@@ -1068,7 +1075,7 @@ function ActivityCard({ act, onEdit, onUpdate, onEditDuration, startMin, endMin,
                   const walk = mode === "walk";
                   const color = walk ? C.teal : C.amber;
                   return (
-                    <a href={dirUrl(null, act.place, mode, navApp)} target="_blank" rel="noopener noreferrer"
+                    <a href={dirUrl(null, act.place, mode, navApp, stay)} target="_blank" rel="noopener noreferrer"
                       style={{ color, border: `1px solid ${color}` }}
                       className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium bg-white active:scale-95 transition">
                       <Navigation size={12} /> Itin.
@@ -1621,6 +1628,20 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
             {stay && stayInfo && (
               <div style={{ color: STAY_COLOR }} className="text-xs flex items-start gap-1">
                 <BedDouble size={13} className="mt-0.5 shrink-0" /> {stayInfo}
+              </div>
+            )}
+            {/* Adresse de l'hébergement : sert d'itinéraire. Un lien de
+                réservation ne mène pas à la porte, l'adresse de l'hôte si. */}
+            {stay && (
+              <div className="pt-1">
+                <div style={{ color: C.inkSoft }} className="text-xs font-medium uppercase tracking-wide mb-1.5">Adresse (pour l'itinéraire)</div>
+                <input value={draft.addressRaw || ""} onChange={(e) => upd("addressRaw", e.target.value)}
+                  placeholder="Ex. 1 avenue de l'Impératrice, 64200 Biarritz"
+                  style={inputStyle} className="w-full rounded-xl px-3 py-2.5 outline-none text-sm" />
+                <div style={{ color: C.inkSoft }} className="t11 mt-1.5">
+                  Renseignée, c'est elle que « Itin. » ouvre dans votre application de navigation,
+                  et non le lien ci-dessus.
+                </div>
               </div>
             )}
             <div style={{ color: C.inkSoft }} className="t11">
@@ -2298,7 +2319,7 @@ function SejourApp() {
     // 1re activité du jour : heure fixe ; les suivantes : "auto" (calculées en
     // cascade). Un hébergement au petit matin compte comme première étape.
     const startTime = dayList(t.activities, day).length ? AUTO : "09:00";
-    setEditor({ mode: "new", kind: "act", id: uid(), date: day, name: "", category: "visite", startTime, durationMin: 60, placeRaw, travelMode: MODE_AUTO, travelMinutes: "", notes: "", nights: null });
+    setEditor({ mode: "new", kind: "act", id: uid(), date: day, name: "", category: "visite", startTime, durationMin: 60, placeRaw, addressRaw: "", travelMode: MODE_AUTO, travelMinutes: "", notes: "", nights: null });
   };
   const newActivity = () => {
     const day = curDay && days.includes(curDay) ? curDay : days[0];
@@ -2309,7 +2330,7 @@ function SejourApp() {
   const newStay = () => {
     const day = curDay && days.includes(curDay) ? curDay : days[0];
     setEditor({ mode: "new", kind: "stay", id: uid(), date: day, name: "", category: "dormir",
-      startTime: STAY_LEAVE_TIME, durationMin: 0, placeRaw: "", travelMode: MODE_AUTO,
+      startTime: STAY_LEAVE_TIME, durationMin: 0, placeRaw: "", addressRaw: "", travelMode: MODE_AUTO,
       travelMinutes: "", notes: "", nights: 1 });
   };
   const editActivity = (entry) => {
@@ -2320,7 +2341,14 @@ function SejourApp() {
       mode: "edit", kind: isStay(a) ? "stay" : "act",
       id: a.id, date: a.date, name: a.name, category: a.category, startTime: a.startTime, durationMin: a.durationMin,
       nights: isStay(a) ? stayNights(a) : null,
-      placeRaw: a.place ? (a.place.url || a.place.address || (a.place.lat != null ? `${a.place.lat}, ${a.place.lng}` : (a.place.name || ""))) : "",
+      // Pour un hébergement, l'adresse a son propre champ : elle ne retombe pas
+      // dans celui du lien, qui l'afficherait en double.
+      placeRaw: !a.place ? ""
+        : (a.place.url
+          || (isStay(a)
+            ? (a.place.lat != null ? `${a.place.lat}, ${a.place.lng}` : "")
+            : (a.place.address || (a.place.lat != null ? `${a.place.lat}, ${a.place.lng}` : (a.place.name || ""))))),
+      addressRaw: isStay(a) ? (a.place?.address || "") : "",
       travelMode: a.travelMode, travelMinutes: a.travelMinutes ?? "", notes: a.notes || "",
     });
   };
@@ -2336,6 +2364,11 @@ function SejourApp() {
     // Le champ "Lieu" accepte des coordonnées, un lien Google Maps ou une adresse.
     const raw = (d.placeRaw || "").trim();
     const coords = parseCoords(raw);
+    // Lieu déjà résolu lors d'un enregistrement précédent. Tant que la saisie n'a
+    // pas changé, on le réutilise au lieu de redemander sa résolution : un simple
+    // ajout de note ou d'adresse ne doit pas dépendre du réseau, et un échec de
+    // résolution effacerait nom et coordonnées au profit de l'URL brute.
+    const prevPlace = (trip.activities.find((a) => a.id === d.id) || {}).place || null;
     let place = null;
     if (coords) {
       // Un lien Google Maps complet porte ses coordonnées : il est traité ici et
@@ -2345,13 +2378,19 @@ function SejourApp() {
       place = { name: mn || null, mapsName: mn, lat: coords.lat, lng: coords.lng, url: isUrl(raw) ? raw : null };
     } else if (raw) {
       if (isUrl(raw)) {
-        // Lien Google Maps sans coordonnées lisibles (lien court) : on le déplie côté serveur
-        // pour en tirer des coordonnées ou, à défaut, l'adresse du lieu (destination d'itinéraire).
-        const r = await resolveMapsLink(raw);
-        // On conserve le nom résolu (r.name) pour pouvoir récupérer la photo du lieu.
-        if (r && r.lat != null) place = { name: r.name || null, mapsName: r.name || null, lat: r.lat, lng: r.lng, url: raw };
-        else if (r && r.name) place = { name: r.name, mapsName: r.name, lat: null, lng: null, url: raw };
-        else place = { name: raw, lat: null, lng: null, url: raw };
+        if (prevPlace && prevPlace.url === raw && (prevPlace.lat != null || prevPlace.mapsName)) {
+          place = { ...prevPlace };            // même lien : rien à re-résoudre
+        } else {
+          // Lien Google Maps sans coordonnées lisibles (lien court) : on le déplie côté serveur
+          // pour en tirer des coordonnées ou, à défaut, l'adresse du lieu (destination d'itinéraire).
+          const r = await resolveMapsLink(raw);
+          // On conserve le nom résolu (r.name) pour pouvoir récupérer la photo du lieu.
+          if (r && r.lat != null) place = { name: r.name || null, mapsName: r.name || null, lat: r.lat, lng: r.lng, url: raw };
+          else if (r && r.name) place = { name: r.name, mapsName: r.name, lat: null, lng: null, url: raw };
+          else place = { name: raw, lat: null, lng: null, url: raw };
+        }
+      } else if (prevPlace && prevPlace.url == null && prevPlace.address === raw && prevPlace.lat != null) {
+        place = { ...prevPlace };              // même texte : coordonnées déjà connues
       } else {
         // Texte libre (adresse ou nom) : on géocode pour obtenir des coordonnées,
         // afin que le temps de trajet depuis/vers ce lieu puisse être estimé.
@@ -2360,6 +2399,28 @@ function SejourApp() {
       }
     }
     const isStayDraft = d.kind === "stay";
+    // Hébergement : l'adresse saisie est rattachée au lieu, c'est elle qui servira
+    // d'itinéraire. Sans lien par ailleurs, on la géocode pour que les temps de
+    // trajet restent estimables ; avec un lien, les coordonnées déjà obtenues
+    // suffisent — l'itinéraire, lui, passera par l'adresse de toute façon.
+    if (isStayDraft) {
+      const addr = (d.addressRaw || "").trim();
+      if (addr) {
+        if (place) place = { ...place, address: addr };
+        else if (prevPlace && prevPlace.address === addr && prevPlace.lat != null) place = { ...prevPlace };
+        else {
+          const g = await geocodeText(addr);
+          const nom = d.name.trim() || addr;
+          place = g
+            ? { name: nom, address: addr, lat: g.lat, lng: g.lng, url: null }
+            : { name: nom, address: addr, lat: null, lng: null, url: null };
+        }
+      } else if (place && place.address) {
+        // Adresse effacée : on ne la garde pas en base.
+        const { address, ...reste } = place;
+        place = reste;
+      }
+    }
     const act = {
       id: d.id, date: d.date, name: d.name.trim(),
       category: isStayDraft ? "dormir" : d.category,
