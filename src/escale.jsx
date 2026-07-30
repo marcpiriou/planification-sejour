@@ -124,6 +124,11 @@ const stayDatesFromUrl = (u) => {
   return { checkIn, checkOut, nights: nights && nights > 0 ? nights : null };
 };
 
+// Les deux entrées d'un même hébergement encadrent la journée : de l'une à
+// l'autre, on ne va nulle part. Sans cela, un jour sans étape affichait un
+// trajet de l'hôtel vers lui-même (0 km arrondi à 1 min).
+const sameStay = (a, b) => !!(a && b && a.stayOf) && a.stayOf === b.stayOf;
+
 // Séquence d'une journée, hébergements compris et à leur place fixe : celui de
 // la nuit précédente en tête, celui de la nuit qui vient en queue.
 function dayList(activities, iso) {
@@ -516,6 +521,7 @@ const travelPending = new Set();
 let travelPauseUntil = 0;
 
 const travelRequestFor = (a, b) => {
+  if (sameStay(a, b)) return null;
   // On n'interroge Google que pour le mode effectivement retenu : la décision
   // marche/voiture d'un mode automatique repose donc sur l'estimation à vol
   // d'oiseau, ce qui la rend stable (un temps réel ne vient pas la contredire).
@@ -593,6 +599,8 @@ const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 
 /* ------------------------------------------------------------------ */
 const legBetween = (a, b) => {
   const mode = resolveTravelMode(a, b);
+  // Aller de l'hébergement à lui-même : aucune distance, aucune durée.
+  if (sameStay(a, b)) return { mode, min: 0, km: 0, source: null, isEstimate: false, hasManual: false };
   const est = estimateTravel(a.place, b.place, mode);
   const manual = a.travelMinutes != null && a.travelMinutes !== "" ? Number(a.travelMinutes) : null;
   const min = manual != null ? manual : est ? est.min : null;
@@ -1428,7 +1436,7 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onE
                     prev={i > 0 ? acts[i - 1] : null} canEdit={canEdit} dragging={!!isDragged}
                     onDragStart={canEdit && !isStay(a) && acts.filter((x) => !isStay(x)).length > 1 && !drag ? (y) => startDrag(i, a.id, y) : null} />
                 </div>
-                {i < acts.length - 1 && <TravelLeg from={a} to={acts[i + 1]} leg={legBetween(a, acts[i + 1])}
+                {i < acts.length - 1 && !sameStay(a, acts[i + 1]) && <TravelLeg from={a} to={acts[i + 1]} leg={legBetween(a, acts[i + 1])}
                   fromEndMin={a._endMin} toStartMin={acts[i + 1]._startMin} onEdit={canEdit && !drag ? onEditTravel : undefined} />}
                 {drag && drag.over === acts.length && i === acts.length - 1 && <InsertBar />}
               </div>
@@ -2523,7 +2531,7 @@ function SejourApp() {
           onBack={() => setTripId(null)} onAddAct={newActivity} onAddStay={newStay} onEditAct={editActivity} onEditTrip={editTrip}
           onUpdateAct={updateActivity} onReorder={reorderActivities}
           onEditDuration={(a) => setDurEdit({ id: a.id, durationMin: a.durationMin })}
-          onEditTravel={(from, to) => setTravelEdit({ fromId: from.id, toId: to.id })}
+          onEditTravel={(from, to) => setTravelEdit({ date: from.date, fromId: from.id, toId: to.id })}
           canEdit={canEditTrip} onShare={() => setShareTripId(trip.id)}
         />
       )}
@@ -2546,14 +2554,21 @@ function SejourApp() {
       )}
 
       {travelEdit && trip && (() => {
-        const from = trip.activities.find((a) => a.id === travelEdit.fromId);
-        const to = trip.activities.find((a) => a.id === travelEdit.toId);
+        // Les étapes se cherchent dans la séquence affichée du jour, pas parmi les
+        // activités enregistrées : une entrée d'hébergement porte un identifiant
+        // dérivé (« s1#am ») qui n'existe pas en base, et le popup ne s'ouvrait
+        // donc pas pour un trajet bordé par un hébergement.
+        const seq = dayList(trip.activities, travelEdit.date);
+        const from = seq.find((a) => a.id === travelEdit.fromId);
+        const to = seq.find((a) => a.id === travelEdit.toId);
         if (!from || !to) return null;
         return (
           <TravelPicker
             from={from} to={to}
             onCancel={() => setTravelEdit(null)}
-            onValidate={(patch) => { updateActivity(travelEdit.fromId, patch); setTravelEdit(null); }}
+            // Le mode et la durée se rangent sur l'activité enregistrée : pour un
+            // hébergement, c'est la réservation elle-même.
+            onValidate={(patch) => { updateActivity(from.stayOf || from.id, patch); setTravelEdit(null); }}
           />
         );
       })()}
