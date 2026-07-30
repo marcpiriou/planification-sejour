@@ -36,13 +36,13 @@ const CATEGORIES = [
   { id: "cafe", label: "Café / pause", icon: Coffee, color: "#B4763B" },
   { id: "nature", label: "Nature / plage", icon: Waves, color: "#2E8BC0" },
   { id: "shopping", label: "Shopping", icon: ShoppingBag, color: "#C0559B" },
-  { id: "hebergement", label: "Hébergement", icon: BedDouble, color: "#6D6AC4" },
   { id: "transport", label: "Transport", icon: TrainFront, color: "#5B6B7A" },
   { id: "autre", label: "Autre", icon: Sparkles, color: "#7A8A55" },
-  // « Dormir » n'est pas une activité ordinaire : elle couvre plusieurs nuits et
-  // se place d'elle-même en fin et en début de journée. Elle ne s'ajoute que par
-  // son propre bouton, d'où son absence du choix de catégorie du formulaire.
-  { id: "dormir", label: "Dormir", icon: BedDouble, color: "#2F3E8F" },
+  // L'hébergement n'est pas une activité ordinaire : il couvre plusieurs nuits et
+  // se place de lui-même en fin et en début de journée. Il ne s'ajoute que par son
+  // propre bouton. L'identifiant reste « dormir » : c'est la valeur déjà écrite en
+  // base, seul le libellé affiché change.
+  { id: "dormir", label: "Hébergement", icon: BedDouble, color: "#2F3E8F" },
 ];
 const catOf = (id) => CATEGORIES.find((c) => c.id === id) || CATEGORIES[CATEGORIES.length - 1];
 
@@ -71,7 +71,7 @@ const fmtRange = (a, b) => (a === b ? fmtShort(a) : `${fmtShort(a)} – ${fmtSho
 const prevISO = (iso) => toISO(addDays(parseDate(iso), -1));
 
 /* ------------------------------------------------------------------ */
-/* Hébergement (« Dormir ») : une réservation, plusieurs nuits         */
+/* Hébergement : une réservation, plusieurs nuits                      */
 /* ------------------------------------------------------------------ */
 // Enregistré une seule fois, à sa date d'arrivée, avec son nombre de nuits.
 // Sa présence dans les journées en est déduite : on dort là où l'on a dormi,
@@ -1453,7 +1453,7 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onE
             {/* Deux ajouts distincts : une étape ordinaire, ou l'hébergement de la nuit. */}
             <button onClick={onAddStay} style={{ background: STAY_COLOR }}
               className="pointer-events-auto text-white rounded-full pl-4 pr-5 py-3.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
-              <Plus size={20} /> Dormir
+              <Plus size={20} /> Hébergement
             </button>
             <button onClick={onAddAct} style={{ background: C.teal }}
               className="pointer-events-auto text-white rounded-full pl-4 pr-5 py-3.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
