@@ -1369,7 +1369,6 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onEditAct, onE
 
 /* --- Éditeur d'activité (feuille) --------------------------------- */
 function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onDelete }) {
-  const [confirmDel, setConfirmDel] = useState(false);
   const [customOpen, setCustomOpen] = useState(false);
   const [ch, setCh] = useState(0);
   const [cm, setCm] = useState(0);
@@ -1566,17 +1565,12 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
           </button>
           {nameError && <div style={{ color: C.warn }} className="text-xs">Le nom est requis.</div>}
 
+          {/* Suppression directe, sans confirmation : demandé explicitement.
+              Celle d'un séjour en garde une — elle emporte toutes ses étapes. */}
           {draft.mode === "edit" && (
-            confirmDel ? (
-              <div className="flex gap-2">
-                <button onClick={() => setConfirmDel(false)} style={{ border: `1px solid ${C.line}`, color: C.ink }} className="flex-1 rounded-xl py-2.5 bg-white">Annuler</button>
-                <button onClick={onDelete} style={{ background: C.warn }} className="flex-1 rounded-xl py-2.5 text-white font-medium">Confirmer la suppression</button>
-              </div>
-            ) : (
-              <button onClick={() => setConfirmDel(true)} style={{ color: C.warn }} className="w-full rounded-xl py-2.5 font-medium inline-flex items-center justify-center gap-1.5">
-                <Trash2 size={16} /> Supprimer l'activité
-              </button>
-            )
+            <button onClick={onDelete} style={{ color: C.warn }} className="w-full rounded-xl py-2.5 font-medium inline-flex items-center justify-center gap-1.5">
+              <Trash2 size={16} /> Supprimer l'activité
+            </button>
           )}
         </div>
       </div>
