@@ -2122,8 +2122,16 @@ function SejourApp() {
       durationMin: Number(d.durationMin) || 0, place,
       travelMode: d.travelMode, travelMinutes: d.travelMinutes === "" ? null : Number(d.travelMinutes), notes: d.notes.trim(),
     };
-    const others = trip.activities.filter((a) => a.id !== d.id);
-    const next = trips.map((t) => t.id === trip.id ? { ...t, activities: [...others, act] } : t);
+    // Une activité modifiée reprend SA place dans la liste. L'ordre du tableau
+    // porte la cascade des heures « auto » (chacune part de la fin de la
+    // précédente) : la remettre à la fin la faisait glisser en fin de journée.
+    // Un changement de jour est le seul cas où elle rejoint la fin — celle de
+    // son nouveau jour, où elle n'avait pas de place.
+    const idx = trip.activities.findIndex((a) => a.id === d.id);
+    const nextActs = idx >= 0 && trip.activities[idx].date === act.date
+      ? trip.activities.map((a) => (a.id === d.id ? act : a))
+      : [...trip.activities.filter((a) => a.id !== d.id), act];
+    const next = trips.map((t) => t.id === trip.id ? { ...t, activities: nextActs } : t);
     commit(next); if (d.date !== curDay) setCurDay(d.date); setEditor(null);
   };
   const deleteActivity = () => {
