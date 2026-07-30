@@ -100,6 +100,24 @@ const estimateTravel = (from, to, mode) => {
   return { km, min: Math.max(1, Math.round((km / speed) * 60)), source: "estimate" };
 };
 
+// Mode de trajet « automatique » : valeur par défaut d'une nouvelle activité,
+// par opposition à "walk" ou "car" que l'utilisateur a désignés lui-même dans
+// le popup d'un trajet. Un mode automatique vaut la marche, sauf si marcher
+// prend plus de WALK_MAX_MIN — auquel cas la voiture s'impose d'elle-même.
+// Les activités enregistrées avant l'introduction de cette valeur portent
+// "walk" ou "car" : elles restent donc telles quelles, comme un choix explicite.
+const MODE_AUTO = "auto";
+const WALK_MAX_MIN = 30;
+
+// Mode effectif du trajet a -> b : le choix de l'utilisateur s'il en a fait un,
+// sinon la marche tant qu'elle reste sous le seuil.
+const resolveTravelMode = (a, b) => {
+  const m = a?.travelMode;
+  if (m === "walk" || m === "car") return m;
+  const onFoot = estimateTravel(a?.place, b?.place, "walk");
+  return onFoot && onFoot.min > WALK_MAX_MIN ? "car" : "walk";
+};
+
 const parseCoords = (input) => {
   if (!input) return null;
   const s = input.trim();
@@ -394,13 +412,17 @@ const travelPending = new Set();
 let travelPauseUntil = 0;
 
 const travelRequestFor = (a, b) => {
-  const key = travelKey(a.place, b.place, a.travelMode);
+  // On n'interroge Google que pour le mode effectivement retenu : la décision
+  // marche/voiture d'un mode automatique repose donc sur l'estimation à vol
+  // d'oiseau, ce qui la rend stable (un temps réel ne vient pas la contredire).
+  const mode = resolveTravelMode(a, b);
+  const key = travelKey(a.place, b.place, mode);
   if (!key) return null;
   return {
     key,
     from: { lat: a.place.lat, lng: a.place.lng },
     to: { lat: b.place.lat, lng: b.place.lng },
-    mode: a.travelMode === "walk" ? "walk" : "car",
+    mode,
   };
 };
 
@@ -466,11 +488,12 @@ const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 
 /* Construction d'un trajet entre deux étapes                          */
 /* ------------------------------------------------------------------ */
 const legBetween = (a, b) => {
-  const est = estimateTravel(a.place, b.place, a.travelMode);
+  const mode = resolveTravelMode(a, b);
+  const est = estimateTravel(a.place, b.place, mode);
   const manual = a.travelMinutes != null && a.travelMinutes !== "" ? Number(a.travelMinutes) : null;
   const min = manual != null ? manual : est ? est.min : null;
   return {
-    mode: a.travelMode, min, km: est ? est.km : null,
+    mode, min, km: est ? est.km : null,
     source: est ? est.source : null,
     isEstimate: manual == null && est != null && est.source !== "google",
     hasManual: manual != null,
@@ -903,7 +926,7 @@ function ActivityCard({ act, onEdit, onUpdate, onEditDuration, startMin, endMin,
                 {(() => {
                   // Itinéraire depuis la position actuelle vers le lieu de cette activité.
                   // Mode déduit du trajet menant à cette activité (activité précédente), sinon voiture.
-                  const mode = prev ? (prev.travelMode || "car") : "car";
+                  const mode = prev ? resolveTravelMode(prev, act) : "car";
                   const walk = mode === "walk";
                   const color = walk ? C.teal : C.amber;
                   return (
@@ -1048,7 +1071,9 @@ function TravelLeg({ from, to, leg, onEdit, variant, fromEndMin, toStartMin }) {
 
 /* --- Popup d'édition d'un trajet (mode + durée) ------------------- */
 function TravelPicker({ from, to, onCancel, onValidate }) {
-  const [mode, setMode] = useState(from.travelMode || "walk");
+  // Le popup montre le mode effectif : un mode automatique s'affiche donc déjà
+  // sur voiture si la marche dépasse le seuil. Valider fige ce choix.
+  const [mode, setMode] = useState(() => resolveTravelMode(from, to));
   const [manual, setManual] = useState(from.travelMinutes != null && from.travelMinutes !== "" ? String(from.travelMinutes) : "");
   // Le mode peut changer ici : on demande à Google la durée du mode choisi.
   const [tick, setTick] = useState(0);
@@ -1752,7 +1777,7 @@ function buildExample() {
   let sat = new Date(today.getFullYear(), today.getMonth(), today.getDate());
   while (sat.getDay() !== 6) sat = addDays(sat, 1); // prochain samedi
   const d1 = toISO(sat);
-  const mk = (o) => ({ id: uid(), travelMode: "walk", travelMinutes: "", notes: "", ...o });
+  const mk = (o) => ({ id: uid(), travelMode: MODE_AUTO, travelMinutes: "", notes: "", ...o });
   // Lieu de l'exemple : lien de partage Google Maps au format /maps/place/<NOM>/@lat,lng
   // — celui qu'on obtient en partageant une fiche de lieu. On renseigne aussi mapsName,
   // le nom du lieu tel que Google l'écrit : c'est la seule source autorisée pour la
@@ -2046,7 +2071,7 @@ function SejourApp() {
     const dayActs = (t.activities || []).filter((a) => a.date === day);
     // 1re activité du jour : heure fixe ; les suivantes : "auto" (calculées en cascade).
     const startTime = dayActs.length ? AUTO : "09:00";
-    setEditor({ mode: "new", id: uid(), date: day, name: "", category: "visite", startTime, durationMin: 60, placeRaw, travelMode: "walk", travelMinutes: "", notes: "" });
+    setEditor({ mode: "new", id: uid(), date: day, name: "", category: "visite", startTime, durationMin: 60, placeRaw, travelMode: MODE_AUTO, travelMinutes: "", notes: "" });
   };
   const newActivity = () => {
     const day = curDay && days.includes(curDay) ? curDay : days[0];
