@@ -35,6 +35,22 @@ npm run preview    # sert dist/ (service worker actif) ; --host pour tester depu
 - Styles : Tailwind CSS (classes standard) + utilitaires injectés par le composant
   (t10, t11, dim…) + police IBM Plex via `@import` (repli gracieux hors-ligne).
 
+## Activités « Dormir »
+Un hébergement est enregistré **une seule fois**, à sa date d'arrivée, avec son nombre
+de nuits (colonne `activities.nights`, migration `0005`). Sa présence dans les journées
+en est déduite, aucune ligne n'est dupliquée : il referme chaque journée dont il couvre
+la nuit et rouvre la journée suivante — on part toujours du lieu où l'on a dormi. Ces
+deux entrées sont figées en tête et en queue de journée : rien ne se glisse avant ou
+après, et elles ne se déplacent pas.
+
+Le champ « Lieu » accepte un lien Google Maps, Airbnb ou Booking. L'Edge Function
+`resolve-place` déplie les liens de partage courts et en tire les dates de réservation
+(`checkin`/`checkout` pour Booking, `check_in`/`check_out` pour Airbnb), le nom de
+l'hébergement (chemin de l'URL chez Booking, titre de la page chez Airbnb) puis ses
+coordonnées. Les URL longues portant déjà leurs dates, l'application les lit sans
+réseau. Un titre de page d'erreur ou de consentement est écarté plutôt que retenu
+comme nom.
+
 ## E-mails de connexion (français)
 Les gabarits d'e-mail vivent dans la configuration du service Auth, pas dans le dépôt :
 ils ne sont donc pas déployés par `git push`. Les versions françaises sont conservées

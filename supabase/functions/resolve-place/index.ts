@@ -50,7 +50,8 @@ function json(obj: unknown, status = 200): Response {
   });
 }
 
-// N'autorise que les domaines Google Maps (évite un proxy SSRF ouvert).
+// N'autorise que Google Maps et les deux plateformes de réservation prises en
+// charge (évite un proxy SSRF ouvert : la fonction va chercher l'URL elle-même).
 function isAllowed(url: string): boolean {
   try {
     const u = new URL(url);
@@ -62,12 +63,65 @@ function isAllowed(url: string): boolean {
       h === "maps.google.com" ||
       h === "google.com" ||
       h.endsWith(".google.com") ||
-      /(^|\.)google\.[a-z.]+$/.test(h)
+      /(^|\.)google\.[a-z.]+$/.test(h) ||
+      h === "abnb.me" ||
+      h === "airbnb.com" || h.endsWith(".airbnb.com") ||
+      /(^|\.)airbnb\.[a-z.]+$/.test(h) ||
+      h === "booking.com" || h.endsWith(".booking.com")
     );
   } catch {
     return false;
   }
 }
+
+// Dates de réservation d'un lien Airbnb/Booking. Les URL longues les portent en
+// clair ; un lien de partage court n'y arrive qu'après avoir été déplié, d'où la
+// lecture ici, sur l'URL finale.
+function extractStayDates(text: string): { checkIn: string; checkOut: string | null; nights: number | null } | null {
+  const grab = (names: string[]) => {
+    for (const n of names) {
+      const m = text.match(new RegExp(`[?&;]${n}=(\\d{4}-\\d{2}-\\d{2})`, "i"));
+      if (m) return m[1];
+    }
+    return null;
+  };
+  const checkIn = grab(["checkin", "check_in"]);
+  if (!checkIn) return null;
+  const checkOut = grab(["checkout", "check_out"]);
+  let nights: number | null = null;
+  if (checkOut) {
+    const d = Math.round((Date.parse(checkOut) - Date.parse(checkIn)) / 86400000);
+    if (d > 0) nights = d;
+  }
+  return { checkIn, checkOut, nights };
+}
+
+// Nom de l'hébergement. Booking le met dans le chemin (/hotel/fr/le-palais.fr.html) ;
+// Airbnb n'a qu'un identifiant de chambre, il faut alors lire le titre de la page.
+function extractStayName(finalUrl: string, html: string): string | null {
+  const slug = finalUrl.match(/\/hotel\/[a-z]{2}\/([^/?#.]+)/i);
+  if (slug) {
+    const n = decodeURIComponent(slug[1]).replace(/[-_]+/g, " ").trim();
+    if (n) return n.replace(/\b\p{Ll}/gu, (c) => c.toUpperCase());
+  }
+  const og = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i)
+    || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:title["']/i);
+  const title = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+  return cleanTitle(og ? og[1] : (title ? title[1] : ""));
+}
+
+// Un titre de page n'est exploitable que s'il nomme vraiment l'hébergement : on
+// retire la signature de la plateforme et on écarte les pages d'erreur ou de
+// consentement, dont le titre ferait un nom d'activité absurde.
+function cleanTitle(raw: string): string | null {
+  let t = (raw || "").replace(/\s+/g, " ").trim();
+  t = t.replace(/\s*[|·—–-]\s*(airbnb|booking\.com|booking)\b.*$/i, "").trim();
+  if (!t || t.length < 3) return null;
+  if (/(page|pagina|página)\s+(introuvable|non trouv|not found)|not found|introuvable|error|erreur|oops|404|access denied|are you a robot|robot check|just a moment|captcha|cookies?|consent/i.test(t)) return null;
+  return t;
+}
+
+const isStaySite = (u: string) => /(^|\.)(airbnb\.[a-z.]+|booking\.com|abnb\.me)$/i.test(new URL(u).hostname);
 
 // Géocode un texte (adresse ou nom de lieu) via Places API (New) searchText.
 // Renvoie { lat, lng, name } ou null. Nécessite GOOGLE_PLACES_KEY.
@@ -125,6 +179,27 @@ Deno.serve(async (req: Request) => {
       headers: { "User-Agent": "Mozilla/5.0 (compatible; SejourBot/1.0)" },
     });
     const finalUrl = res.url || url;
+
+    // --- Lien de réservation (Airbnb / Booking) ---
+    // Traité à part : les repères propres à Google Maps n'ont pas cours ici, et
+    // les coordonnées éparpillées dans une page de réservation ne désignent pas
+    // forcément l'hébergement. On lit les dates et le nom, puis on géocode le nom.
+    // Dates et nom viennent de l'URL FINALE quand elle les porte : cela tient même
+    // si la plateforme refuse de servir sa page à un serveur.
+    let staySite = false;
+    try { staySite = isStaySite(finalUrl); } catch { staySite = false; }
+    if (staySite) {
+      const html = await res.text().catch(() => "");
+      const dates = extractStayDates(finalUrl) || extractStayDates(html);
+      const stayName = extractStayName(finalUrl, html);
+      const g = stayName ? await geocode(stayName) : null;
+      return json({
+        ...(g ? { lat: g.lat, lng: g.lng } : {}),
+        ...(stayName ? { name: stayName } : {}),
+        ...(dates || {}),
+        finalUrl,
+      });
+    }
 
     // Coordonnées et/ou nom depuis l'URL finale.
     let coords = extractCoords(finalUrl);

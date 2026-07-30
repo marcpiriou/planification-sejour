@@ -39,6 +39,10 @@ const CATEGORIES = [
   { id: "hebergement", label: "Hébergement", icon: BedDouble, color: "#6D6AC4" },
   { id: "transport", label: "Transport", icon: TrainFront, color: "#5B6B7A" },
   { id: "autre", label: "Autre", icon: Sparkles, color: "#7A8A55" },
+  // « Dormir » n'est pas une activité ordinaire : elle couvre plusieurs nuits et
+  // se place d'elle-même en fin et en début de journée. Elle ne s'ajoute que par
+  // son propre bouton, d'où son absence du choix de catégorie du formulaire.
+  { id: "dormir", label: "Dormir", icon: BedDouble, color: "#2F3E8F" },
 ];
 const catOf = (id) => CATEGORIES.find((c) => c.id === id) || CATEGORIES[CATEGORIES.length - 1];
 
@@ -64,6 +68,74 @@ const fmtWd = (iso) => new Intl.DateTimeFormat("fr-FR", { weekday: "short" }).fo
 const fmtDay = (iso) => parseDate(iso).getDate();
 const fmtMonthShort = (iso) => new Intl.DateTimeFormat("fr-FR", { month: "short" }).format(parseDate(iso));
 const fmtRange = (a, b) => (a === b ? fmtShort(a) : `${fmtShort(a)} – ${fmtShort(b)}`);
+const prevISO = (iso) => toISO(addDays(parseDate(iso), -1));
+
+/* ------------------------------------------------------------------ */
+/* Hébergement (« Dormir ») : une réservation, plusieurs nuits         */
+/* ------------------------------------------------------------------ */
+// Enregistré une seule fois, à sa date d'arrivée, avec son nombre de nuits.
+// Sa présence dans les journées en est déduite : on dort là où l'on a dormi,
+// donc l'hébergement referme chaque journée dont il couvre la nuit et rouvre la
+// journée suivante. Aucune ligne n'est dupliquée en base.
+const isStay = (a) => !!a && a.category === "dormir";
+const stayNights = (a) => Math.max(1, Number(a?.nights) || 1);
+const stayCheckout = (a) => toISO(addDays(parseDate(a.date), stayNights(a)));
+// La nuit qui suit <iso> est-elle passée dans cet hébergement ?
+const stayCoversNight = (a, iso) => isStay(a) && iso >= a.date && iso < stayCheckout(a);
+// Heure de départ le matin (l'heure d'arrivée du soir, elle, se déduit du trajet).
+const STAY_LEAVE_TIME = "09:00";
+// Code couleur propre à l'hébergement, distinct des huit catégories.
+const STAY_COLOR = "#2F3E8F";
+const STAY_SOFT = "#E7EAF7";
+const STAY_AM = "am", STAY_PM = "pm";
+
+// Entrée d'affichage dérivée d'une réservation. Son id porte le créneau pour
+// rester unique dans la journée ; stayOf ramène à l'activité enregistrée.
+const stayEntry = (s, iso, slot) => ({
+  ...s,
+  id: `${s.id}#${slot}`,
+  stayOf: s.id,
+  staySlot: slot,
+  date: iso,
+  startTime: slot === STAY_AM ? (s.startTime || STAY_LEAVE_TIME) : AUTO,
+  durationMin: 0,
+});
+
+// Dates de réservation portées par un lien. Booking écrit checkin/checkout,
+// Airbnb check_in/check_out ; les deux les laissent en clair dans l'URL longue,
+// ce qui se lit sans réseau. Les liens de partage courts, eux, passent par
+// l'Edge Function qui les déplie.
+const stayDatesFromUrl = (u) => {
+  const s = (u || "").trim();
+  if (!s) return null;
+  const grab = (names) => {
+    for (const n of names) {
+      const m = s.match(new RegExp(`[?&;]${n}=(\\d{4}-\\d{2}-\\d{2})`, "i"));
+      if (m) return m[1];
+    }
+    return null;
+  };
+  const checkIn = grab(["checkin", "check_in"]);
+  if (!checkIn) return null;
+  const checkOut = grab(["checkout", "check_out"]);
+  const nights = checkOut
+    ? Math.round((parseDate(checkOut) - parseDate(checkIn)) / 86400000)
+    : null;
+  return { checkIn, checkOut, nights: nights && nights > 0 ? nights : null };
+};
+
+// Séquence d'une journée, hébergements compris et à leur place fixe : celui de
+// la nuit précédente en tête, celui de la nuit qui vient en queue.
+function dayList(activities, iso) {
+  const all = activities || [];
+  const morning = all.find((a) => stayCoversNight(a, prevISO(iso)));
+  const evening = all.find((a) => stayCoversNight(a, iso));
+  const seq = [];
+  if (morning) seq.push(stayEntry(morning, iso, STAY_AM));
+  seq.push(...all.filter((a) => !isStay(a) && a.date === iso));
+  if (evening) seq.push(stayEntry(evening, iso, STAY_PM));
+  return seq;
+}
 
 /* ------------------------------------------------------------------ */
 /* Géo : haversine, estimation de trajet, parsing Google Maps          */
@@ -202,6 +274,7 @@ function rowToActivity(a) {
     travelMode: a.travel_mode,
     travelMinutes: a.travel_minutes === "" || a.travel_minutes == null ? null : Number(a.travel_minutes),
     notes: a.notes || "",
+    nights: a.nights == null ? null : Number(a.nights),
   };
 }
 
@@ -298,6 +371,7 @@ async function saveTrips(trips) {
     place: a.place ?? null, travel_mode: a.travelMode || "walk",
     travel_minutes: a.travelMinutes == null ? "" : String(a.travelMinutes),
     notes: a.notes || "", position: i,
+    nights: a.nights == null ? null : Number(a.nights),
   });
 
   try {
@@ -586,8 +660,12 @@ function enforceManualOrder(dayActs, firstStartMin) {
 // Réordonne les activités de chaque jour par heure effective (ordre chronologique stable).
 function normalizeOrder(trips) {
   return (trips || []).map((t) => {
+    // Les hébergements ne participent pas au tri : leur place dans une journée
+    // est dérivée (début et fin), pas déduite d'une heure. On les garde à part.
+    const stays = (t.activities || []).filter(isStay);
     const byDate = new Map();
     for (const a of t.activities || []) {
+      if (isStay(a)) continue;
       if (!byDate.has(a.date)) byDate.set(a.date, []);
       byDate.get(a.date).push(a);
     }
@@ -596,7 +674,7 @@ function normalizeOrder(trips) {
       const sched = scheduleForDay(byDate.get(date)).sort((x, y) => x._startMin - y._startMin);
       for (const s of sched) { const { _startMin, _endMin, _auto, ...rest } = s; flat.push(rest); }
     }
-    return { ...t, activities: flat };
+    return { ...t, activities: [...flat, ...stays] };
   });
 }
 
@@ -915,31 +993,35 @@ function ActivityCard({ act, onEdit, onUpdate, onEditDuration, startMin, endMin,
     else setTitle(act.name);
     setEditingTitle(false);
   };
+  const stay = isStay(act);
+  const accent = stay ? STAY_COLOR : C.teal;
   return (
     <div className="flex gap-3">
       {/* colonne horaire + noeuds + durée (cliquable) */}
       <div className="shrink-0 flex flex-col items-center" style={{ width: 66 }}>
         <div style={{ color: C.ink, fontFamily: MONO }} className="text-sm font-semibold">{start}</div>
         {auto && <div style={{ color: C.inkSoft }} className="t10 leading-none">auto</div>}
-        <div style={{ background: C.teal, border: `3px solid ${C.paper}`, boxSizing: "content-box" }} className="mt-1 h-3.5 w-3.5 rounded-full"></div>
+        <div style={{ background: accent, border: `3px solid ${C.paper}`, boxSizing: "content-box" }} className="mt-1 h-3.5 w-3.5 rounded-full"></div>
         {/* ligne verticale avec la durée centrée dessus (grande zone cliquable) */}
         <div className="relative w-full flex-1 flex items-center justify-center py-2" style={{ minHeight: 54 }}>
           <div style={{ background: C.line }} className="absolute w-0.5 h-full" />
-          <button onClick={() => canEdit && onEditDuration(act)} disabled={!canEdit} aria-label="Modifier la durée"
-            style={{ color: C.inkSoft, border: `1px solid ${C.line}`, background: "#fff" }}
-            className="relative inline-flex items-center gap-1 rounded-full px-2.5 py-2 text-xs font-medium leading-none shadow-sm active:scale-95 transition">
-            <Clock size={12} /> {compactDur(act.durationMin)}
-          </button>
+          {!stay && (
+            <button onClick={() => canEdit && onEditDuration(act)} disabled={!canEdit} aria-label="Modifier la durée"
+              style={{ color: C.inkSoft, border: `1px solid ${C.line}`, background: "#fff" }}
+              className="relative inline-flex items-center gap-1 rounded-full px-2.5 py-2 text-xs font-medium leading-none shadow-sm active:scale-95 transition">
+              <Clock size={12} /> {compactDur(act.durationMin)}
+            </button>
+          )}
         </div>
-        <div style={{ border: `2px solid ${C.teal}`, background: C.paper, boxSizing: "content-box" }} className="h-2 w-2 rounded-full"></div>
+        <div style={{ border: `2px solid ${accent}`, background: C.paper, boxSizing: "content-box" }} className="h-2 w-2 rounded-full"></div>
         <div style={{ color: C.inkSoft, fontFamily: MONO }} className="t11 mt-1 leading-none">{end}</div>
       </div>
       {/* corps — un appui long (photo comprise) démarre le déplacement */}
       <div {...longPress}
         style={{
-          background: C.card,
-          border: `1px solid ${dragging ? C.teal : C.line}`,
-          minHeight: 104,
+          background: stay ? STAY_SOFT : C.card,
+          border: `1px solid ${dragging ? C.teal : (stay ? STAY_COLOR : C.line)}`,
+          minHeight: stay ? 76 : 104,
           ...(onDragStart ? { WebkitTouchCallout: "none", WebkitUserSelect: "none", userSelect: "none" } : {}),
           ...(dragging ? { boxShadow: "0 10px 22px rgba(15,23,42,0.18)" } : {}),
         }}
@@ -961,6 +1043,14 @@ function ActivityCard({ act, onEdit, onUpdate, onEditDuration, startMin, endMin,
               />
             ) : (
               <div onClick={() => canEdit && setEditingTitle(true)} style={{ color: C.ink }} className={`font-semibold leading-tight ${canEdit ? "cursor-text" : ""}`}>{act.name}</div>
+            )}
+            {stay && (
+              <div style={{ color: STAY_COLOR }} className="t11 mt-1 inline-flex items-center gap-1 font-medium">
+                <BedDouble size={12} />
+                {act.staySlot === STAY_AM
+                  ? "Départ de l'hébergement"
+                  : `Nuit sur place · ${stayNights(act)} nuit${stayNights(act) > 1 ? "s" : ""}`}
+              </div>
             )}
             {act.place && (
               <div className="mt-1.5 flex flex-col items-start gap-1.5">
@@ -1189,19 +1279,23 @@ function TravelPicker({ from, to, onCancel, onValidate }) {
 }
 
 /* --- Vue d'un séjour ---------------------------------------------- */
-function TripView({ trip, current, onSelectDay, onBack, onAddAct, onEditAct, onEditTrip, onUpdateAct, onEditDuration, onEditTravel, onReorder, canEdit = true, canShare = false, onShare }) {
+function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onEditAct, onEditTrip, onUpdateAct, onEditDuration, onEditTravel, onReorder, canEdit = true, canShare = false, onShare }) {
   const days = daysInRange(trip.startDate, trip.endDate);
   const safeCurrent = current && days.includes(current) ? current : days[0];
+  // Un hébergement compte dans chaque journée où il apparaît, pas seulement à sa
+  // date d'arrivée : le compteur de la pastille suit ce qui est réellement affiché.
   const counts = useMemo(() => {
-    const c = {}; trip.activities.forEach((a) => { c[a.date] = (c[a.date] || 0) + 1; }); return c;
-  }, [trip.activities]);
+    const c = {};
+    for (const d of days) c[d] = dayList(trip.activities, d).length;
+    return c;
+  }, [trip.activities, days]);
 
   // Temps de trajet réels (Google) pour la journée affichée : dès qu'ils arrivent,
   // le compteur change et les heures "auto" sont recalculées avec ces durées.
   const [travelTick, setTravelTick] = useState(0);
   useEffect(() => {
     let alive = true;
-    const seq = trip.activities.filter((a) => a.date === safeCurrent);
+    const seq = dayList(trip.activities, safeCurrent);
     const legs = [];
     for (let i = 0; i < seq.length - 1; i++) {
       const l = travelRequestFor(seq[i], seq[i + 1]);
@@ -1214,7 +1308,7 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onEditAct, onE
 
   // Activités du jour dans l'ordre de séquence, avec heures effectives calculées (auto = cascade).
   const acts = useMemo(
-    () => scheduleForDay(trip.activities.filter((a) => a.date === safeCurrent)),
+    () => scheduleForDay(dayList(trip.activities, safeCurrent)),
     [trip.activities, safeCurrent, travelTick]
   );
 
@@ -1325,7 +1419,7 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onEditAct, onE
                   <ActivityCard act={a} onEdit={onEditAct} onUpdate={onUpdateAct} onEditDuration={onEditDuration}
                     startMin={a._startMin} endMin={a._endMin} auto={a._auto}
                     prev={i > 0 ? acts[i - 1] : null} canEdit={canEdit} dragging={!!isDragged}
-                    onDragStart={canEdit && acts.length > 1 && !drag ? (y) => startDrag(i, a.id, y) : null} />
+                    onDragStart={canEdit && !isStay(a) && acts.filter((x) => !isStay(x)).length > 1 && !drag ? (y) => startDrag(i, a.id, y) : null} />
                 </div>
                 {i < acts.length - 1 && <TravelLeg from={a} to={acts[i + 1]} leg={legBetween(a, acts[i + 1])}
                   fromEndMin={a._endMin} toStartMin={acts[i + 1]._startMin} onEdit={canEdit && !drag ? onEditTravel : undefined} />}
@@ -1342,7 +1436,7 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onEditAct, onE
                 Fin : {minToTime(acts[acts.length - 1]._endMin)}
               </div>
             </div>
-            {canEdit && acts.length > 1 && (
+            {canEdit && acts.filter((a) => !isStay(a)).length > 1 && (
               <div style={{ color: C.inkSoft }} className="t11 mt-5 flex items-center gap-1">
                 <MoreVertical size={12} /> Appui long sur une activité pour la déplacer
               </div>
@@ -1354,8 +1448,13 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onEditAct, onE
       {/* bouton flottant ajouter (masqué en lecture seule) */}
       {canEdit && (
         <div className="fixed bottom-0 inset-x-0 z-20 pointer-events-none">
-          <div className="mx-auto max-w-md px-4 pb-5 pt-2 flex justify-end"
+          <div className="mx-auto max-w-md px-4 pb-5 pt-2 flex justify-end gap-2"
             style={{ background: "linear-gradient(to top, rgba(244,246,247,0.95), rgba(244,246,247,0))" }}>
+            {/* Deux ajouts distincts : une étape ordinaire, ou l'hébergement de la nuit. */}
+            <button onClick={onAddStay} style={{ background: STAY_COLOR }}
+              className="pointer-events-auto text-white rounded-full pl-4 pr-5 py-3.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
+              <Plus size={20} /> Dormir
+            </button>
             <button onClick={onAddAct} style={{ background: C.teal }}
               className="pointer-events-auto text-white rounded-full pl-4 pr-5 py-3.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
               <Plus size={20} /> Activité
@@ -1369,6 +1468,9 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onEditAct, onE
 
 /* --- Éditeur d'activité (feuille) --------------------------------- */
 function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onDelete }) {
+  // Un hébergement se saisit autrement : pas de durée, mais un nombre de nuits et
+  // une heure de départ le matin. Le reste du formulaire est commun.
+  const stay = draft.kind === "stay";
   const [customOpen, setCustomOpen] = useState(false);
   const [ch, setCh] = useState(0);
   const [cm, setCm] = useState(0);
@@ -1389,9 +1491,27 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
     // On garde le nom court : la partie avant la 1re virgule (Google renvoie "Nom, code postal ville").
     const shortName = info?.name ? info.name.split(",")[0].trim() : "";
     if (shortName) setDraft((d) => (d.name && d.name.trim() ? d : { ...d, name: shortName }));
+    // Lien de partage court : c'est l'Edge Function qui a dû le déplier pour en
+    // sortir les dates.
+    if (stay && info?.checkIn) applyStayDates(info);
   };
 
   const [pasteError, setPasteError] = useState("");
+  const [stayInfo, setStayInfo] = useState("");
+
+  // Applique les dates de réservation lues dans un lien. L'arrivée n'est reprise
+  // que si elle tombe dans les dates du séjour : le sélecteur ne propose que
+  // celles-là, et une valeur hors plage n'y serait pas représentable.
+  const applyStayDates = (d) => {
+    if (!stay || !d || !d.checkIn) return;
+    const n = d.nights && d.nights > 0 ? Math.min(60, d.nights) : null;
+    const dansLeSejour = days.includes(d.checkIn);
+    setDraft((x) => ({ ...x, ...(dansLeSejour ? { date: d.checkIn } : {}), ...(n ? { nights: n } : {}) }));
+    const nuits = n ? `${n} nuit${n > 1 ? "s" : ""}` : null;
+    setStayInfo(dansLeSejour
+      ? `Réservation lue dans le lien : arrivée le ${fmtShort(d.checkIn)}${nuits ? `, ${nuits}` : ""}.`
+      : `Le lien annonce une arrivée le ${fmtShort(d.checkIn)}, hors des dates du séjour${nuits ? ` (${nuits} reprises)` : ""} : choisissez l'arrivée à la main.`);
+  };
 
   // Mise à jour du champ Lieu : dès qu'on y met un lien (collage OU saisie),
   // on tente de renseigner le nom automatiquement (une seule fois par lien).
@@ -1401,6 +1521,8 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
     const t = (v || "").trim();
     if (isUrl(t) && t !== lastLinkRef.current) {
       lastLinkRef.current = t;
+      // Un lien long porte ses dates en clair : on les lit sans attendre le réseau.
+      if (stay) applyStayDates(stayDatesFromUrl(t));
       fillNameFromLink(t);
     }
   };
@@ -1432,7 +1554,9 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
   };
 
   // Heure : "auto" (calculée) ou fixe. La 1re activité du jour est forcément fixe.
-  const dayOrdered = scheduleForDay(allActs.filter((a) => a.date === draft.date)).sort((a, b) => a._startMin - b._startMin);
+  // dayList place l'hébergement de la nuit précédente en tête : une activité qui
+  // le suit n'est donc pas « première du jour » et garde le droit d'être en auto.
+  const dayOrdered = scheduleForDay(dayList(allActs, draft.date));
   const isFirstOfDay = dayOrdered.length === 0 || dayOrdered[0].id === draft.id;
   const timeAuto = isAutoTime(draft.startTime) && !isFirstOfDay;
   const mine = dayOrdered.find((a) => a.id === draft.id);
@@ -1456,7 +1580,9 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
         {/* en-tête fixe */}
         <div style={{ background: C.paper, borderColor: C.line }} className="px-4 pt-4 pb-3 flex items-center gap-3 border-b">
           <div style={{ color: C.ink }} className="font-semibold text-lg flex-1">
-            {draft.mode === "new" ? "Nouvelle activité" : "Modifier l'activité"}
+            {stay
+              ? (draft.mode === "new" ? "Nouvel hébergement" : "Modifier l'hébergement")
+              : (draft.mode === "new" ? "Nouvelle activité" : "Modifier l'activité")}
           </div>
           <IconBtn onClick={onClose} label="Fermer"><X size={22} /></IconBtn>
         </div>
@@ -1464,8 +1590,8 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
         {/* contenu défilant */}
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
           {/* nom */}
-          <Field label="Nom de l'activité">
-            <input value={draft.name} onChange={(e) => upd("name", e.target.value)} placeholder="Ex. Rocher de la Vierge"
+          <Field label={stay ? "Nom de l'hébergement" : "Nom de l'activité"}>
+            <input value={draft.name} onChange={(e) => upd("name", e.target.value)} placeholder={stay ? "Ex. Hôtel du Palais" : "Ex. Rocher de la Vierge"}
               style={inputStyle} className="w-full rounded-xl px-3 py-2.5 outline-none" />
           </Field>
 
@@ -1492,10 +1618,20 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
             {pasteError && (
               <div style={{ color: C.amber }} className="text-xs">{pasteError}</div>
             )}
-            <div style={{ color: C.inkSoft }} className="t11">Collez un lien Google Maps : le nom de l'activité se remplit tout seul, et l'itinéraire/les trajets sont estimés.</div>
+            {stay && stayInfo && (
+              <div style={{ color: STAY_COLOR }} className="text-xs flex items-start gap-1">
+                <BedDouble size={13} className="mt-0.5 shrink-0" /> {stayInfo}
+              </div>
+            )}
+            <div style={{ color: C.inkSoft }} className="t11">
+              {stay
+                ? "Collez un lien Google Maps, Airbnb ou Booking : le nom, et les dates de réservation quand le lien les porte, se remplissent tout seuls."
+                : "Collez un lien Google Maps : le nom de l'activité se remplit tout seul, et l'itinéraire/les trajets sont estimés."}
+            </div>
           </div>
 
           {/* durée */}
+          {!stay && (
           <Field label="Durée">
             <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
               {durChips.map((d) => {
@@ -1511,15 +1647,53 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
                 className="shrink-0 rounded-full px-2.5 py-1 text-xs active:scale-95 transition">{!isPreset ? compactDur(draft.durationMin) : "…"}</button>
             </div>
           </Field>
+          )}
+
+          {/* nuits — propre à l'hébergement */}
+          {stay && (
+            <Field label="Nombre de nuits">
+              <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
+                {[1, 2, 3, 4, 5, 6, 7].map((n) => {
+                  const active = Math.max(1, Number(draft.nights) || 1) === n;
+                  return (
+                    <button key={n} type="button" onClick={() => upd("nights", n)}
+                      style={{ background: active ? STAY_COLOR : "#fff", color: active ? "#fff" : C.ink, border: `1px solid ${active ? STAY_COLOR : C.line}`, fontFamily: MONO }}
+                      className="shrink-0 rounded-full px-3 py-1 text-xs active:scale-95 transition">{n}</button>
+                  );
+                })}
+              </div>
+              <input type="number" min="1" max="60" value={draft.nights ?? 1}
+                onChange={(e) => upd("nights", Math.max(1, Math.min(60, Number(e.target.value) || 1)))}
+                style={{ ...inputStyle, fontFamily: MONO }} className="w-full rounded-xl px-3 py-2.5 mt-2 outline-none" />
+              <div style={{ color: C.inkSoft }} className="t11 mt-1.5">
+                Départ le {fmtShort(toISO(addDays(parseDate(draft.date), Math.max(1, Number(draft.nights) || 1))))}.
+                L'hébergement clôt chaque journée et ouvre la suivante.
+              </div>
+            </Field>
+          )}
 
           {/* jour */}
-          <Field label="Jour">
+          <Field label={stay ? "Arrivée" : "Jour"}>
             <select value={draft.date} onChange={(e) => upd("date", e.target.value)} style={inputStyle} className="w-full rounded-xl px-3 py-2.5 outline-none capitalize">
               {days.map((d, i) => <option key={d} value={d}>J{i + 1} · {fmtShort(d)}</option>)}
             </select>
           </Field>
 
+          {/* heure de départ le matin — l'arrivée du soir se déduit du trajet */}
+          {stay && (
+            <Field label="Heure de départ le matin">
+              <input type="time" value={isAutoTime(draft.startTime) ? STAY_LEAVE_TIME : draft.startTime}
+                onChange={(e) => upd("startTime", e.target.value)}
+                style={{ ...inputStyle, fontFamily: MONO }} className="w-full rounded-xl px-3 py-2.5 outline-none" />
+              <div style={{ color: C.inkSoft }} className="t11 mt-1">
+                Heure à laquelle vous quittez les lieux, chaque matin du séjour sauf le premier.
+                L'heure d'arrivée du soir, elle, découle du trajet depuis l'étape précédente.
+              </div>
+            </Field>
+          )}
+
           {/* heure de début : auto (cascade) ou fixe */}
+          {!stay && (
           <Field label="Heure de début">
             {isFirstOfDay ? (
               <>
@@ -1548,6 +1722,7 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
               </>
             )}
           </Field>
+          )}
 
           {/* notes */}
           <Field label="Notes (facultatif)">
@@ -1561,7 +1736,7 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
           <button onClick={handleSave} disabled={nameError || saving}
             style={{ background: (nameError || saving) ? C.inkSoft : C.teal, opacity: (nameError || saving) ? 0.6 : 1 }}
             className="w-full text-white rounded-xl py-3 font-medium active:scale-95 transition">
-            {saving ? "Enregistrement…" : (draft.mode === "new" ? "Ajouter l'activité" : "Enregistrer")}
+            {saving ? "Enregistrement…" : (draft.mode === "new" ? (stay ? "Ajouter l'hébergement" : "Ajouter l'activité") : "Enregistrer")}
           </button>
           {nameError && <div style={{ color: C.warn }} className="text-xs">Le nom est requis.</div>}
 
@@ -1569,7 +1744,7 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
               Celle d'un séjour en garde une — elle emporte toutes ses étapes. */}
           {draft.mode === "edit" && (
             <button onClick={onDelete} style={{ color: C.warn }} className="w-full rounded-xl py-2.5 font-medium inline-flex items-center justify-center gap-1.5">
-              <Trash2 size={16} /> Supprimer l'activité
+              <Trash2 size={16} /> {stay ? "Supprimer l'hébergement" : "Supprimer l'activité"}
             </button>
           )}
         </div>
@@ -2120,20 +2295,35 @@ function SejourApp() {
   // rempli (lien reçu par partage). Prend le séjour en paramètre : à l'arrivée
   // d'un partage, l'état `trip` n'est pas encore à jour.
   const openNewActivity = (t, day, placeRaw = "") => {
-    const dayActs = (t.activities || []).filter((a) => a.date === day);
-    // 1re activité du jour : heure fixe ; les suivantes : "auto" (calculées en cascade).
-    const startTime = dayActs.length ? AUTO : "09:00";
-    setEditor({ mode: "new", id: uid(), date: day, name: "", category: "visite", startTime, durationMin: 60, placeRaw, travelMode: MODE_AUTO, travelMinutes: "", notes: "" });
+    // 1re activité du jour : heure fixe ; les suivantes : "auto" (calculées en
+    // cascade). Un hébergement au petit matin compte comme première étape.
+    const startTime = dayList(t.activities, day).length ? AUTO : "09:00";
+    setEditor({ mode: "new", kind: "act", id: uid(), date: day, name: "", category: "visite", startTime, durationMin: 60, placeRaw, travelMode: MODE_AUTO, travelMinutes: "", notes: "", nights: null });
   };
   const newActivity = () => {
     const day = curDay && days.includes(curDay) ? curDay : days[0];
     openNewActivity(trip, day);
   };
-  const editActivity = (a) => setEditor({
-    mode: "edit", id: a.id, date: a.date, name: a.name, category: a.category, startTime: a.startTime, durationMin: a.durationMin,
-    placeRaw: a.place ? (a.place.url || a.place.address || (a.place.lat != null ? `${a.place.lat}, ${a.place.lng}` : (a.place.name || ""))) : "",
-    travelMode: a.travelMode, travelMinutes: a.travelMinutes ?? "", notes: a.notes || "",
-  });
+  // Hébergement : l'heure saisie est celle du départ le matin ; l'arrivée du soir
+  // découle du trajet. Aucune durée, mais un nombre de nuits.
+  const newStay = () => {
+    const day = curDay && days.includes(curDay) ? curDay : days[0];
+    setEditor({ mode: "new", kind: "stay", id: uid(), date: day, name: "", category: "dormir",
+      startTime: STAY_LEAVE_TIME, durationMin: 0, placeRaw: "", travelMode: MODE_AUTO,
+      travelMinutes: "", notes: "", nights: 1 });
+  };
+  const editActivity = (entry) => {
+    // Les entrées d'hébergement affichées sont dérivées : on modifie la
+    // réservation enregistrée, avec sa date d'arrivée et son nombre de nuits.
+    const a = entry.stayOf ? (trip.activities.find((x) => x.id === entry.stayOf) || entry) : entry;
+    setEditor({
+      mode: "edit", kind: isStay(a) ? "stay" : "act",
+      id: a.id, date: a.date, name: a.name, category: a.category, startTime: a.startTime, durationMin: a.durationMin,
+      nights: isStay(a) ? stayNights(a) : null,
+      placeRaw: a.place ? (a.place.url || a.place.address || (a.place.lat != null ? `${a.place.lat}, ${a.place.lng}` : (a.place.name || ""))) : "",
+      travelMode: a.travelMode, travelMinutes: a.travelMinutes ?? "", notes: a.notes || "",
+    });
+  };
   const buildPlace = (name, coords) => {
     const n = name.trim();
     if (coords) return { name: n || null, lat: coords.lat, lng: coords.lng };
@@ -2169,10 +2359,14 @@ function SejourApp() {
         place = g ? { name: raw, address: raw, lat: g.lat, lng: g.lng, url: null } : { name: raw, address: raw, lat: null, lng: null, url: null };
       }
     }
+    const isStayDraft = d.kind === "stay";
     const act = {
-      id: d.id, date: d.date, name: d.name.trim(), category: d.category, startTime: d.startTime,
-      durationMin: Number(d.durationMin) || 0, place,
+      id: d.id, date: d.date, name: d.name.trim(),
+      category: isStayDraft ? "dormir" : d.category,
+      startTime: isStayDraft ? (isAutoTime(d.startTime) ? STAY_LEAVE_TIME : d.startTime) : d.startTime,
+      durationMin: isStayDraft ? 0 : (Number(d.durationMin) || 0), place,
       travelMode: d.travelMode, travelMinutes: d.travelMinutes === "" ? null : Number(d.travelMinutes), notes: d.notes.trim(),
+      nights: isStayDraft ? Math.max(1, Math.min(60, Number(d.nights) || 1)) : null,
     };
     // Une activité modifiée reprend SA place dans la liste. L'ordre du tableau
     // porte la cascade des heures « auto » (chacune part de la fin de la
@@ -2195,19 +2389,27 @@ function SejourApp() {
   };
   // Déplacement manuel d'une activité dans la journée (appui long + glisser).
   // `to` est l'emplacement d'insertion mesuré sur la liste d'origine.
+  // `from` et `to` sont des positions dans la séquence AFFICHÉE, qui comprend les
+  // hébergements dérivés. Ceux-ci sont figés : on ne les déplace pas, et rien ne
+  // passe avant celui du matin ni après celui du soir.
   const reorderActivities = (date, from, to) => {
     if (!trip) return;
-    const insertAt = to > from ? to - 1 : to;
+    const seq = scheduleForDay(dayList(trip.activities, date));
+    if (from < 0 || from >= seq.length || isStay(seq[from])) return;
+    const firstFree = seq.findIndex((a) => !isStay(a));
+    const lastFree = seq.length - 1 - [...seq].reverse().findIndex((a) => !isStay(a));
+    if (firstFree < 0) return;
+    const target = Math.max(firstFree, Math.min(to, lastFree + 1));
+    const insertAt = target > from ? target - 1 : target;
     if (insertAt === from) return;
-    const dayActs = scheduleForDay(trip.activities.filter((a) => a.date === date));
-    if (from < 0 || from >= dayActs.length) return;
-    const firstStart = dayActs.length ? dayActs[0]._startMin : null;
-    const moved = dayActs.map(({ _startMin, _endMin, _auto, ...rest }) => rest);
+    const firstStart = seq.length ? seq[0]._startMin : null;
+    const moved = seq.map(({ _startMin, _endMin, _auto, ...rest }) => rest);
     const [item] = moved.splice(from, 1);
     moved.splice(Math.max(0, Math.min(insertAt, moved.length)), 0, item);
     // Heures "auto" et trajets sont recalculés en cascade sur le nouvel ordre.
-    const reordered = enforceManualOrder(moved, firstStart);
-    const others = trip.activities.filter((a) => a.date !== date);
+    // Les entrées d'hébergement ne sont pas enregistrées : on les retire ensuite.
+    const reordered = enforceManualOrder(moved, firstStart).filter((a) => !isStay(a));
+    const others = trip.activities.filter((a) => isStay(a) || a.date !== date);
     commit(trips.map((t) => t.id === trip.id ? { ...t, activities: [...others, ...reordered] } : t));
   };
   const updateActivity = (actId, patch) => {
@@ -2257,7 +2459,7 @@ function SejourApp() {
       ) : (
         <TripView
           trip={trip} current={curDay} onSelectDay={setCurDay}
-          onBack={() => setTripId(null)} onAddAct={newActivity} onEditAct={editActivity} onEditTrip={editTrip}
+          onBack={() => setTripId(null)} onAddAct={newActivity} onAddStay={newStay} onEditAct={editActivity} onEditTrip={editTrip}
           onUpdateAct={updateActivity} onReorder={reorderActivities}
           onEditDuration={(a) => setDurEdit({ id: a.id, durationMin: a.durationMin })}
           onEditTravel={(from, to) => setTravelEdit({ fromId: from.id, toId: to.id })}
