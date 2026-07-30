@@ -2407,25 +2407,34 @@ function SejourApp() {
       }
     }
     const isStayDraft = d.kind === "stay";
-    // Hébergement : l'adresse saisie est rattachée au lieu, c'est elle qui servira
-    // d'itinéraire. Sans lien par ailleurs, on la géocode pour que les temps de
-    // trajet restent estimables ; avec un lien, les coordonnées déjà obtenues
-    // suffisent — l'itinéraire, lui, passera par l'adresse de toute façon.
+    // Hébergement : dès qu'une adresse est saisie, ce sont SES coordonnées qui
+    // situent le lieu. Un lien de réservation ne désigne qu'un quartier, et le
+    // nom qu'on en tire tombe au mieux devant la façade : les temps de trajet
+    // calculés depuis ce point-là sont faux. L'adresse, elle, situe la porte.
+    // On garde par ailleurs le lien (bouton « Lieu ») et le nom du lieu Google
+    // (photo), que ce recalage ne concerne pas.
     if (isStayDraft) {
       const addr = (d.addressRaw || "").trim();
       if (addr) {
-        if (place) place = { ...place, address: addr };
-        else if (prevPlace && prevPlace.address === addr && prevPlace.lat != null) place = { ...prevPlace };
-        else {
+        const base = place || { name: d.name.trim() || addr, mapsName: null, url: null, lat: null, lng: null };
+        place = { ...base, address: addr };
+        // fromAddress marque des coordonnées déjà issues de l'adresse : inutile de
+        // regéocoder tant qu'elle ne change pas. Sans ce repère, un lieu enregistré
+        // avant cette règle garde les coordonnées du lien et se corrige au premier
+        // réenregistrement.
+        const dejaSituee = prevPlace && prevPlace.fromAddress && prevPlace.address === addr && prevPlace.lat != null;
+        if (dejaSituee) {
+          place = { ...place, lat: prevPlace.lat, lng: prevPlace.lng, fromAddress: true };
+        } else {
           const g = await geocodeText(addr);
-          const nom = d.name.trim() || addr;
-          place = g
-            ? { name: nom, address: addr, lat: g.lat, lng: g.lng, url: null }
-            : { name: nom, address: addr, lat: null, lng: null, url: null };
+          // Adresse introuvable : on conserve les coordonnées en place plutôt que
+          // de laisser le lieu sans point du tout.
+          if (g) place = { ...place, lat: g.lat, lng: g.lng, fromAddress: true };
         }
-      } else if (place && place.address) {
-        // Adresse effacée : on ne la garde pas en base.
-        const { address, ...reste } = place;
+      } else if (place && (place.address || place.fromAddress)) {
+        // Adresse effacée : on ne la garde pas en base. Les coordonnées obtenues
+        // par son entremise restent, faute de mieux : elles situent l'hébergement.
+        const { address, fromAddress, ...reste } = place;
         place = reste;
       }
     }
