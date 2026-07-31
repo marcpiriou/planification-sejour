@@ -1058,7 +1058,9 @@ function ActivityCard({ act, onEdit, onUpdate, onEditDuration, startMin, endMin,
           )}
         </div>
         <div style={{ border: `2px solid ${accent}`, background: C.paper, boxSizing: "content-box" }} className="h-2 w-2 rounded-full"></div>
-        <div style={{ color: C.inkSoft, fontFamily: MONO }} className="t11 mt-1 leading-none">{end}</div>
+        {/* Un hébergement ne dure pas : son heure de fin vaut son heure de début,
+            la répéter n'apprendrait rien. */}
+        {!stay && <div style={{ color: C.inkSoft, fontFamily: MONO }} className="t11 mt-1 leading-none">{end}</div>}
       </div>
       {/* corps — un appui long (photo comprise) démarre le déplacement */}
       <div {...longPress}
@@ -1208,7 +1210,9 @@ function TravelLeg({ from, to, leg, onEdit, variant, fromEndMin, toStartMin }) {
 
   return (
     <div className="flex gap-3">
-      <div className="shrink-0 flex justify-center" style={{ width: 52 }}>
+      {/* Même largeur que la colonne horaire d'une carte (66) : sans cela le trait
+          tombait 7 px à gauche de l'axe des pastilles. */}
+      <div className="shrink-0 flex justify-center" style={{ width: 66 }}>
         <div style={{ background: C.line }} className="w-0.5" />
       </div>
       <div className="flex-1 pb-1 mt-2 mb-1">
@@ -1547,7 +1551,7 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onE
             })}
             {/* fin de journée */}
             <div className="flex gap-3">
-              <div className="shrink-0 flex justify-center" style={{ width: 52 }}>
+              <div className="shrink-0 flex justify-center" style={{ width: 66 }}>
                 <div style={{ background: C.teal }} className="h-3.5 w-3.5 rounded-full mt-0" />
               </div>
               <div style={{ color: C.inkSoft }} className="text-xs pt-0.5">
