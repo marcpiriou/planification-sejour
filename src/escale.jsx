@@ -275,6 +275,10 @@ const dayMarkers = (acts) => {
       label: MAP_LABELS[out.length],
       name: a.name || "",
       url: googlePlaceUrl(a),
+      // Le lieu voyage avec le repère : la fiche Google de la bulle a besoin de
+      // son identifiant, résolu à la demande au premier toucher.
+      place: p,
+      stay: isStay(a),
     });
   }
   return out;
@@ -606,7 +610,10 @@ async function fetchTravelTimes(legs) {
   }
 }
 
-// Récupère (et met en cache) l'URL d'une photo Google du lieu, via l'Edge Function place-photo.
+// Identifie le lieu chez Google et met le résultat en cache, via l'Edge Function
+// place-photo : son URL de photo et son identifiant (placeId), qui sert à la fiche
+// Google de la carte. Une seule requête pour les deux, partagée par la carte et la
+// vignette de l'activité.
 //
 // La photo provient UNIQUEMENT du lieu Google Maps désigné par le lien collé
 // dans le champ « Lieu » : on n'interroge Google qu'avec le nom que Google
@@ -615,8 +622,8 @@ async function fetchTravelTimes(legs) {
 // photo : la recherche textuelle renverrait le lieu le plus proche du texte,
 // pas le bon — c'est ainsi qu'une vitrine de Maisons du Monde se retrouvait en
 // photo d'un domicile. Sans lien, l'application affiche l'icône générique.
-const photoCache = new Map(); // clé -> Promise<string|null>
-function fetchPlacePhoto(place) {
+const photoCache = new Map(); // clé -> Promise<{photoUri, placeId}|null>
+function fetchPlaceInfo(place) {
   if (!place) return Promise.resolve(null);
   const q = place.mapsName && !isUrl(place.mapsName) ? place.mapsName.trim() : "";
   if (!q) return Promise.resolve(null);
@@ -627,13 +634,15 @@ function fetchPlacePhoto(place) {
       const body = { query: q };
       if (place.lat != null && place.lng != null) { body.lat = place.lat; body.lng = place.lng; }
       const { data, error } = await supabase.functions.invoke("place-photo", { body });
-      if (error || !data || !data.photoUri) return null;
-      return data.photoUri;
+      if (error || !data) return null;
+      return { photoUri: data.photoUri || null, placeId: data.placeId || null };
     } catch { return null; }
   })();
   photoCache.set(key, p);
   return p;
 }
+const fetchPlacePhoto = (place) => fetchPlaceInfo(place).then((i) => (i && i.photoUri) || null);
+const fetchPlaceId = (place) => fetchPlaceInfo(place).then((i) => (i && i.placeId) || null);
 
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
@@ -1285,13 +1294,20 @@ function loadGoogleMaps() {
     if (error || !key) throw new Error((data && data.error) || "clé Google indisponible");
     await new Promise((resolve, reject) => {
       const el = document.createElement("script");
-      el.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&language=fr&loading=async`;
+      // libraries=places : les composants de fiche de lieu (Places UI Kit) sont
+      // définis par cette bibliothèque, pas par le cœur de l'API.
+      el.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&libraries=places&language=fr&loading=async`;
       el.async = true;
       el.onload = resolve;
       el.onerror = () => reject(new Error("chargement de Google Maps impossible"));
       document.head.appendChild(el);
     });
     if (!window.google?.maps) throw new Error("Google Maps n'a pas pu démarrer");
+    // Repli si la bibliothèque n'est pas venue avec le script : l'API moderne
+    // sait la charger à la demande.
+    if (!window.google.maps.places && typeof window.google.maps.importLibrary === "function") {
+      try { await window.google.maps.importLibrary("places"); } catch { /* la carte marche sans fiches */ }
+    }
     return window.google.maps;
   })().catch((e) => { mapsLoader = null; throw e; });
   return mapsLoader;
@@ -1340,6 +1356,74 @@ const markerIcon = (maps, color, numero, nom) => {
   };
 };
 
+/* --- Fiche d'une étape, dans une bulle sur la carte ----------------- */
+// Toucher un repère ouvre la fiche sur la carte, sans quitter l'application.
+// C'est la fiche de Google elle-même — photos, note, avis, horaires — rendue par
+// le composant « Place Details » du Places UI Kit. Il lui faut un identifiant de
+// lieu, que l'application ne stocke pas : il est résolu au premier toucher par
+// l'Edge Function place-photo, sous la même vérification que la photo (nom écrit
+// par Google dans l'URL, distance au point épinglé). Une étape sans lien Google —
+// une adresse tapée, un lien Airbnb — n'a pas de fiche : la bulle se rabat alors
+// sur ce que l'application sait du lieu.
+const FICHE_W = 280; // le composant compact n'est pas supporté sous 160 px
+
+const ligneLien = (href, texte) => {
+  const a = document.createElement("a");
+  a.href = href;
+  a.target = "_blank";
+  a.rel = "noopener noreferrer";
+  a.textContent = texte;
+  a.style.cssText = `display:block;margin-top:8px;font:600 12px ${SANS};color:${C.teal};text-decoration:none`;
+  return a;
+};
+
+const blocTexte = (texte, style) => {
+  const d = document.createElement("div");
+  d.textContent = texte;
+  d.style.cssText = style;
+  return d;
+};
+
+// Bulle de repli : le nom de l'étape, son adresse ou ses coordonnées, et le lien
+// vers Google Maps — l'ancien comportement du repère, devenu un choix.
+const bulleLocale = (m, note = "") => {
+  const box = document.createElement("div");
+  box.style.cssText = `max-width:${FICHE_W}px;font-family:${SANS}`;
+  box.appendChild(blocTexte(m.name || "Étape", `font:600 14px ${SANS};color:${C.ink}`));
+  const sous = (m.place && typeof m.place.address === "string" && m.place.address.trim())
+    || (m.place && m.place.lat != null ? `${m.place.lat.toFixed(5)}, ${m.place.lng.toFixed(5)}` : "");
+  if (sous) box.appendChild(blocTexte(sous, `margin-top:4px;font:400 12px ${SANS};color:${C.inkSoft}`));
+  if (note) box.appendChild(blocTexte(note, `margin-top:6px;font:400 11px ${SANS};color:${C.warn}`));
+  if (m.url) box.appendChild(ligneLien(m.url, "Ouvrir dans Google Maps ↗"));
+  return box;
+};
+
+// Bulle Google : la fiche du Places UI Kit, plus le lien vers la page complète.
+// La fiche vit dans un shadow DOM : sa mise en forme se pose sur l'élément
+// lui-même, aucune règle CSS extérieure ne l'atteint.
+const bulleGoogle = (maps, m, placeId) => {
+  const P = maps.places;
+  const box = document.createElement("div");
+  box.style.cssText = `width:${FICHE_W}px;font-family:${SANS}`;
+  const fiche = new P.PlaceDetailsCompactElement({
+    orientation: P.PlaceDetailsOrientation ? P.PlaceDetailsOrientation.VERTICAL : undefined,
+  });
+  fiche.style.cssText = "width:100%;margin:0;padding:0;border:none;background:transparent;color-scheme:light";
+  // Contenu d'abord, requête ensuite : le chargement ne part jamais avant de
+  // savoir quoi afficher.
+  if (P.PlaceAllContentElement) fiche.appendChild(new P.PlaceAllContentElement());
+  else if (P.PlaceStandardContentElement) fiche.appendChild(new P.PlaceStandardContentElement());
+  fiche.appendChild(new P.PlaceDetailsPlaceRequestElement({ place: placeId }));
+  // Fiche refusée par Google (Places UI Kit non activé sur le projet, quota) :
+  // on ne laisse pas une bulle vide, on retombe sur nos informations.
+  fiche.addEventListener("gmp-error", () => {
+    box.replaceChildren(bulleLocale(m, "Fiche Google indisponible (API « Places UI Kit » à activer sur le projet)."));
+  });
+  box.appendChild(fiche);
+  if (m.url) box.appendChild(ligneLien(m.url, "Ouvrir dans Google Maps ↗"));
+  return box;
+};
+
 function DayMapSheet({ markers, dayLabel, onClose }) {
   const hote = useRef(null);
   const [erreur, setErreur] = useState("");
@@ -1358,6 +1442,27 @@ function DayMapSheet({ markers, dayLabel, onClose }) {
         zoomControl: true,
         gestureHandling: "greedy",   // un doigt suffit à déplacer la carte
       });
+      // Une seule bulle à la fois : deux fiches ouvertes masqueraient la carte.
+      const bulle = new maps.InfoWindow({ maxWidth: FICHE_W + 32 });
+      let ouvertePour = null;
+      const ferme = () => { bulle.close(); ouvertePour = null; };
+      bulle.addListener("closeclick", () => { ouvertePour = null; });
+      carte.addListener("click", ferme);
+
+      // La fiche Google n'est demandée qu'au toucher, et pour ce seul lieu :
+      // chaque affichage est facturé, ouvrir la carte n'en paie aucun.
+      const montreFiche = async (m, marqueur) => {
+        if (ouvertePour === m) return ferme(); // deuxième toucher : on referme
+        ouvertePour = m;
+        bulle.setContent(blocTexte("Chargement de la fiche…", `font:400 12px ${SANS};color:${C.inkSoft}`));
+        bulle.open({ anchor: marqueur, map: carte });
+        const utilisable = maps.places && maps.places.PlaceDetailsCompactElement;
+        const placeId = utilisable ? await fetchPlaceId(m.place) : null;
+        // L'utilisateur a pu toucher ailleurs pendant la résolution.
+        if (!alive || ouvertePour !== m) return;
+        bulle.setContent(placeId ? bulleGoogle(maps, m, placeId) : bulleLocale(m));
+      };
+
       markers.forEach((m) => {
         const pos = { lat: m.lat, lng: m.lng };
         bounds.extend(pos);
@@ -1367,8 +1472,7 @@ function DayMapSheet({ markers, dayLabel, onClose }) {
           // superposerait au dessin.
           icon: markerIcon(maps, m.color, m.label, m.name),
         });
-        // Toucher un repère ouvre la fiche Google Maps de l'étape.
-        if (m.url) marqueur.addListener("click", () => window.open(m.url, "_blank", "noopener"));
+        marqueur.addListener("click", () => montreFiche(m, marqueur));
       });
       if (markers.length === 1) { carte.setCenter(bounds.getCenter()); carte.setZoom(15); }
       else carte.fitBounds(bounds, 48);

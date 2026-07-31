@@ -38,9 +38,27 @@ npm run preview    # sert dist/ (service worker actif) ; --host pour tester depu
 ## Carte de la journée
 Le bouton carte de l'en-tête d'un séjour ouvre une carte Google **plein écran**,
 déplaçable et zoomable, avec un repère par étape à sa couleur — indigo pour un
-hébergement, teal pour le reste. Toucher un repère ouvre la **fiche Google Maps**
-de l'étape : son adresse pour un hébergement, ses coordonnées sinon. Un lien de
-réservation (Airbnb, Booking) n'est jamais suivi ici, ce n'est pas une fiche Google.
+hébergement, teal pour le reste — le nom de l'étape écrit dans le repère.
+
+Toucher un repère ouvre la **fiche du lieu dans une bulle sur la carte**, sans
+quitter l'application : c'est la fiche de Google elle-même (photos, note, avis,
+horaires), rendue par le composant *Place Details* du **Places UI Kit**. Une seule
+bulle est ouverte à la fois ; toucher la carte, ou le même repère à nouveau, la
+referme. Un lien vers la page Google Maps complète reste sous la fiche.
+
+La fiche réclame un identifiant de lieu que l'application ne stocke pas : il est
+résolu au premier toucher par l'Edge Function `place-photo`, qui le renvoie avec la
+photo — une seule requête sert les deux, et le résultat est mis en cache avec celui
+des vignettes de la timeline. Ce placeId passe la **même vérification** que la photo
+(nom écrit par Google dans l'URL, distance au point épinglé) : une fiche de commerce
+voisin serait aussi fausse qu'une vitrine en photo de domicile. Les fiches sont
+facturées à l'affichage : ouvrir la carte n'en paie aucune, seul un toucher compte.
+
+Deux cas sans fiche Google, où la bulle affiche ce que l'application sait du lieu
+(nom, adresse ou coordonnées, lien Maps) : une étape sans lien Google — adresse
+tapée, lien Airbnb ou Booking — et une fiche refusée par Google, dont la cause est
+alors écrite dans la bulle. Le **Places UI Kit** doit être activé sur le projet
+Google, en plus de l'API Maps JavaScript.
 
 Une carte déplaçable aux repères cliquables ne peut pas être une image : elle vient
 de l'API **Maps JavaScript**, dont le chargeur réclame la clé dans le navigateur.

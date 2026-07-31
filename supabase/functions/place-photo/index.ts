@@ -1,6 +1,11 @@
-// Edge Function : renvoie l'URL d'une photo d'un lieu via l'API Google Places (New).
+// Edge Function : identifie un lieu via l'API Google Places (New) et renvoie son
+// identifiant (placeId) et l'URL d'une de ses photos.
 // La clé API reste secrète côté serveur (secret Supabase GOOGLE_PLACES_KEY),
 // jamais exposée au navigateur ni au dépôt public.
+//
+// Le placeId sert à la fiche Google affichée sur la carte de la journée : il est
+// soumis à la même vérification que la photo, et pour la même raison — une fiche
+// de commerce voisin serait aussi fausse qu'une vitrine en photo de domicile.
 //
 // Google renvoie toujours « quelque chose » pour une recherche textuelle : le
 // résultat le plus proche, même s'il n'a rien à voir. Chercher « Maison » depuis
@@ -107,7 +112,7 @@ Deno.serve(async (req: Request) => {
       headers: {
         "Content-Type": "application/json",
         "X-Goog-Api-Key": KEY,
-        "X-Goog-FieldMask": "places.photos,places.displayName,places.formattedAddress,places.location",
+        "X-Goog-FieldMask": "places.id,places.photos,places.displayName,places.formattedAddress,places.location",
       },
       body: JSON.stringify(searchBody),
     });
@@ -143,19 +148,23 @@ Deno.serve(async (req: Request) => {
       });
     }
 
+    // Le lieu est identifié : son placeId part dans tous les cas, la fiche Google
+    // ne dépend pas de l'existence d'une photo.
+    const placeId = (place?.id || "").toString() || undefined;
+
     const photoName = place?.photos?.[0]?.name;
-    if (!photoName) return json({ reason: "lieu sans photo", found: displayName });
+    if (!photoName) return json({ placeId, reason: "lieu sans photo", found: displayName });
 
     // 3) Récupération de l'URL de la photo (Place Photo New), sans redirection binaire.
     const mediaUrl = `https://places.googleapis.com/v1/${photoName}/media?maxHeightPx=800&maxWidthPx=800&skipHttpRedirect=true`;
     const photoRes = await fetch(mediaUrl, { headers: { "X-Goog-Api-Key": KEY } });
     if (!photoRes.ok) {
       const t = await photoRes.text();
-      return json({ error: "media a échoué", status: photoRes.status, detail: t.slice(0, 300) }, 200);
+      return json({ placeId, error: "media a échoué", status: photoRes.status, detail: t.slice(0, 300) }, 200);
     }
     const photoData = await photoRes.json();
-    if (photoData?.photoUri) return json({ photoUri: photoData.photoUri });
-    return json({ reason: "média indisponible" });
+    if (photoData?.photoUri) return json({ placeId, photoUri: photoData.photoUri });
+    return json({ placeId, reason: "média indisponible" });
   } catch (e) {
     return json({ error: String(e) }, 500);
   }
