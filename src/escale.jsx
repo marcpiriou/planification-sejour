@@ -239,49 +239,30 @@ const wazeDirUrl = (to) => {
 // Itinéraire dans l'application choisie. Waze ne connaît que la voiture : un
 // trajet à pied reste donc sur Google Maps, sinon l'itinéraire ouvert ne
 // correspondrait pas au mode affiché sur le trajet.
-// Nombre maximal d'étapes intermédiaires accepté par l'API d'URL Google Maps.
-const MAPS_MAX_WAYPOINTS = 9;
+// Étiquettes des repères sur la carte : l'API Maps Static n'accepte qu'un
+// caractère, chiffre ou lettre — d'où 35 repères au maximum.
+const MAP_LABELS = "123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
-// Point de passage tel qu'on le donne à Google Maps. Pour un hébergement,
-// l'adresse prime — comme pour son itinéraire, elle mène à la porte.
-const routePoint = (a) => {
-  const p = a && a.place;
-  if (!p) return "";
-  if (isStay(a) && typeof p.address === "string" && p.address.trim()) return p.address.trim();
-  return placeQuery(p);
-};
-
-// Parcours d'une journée sur Google Maps : première étape en départ, dernière en
-// arrivée, les autres en étapes intermédiaires. Un mode unique s'applique à tout
-// le trajet : dès qu'un segment se fait en voiture, c'est la voiture — un
-// itinéraire piéton sur des dizaines de kilomètres n'aurait aucun sens.
-// Renvoie null s'il n'y a aucun lieu exploitable dans la journée.
-const dayRouteUrl = (acts) => {
-  const seq = (acts || []).filter((a) => routePoint(a));
-  // Deux entrées du même hébergement encadrent la journée : sans ce filtre, un
-  // jour sans étape donnerait un itinéraire d'un point vers lui-même.
-  const pts = [];
-  for (const a of seq) {
-    const q = routePoint(a);
-    if (q !== pts[pts.length - 1]) pts.push(q);
+// Repères d'une journée pour la carte : un par étape située, à sa couleur —
+// indigo pour l'hébergement, teal pour le reste, comme la timeline. Deux entrées
+// d'un même hébergement encadrent la journée : elles ne font qu'un seul repère.
+// Aucun itinéraire n'est demandé, seulement les points.
+const dayMarkers = (acts) => {
+  const out = [];
+  for (const a of acts || []) {
+    const p = a && a.place;
+    if (!p || p.lat == null || p.lng == null) continue;
+    const dernier = out[out.length - 1];
+    if (dernier && dernier.lat === p.lat && dernier.lng === p.lng) continue;
+    if (out.length >= MAP_LABELS.length) break;
+    out.push({
+      lat: p.lat, lng: p.lng,
+      color: isStay(a) ? STAY_COLOR : C.teal,
+      label: MAP_LABELS[out.length],
+      name: a.name || "",
+    });
   }
-  if (!pts.length) return null;
-  if (pts.length === 1) {
-    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(pts[0])}`;
-  }
-  let voiture = false;
-  for (let i = 0; i < seq.length - 1; i++) {
-    if (resolveTravelMode(seq[i], seq[i + 1]) !== "walk") { voiture = true; break; }
-  }
-  const params = new URLSearchParams({
-    api: "1",
-    origin: pts[0],
-    destination: pts[pts.length - 1],
-    travelmode: voiture ? "driving" : "walking",
-  });
-  const etapes = pts.slice(1, -1).slice(0, MAPS_MAX_WAYPOINTS);
-  if (etapes.length) params.set("waypoints", etapes.join("|"));
-  return `https://www.google.com/maps/dir/?${params.toString()}`;
+  return out;
 };
 
 // preferAddress : cas de l'hébergement. Un lien Airbnb ou Booking ne désigne
@@ -1269,6 +1250,69 @@ function TravelLeg({ from, to, leg, onEdit, variant, fromEndMin, toStartMin }) {
   );
 }
 
+/* --- Carte de la journée (repères, sans itinéraire) ---------------- */
+// L'image vient de l'Edge Function day-map, qui garde la clé Google côté serveur.
+function DayMapSheet({ markers, dayLabel, onClose }) {
+  const [image, setImage] = useState(null);
+  const [erreur, setErreur] = useState("");
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const { data, error } = await supabase.functions.invoke("day-map", {
+          body: { size: "large", markers: markers.map(({ lat, lng, color }) => ({ lat, lng, color })) },
+        });
+        if (!alive) return;
+        if (error || !data || !data.image) setErreur((data && data.detail) || "Carte indisponible pour le moment.");
+        else setImage(data.image);
+      } catch { if (alive) setErreur("Carte indisponible pour le moment."); }
+    })();
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <div className="fixed inset-0 z-40 flex justify-center">
+      <div className="absolute inset-0 dim" onClick={onClose} />
+      <div style={{ background: C.paper, height: "100dvh" }} className="relative w-full max-w-md flex flex-col">
+        <div style={{ background: C.paper, borderColor: C.line }} className="px-4 pt-4 pb-3 flex items-center gap-3 border-b">
+          <div className="flex-1 min-w-0">
+            <div style={{ color: C.ink }} className="font-semibold text-lg leading-tight">Carte de la journée</div>
+            <div style={{ color: C.inkSoft }} className="text-xs capitalize truncate">{dayLabel}</div>
+          </div>
+          <IconBtn onClick={onClose} label="Fermer"><X size={22} /></IconBtn>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+          <div style={{ background: C.card, border: `1px solid ${C.line}` }} className="rounded-2xl overflow-hidden">
+            {image ? (
+              <img src={image} alt={`Carte des étapes du ${dayLabel}`} className="w-full block" />
+            ) : erreur ? (
+              <div className="p-6 text-center">
+                <div style={{ color: C.warn }} className="text-sm font-medium">Carte indisponible</div>
+                <div style={{ color: C.inkSoft, fontFamily: MONO, wordBreak: "break-word" }} className="t11 mt-2">{erreur}</div>
+              </div>
+            ) : (
+              <div style={{ color: C.teal }} className="p-10 text-center animate-pulse font-medium">Chargement de la carte…</div>
+            )}
+          </div>
+
+          {/* Légende : associe chaque repère à son étape. */}
+          <div style={{ background: C.card, border: `1px solid ${C.line}` }} className="rounded-2xl p-3 space-y-2">
+            {markers.map((m) => (
+              <div key={m.label} className="flex items-center gap-2.5">
+                <span style={{ background: m.color, color: "#fff", fontFamily: MONO }}
+                  className="shrink-0 h-6 w-6 rounded-full flex items-center justify-center text-xs font-semibold">{m.label}</span>
+                <span style={{ color: C.ink }} className="text-sm truncate">{m.name}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* --- Popup d'édition d'un trajet (mode + durée) ------------------- */
 function TravelPicker({ from, to, onCancel, onValidate }) {
   // Le popup montre le mode effectif : un mode automatique s'affiche donc déjà
@@ -1374,7 +1418,8 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onE
     [trip.activities, safeCurrent, travelTick]
   );
 
-  const routeUrl = useMemo(() => dayRouteUrl(acts), [acts]);
+  const markers = useMemo(() => dayMarkers(acts), [acts]);
+  const [mapOpen, setMapOpen] = useState(false);
 
   const totalTravel = useMemo(() => {
     let t = 0;
@@ -1454,16 +1499,12 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onE
         subtitle={fmtRange(trip.startDate, trip.endDate)}
         right={
           <div className="flex items-center">
-            {/* Parcours de la journée sur Google Maps, à gauche du partage. */}
-            {routeUrl ? (
-              <a href={routeUrl} target="_blank" rel="noopener noreferrer" aria-label="Voir la journée sur Google Maps"
-                style={{ color: C.ink }}
-                className="h-10 w-10 rounded-full flex items-center justify-center active:scale-95 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400">
-                <MapIcon size={19} />
-              </a>
+            {/* Carte des étapes de la journée, à gauche du partage. */}
+            {markers.length ? (
+              <IconBtn onClick={() => setMapOpen(true)} label="Voir la carte de la journée"><MapIcon size={19} /></IconBtn>
             ) : (
               <span aria-hidden="true" style={{ color: C.line }}
-                className="h-10 w-10 rounded-full flex items-center justify-center" title="Aucun lieu à afficher ce jour">
+                className="h-10 w-10 rounded-full flex items-center justify-center" title="Aucun lieu situé ce jour">
                 <MapIcon size={19} />
               </span>
             )}
@@ -1521,6 +1562,10 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onE
           </div>
         )}
       </div>
+
+      {mapOpen && markers.length > 0 && (
+        <DayMapSheet markers={markers} dayLabel={fmtLong(safeCurrent)} onClose={() => setMapOpen(false)} />
+      )}
 
       {/* bouton flottant ajouter (masqué en lecture seule) */}
       {canEdit && (
