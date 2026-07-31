@@ -35,6 +35,21 @@ npm run preview    # sert dist/ (service worker actif) ; --host pour tester depu
 - Styles : Tailwind CSS (classes standard) + utilitaires injectés par le composant
   (t10, t11, dim…) + police IBM Plex via `@import` (repli gracieux hors-ligne).
 
+## Carte de la journée
+Le bouton carte de l'en-tête d'un séjour ouvre une carte Google **plein écran**,
+déplaçable et zoomable, avec un repère par étape à sa couleur — indigo pour un
+hébergement, teal pour le reste. Toucher un repère ouvre la **fiche Google Maps**
+de l'étape : son adresse pour un hébergement, ses coordonnées sinon. Un lien de
+réservation (Airbnb, Booking) n'est jamais suivi ici, ce n'est pas une fiche Google.
+
+Une carte déplaçable aux repères cliquables ne peut pas être une image : elle vient
+de l'API **Maps JavaScript**, dont le chargeur réclame la clé dans le navigateur.
+Cette clé n'est donc pas dans le bundle : l'application la demande à l'Edge Function
+`maps-key`, qui ne la remet qu'à un utilisateur authentifié. À compléter côté Google
+Cloud par une restriction aux référents HTTP du site, et de préférence par une clé
+dédiée à cette seule API — le secret Supabase `GOOGLE_MAPS_BROWSER_KEY` est lu en
+priorité s'il existe, sinon `GOOGLE_PLACES_KEY` sert de repli.
+
 ## Activités « Hébergement »
 Un hébergement est enregistré **une seule fois**, à sa date d'arrivée, avec son nombre
 de nuits (colonne `activities.nights`, migration `0005`). Sa présence dans les journées

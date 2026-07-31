@@ -1,0 +1,30 @@
+// Edge Function : remet la clé Google à l'application, pour l'API Maps JavaScript.
+//
+// Une carte déplaçable aux marqueurs cliquables ne peut pas être une image : il
+// faut l'API Maps JavaScript, et son chargeur réclame la clé dans le navigateur.
+// Elle ne peut donc pas rester entièrement secrète.
+//
+// Ce qu'on évite quand même : la figer dans le bundle public, où le premier
+// passant la ramasse. Ici elle n'est remise qu'à un appelant authentifié
+// (verify_jwt), donc à un utilisateur de l'application.
+//
+// À faire en complément, côté Google Cloud : restreindre la clé aux référents
+// HTTP du site, et de préférence en dédier une seule à l'API Maps JavaScript.
+
+const CORS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
+
+Deno.serve(async (req: Request) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
+  const key = Deno.env.get("GOOGLE_MAPS_BROWSER_KEY") || Deno.env.get("GOOGLE_PLACES_KEY");
+  const body = key
+    ? { key }
+    : { error: "aucune clé Google configurée (secret GOOGLE_PLACES_KEY)" };
+  return new Response(JSON.stringify(body), {
+    status: key ? 200 : 500,
+    headers: { ...CORS, "Content-Type": "application/json", "Cache-Control": "private, max-age=600" },
+  });
+});

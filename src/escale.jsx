@@ -222,6 +222,7 @@ const mapsDirUrl = (from, to, mode) => {
   return `https://www.google.com/maps/dir/?${params.toString()}`;
 };
 const mapsPlaceUrl = (p) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(placeQuery(p))}`;
+const isMapsLink = (u) => /^https?:\/\/([a-z0-9-]+\.)*(google\.[a-z.]+|goo\.gl)\//i.test((u || "").trim());
 
 // Applications d'itinéraire proposées dans l'écran Compte.
 const NAV_APPS = [
@@ -239,6 +240,19 @@ const wazeDirUrl = (to) => {
 // Itinéraire dans l'application choisie. Waze ne connaît que la voiture : un
 // trajet à pied reste donc sur Google Maps, sinon l'itinéraire ouvert ne
 // correspondrait pas au mode affiché sur le trajet.
+// Fiche Google Maps d'une étape, telle qu'on l'ouvre en touchant son repère.
+// Un lien de réservation (Airbnb, Booking) n'est pas une fiche Google : on ne le
+// suit que s'il pointe déjà vers Maps. Pour un hébergement, l'adresse prime.
+const googlePlaceUrl = (a) => {
+  const p = a && a.place;
+  if (!p) return null;
+  if (p.url && isMapsLink(p.url)) return p.url;
+  if (isStay(a) && typeof p.address === "string" && p.address.trim()) {
+    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(p.address.trim())}`;
+  }
+  return mapsPlaceUrl(p);
+};
+
 // Étiquettes des repères sur la carte : l'API Maps Static n'accepte qu'un
 // caractère, chiffre ou lettre — d'où 35 repères au maximum.
 const MAP_LABELS = "123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -260,6 +274,7 @@ const dayMarkers = (acts) => {
       color: isStay(a) ? STAY_COLOR : C.teal,
       label: MAP_LABELS[out.length],
       name: a.name || "",
+      url: googlePlaceUrl(a),
     });
   }
   return out;
@@ -1057,9 +1072,9 @@ function ActivityCard({ act, onEdit, onUpdate, onEditDuration, startMin, endMin,
             </button>
           )}
         </div>
-        <div style={{ border: `2px solid ${accent}`, background: C.paper, boxSizing: "content-box" }} className="h-2 w-2 rounded-full"></div>
-        {/* Un hébergement ne dure pas : son heure de fin vaut son heure de début,
-            la répéter n'apprendrait rien. */}
+        {/* Un hébergement ne dure pas : ni rond de fin, ni heure de fin — elle
+            vaudrait son heure de début. */}
+        {!stay && <div style={{ border: `2px solid ${accent}`, background: C.paper, boxSizing: "content-box" }} className="h-2 w-2 rounded-full"></div>}
         {!stay && <div style={{ color: C.inkSoft, fontFamily: MONO }} className="t11 mt-1 leading-none">{end}</div>}
       </div>
       {/* corps — un appui long (photo comprise) démarre le déplacement */}
@@ -1254,64 +1269,108 @@ function TravelLeg({ from, to, leg, onEdit, variant, fromEndMin, toStartMin }) {
   );
 }
 
-/* --- Carte de la journée (repères, sans itinéraire) ---------------- */
-// L'image vient de l'Edge Function day-map, qui garde la clé Google côté serveur.
+/* --- Carte de la journée : Google Maps interactif, plein écran ------ */
+// Une image ne se déplace pas et ses marqueurs ne se touchent pas : la carte
+// vient donc de l'API Maps JavaScript. Son chargeur réclame la clé dans le
+// navigateur ; celle-ci n'est pas dans le bundle, l'application la demande à
+// l'Edge Function maps-key, qui ne la remet qu'à un utilisateur authentifié.
+
+let mapsLoader = null; // une seule injection du script pour toute la session
+function loadGoogleMaps() {
+  if (mapsLoader) return mapsLoader;
+  mapsLoader = (async () => {
+    if (window.google?.maps) return window.google.maps;
+    const { data, error } = await supabase.functions.invoke("maps-key", { body: {} });
+    const key = data && data.key;
+    if (error || !key) throw new Error((data && data.error) || "clé Google indisponible");
+    await new Promise((resolve, reject) => {
+      const el = document.createElement("script");
+      el.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&language=fr&loading=async`;
+      el.async = true;
+      el.onload = resolve;
+      el.onerror = () => reject(new Error("chargement de Google Maps impossible"));
+      document.head.appendChild(el);
+    });
+    if (!window.google?.maps) throw new Error("Google Maps n'a pas pu démarrer");
+    return window.google.maps;
+  })().catch((e) => { mapsLoader = null; throw e; });
+  return mapsLoader;
+}
+
+// Repère en forme de goutte, à la couleur de l'étape, avec son étiquette.
+const markerIcon = (maps, color) => ({
+  path: "M 0,0 C -2,-20 -10,-22 -10,-30 A 10,10 0 1,1 10,-30 C 10,-22 2,-20 0,0 z",
+  fillColor: color,
+  fillOpacity: 1,
+  strokeColor: "#ffffff",
+  strokeWeight: 1.5,
+  scale: 1,
+  labelOrigin: new maps.Point(0, -30),
+});
+
 function DayMapSheet({ markers, dayLabel, onClose }) {
-  const [image, setImage] = useState(null);
+  const hote = useRef(null);
   const [erreur, setErreur] = useState("");
+
   useEffect(() => {
     let alive = true;
     (async () => {
-      try {
-        const { data, error } = await supabase.functions.invoke("day-map", {
-          body: { size: "large", markers: markers.map(({ lat, lng, color }) => ({ lat, lng, color })) },
+      let maps;
+      try { maps = await loadGoogleMaps(); } catch (e) { if (alive) setErreur(e.message || String(e)); return; }
+      if (!alive || !hote.current) return;
+      const bounds = new maps.LatLngBounds();
+      const carte = new maps.Map(hote.current, {
+        mapTypeControl: false,
+        streetViewControl: false,
+        fullscreenControl: false,
+        zoomControl: true,
+        gestureHandling: "greedy",   // un doigt suffit à déplacer la carte
+      });
+      markers.forEach((m) => {
+        const pos = { lat: m.lat, lng: m.lng };
+        bounds.extend(pos);
+        const marqueur = new maps.Marker({
+          position: pos, map: carte, title: m.name,
+          icon: markerIcon(maps, m.color),
+          label: { text: m.label, color: "#ffffff", fontSize: "12px", fontWeight: "600" },
         });
-        if (!alive) return;
-        if (error || !data || !data.image) setErreur((data && data.detail) || "Carte indisponible pour le moment.");
-        else setImage(data.image);
-      } catch { if (alive) setErreur("Carte indisponible pour le moment."); }
+        // Toucher un repère ouvre la fiche Google Maps de l'étape.
+        if (m.url) marqueur.addListener("click", () => window.open(m.url, "_blank", "noopener"));
+      });
+      if (markers.length === 1) { carte.setCenter(bounds.getCenter()); carte.setZoom(15); }
+      else carte.fitBounds(bounds, 48);
     })();
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
-    <div className="fixed inset-0 z-40 flex justify-center">
-      <div className="absolute inset-0 dim" onClick={onClose} />
-      <div style={{ background: C.paper, height: "100dvh" }} className="relative w-full max-w-md flex flex-col">
-        <div style={{ background: C.paper, borderColor: C.line }} className="px-4 pt-4 pb-3 flex items-center gap-3 border-b">
-          <div className="flex-1 min-w-0">
-            <div style={{ color: C.ink }} className="font-semibold text-lg leading-tight">Carte de la journée</div>
-            <div style={{ color: C.inkSoft }} className="text-xs capitalize truncate">{dayLabel}</div>
-          </div>
-          <IconBtn onClick={onClose} label="Fermer"><X size={22} /></IconBtn>
-        </div>
-
-        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-          <div style={{ background: C.card, border: `1px solid ${C.line}` }} className="rounded-2xl overflow-hidden">
-            {image ? (
-              <img src={image} alt={`Carte des étapes du ${dayLabel}`} className="w-full block" />
-            ) : erreur ? (
-              <div className="p-6 text-center">
-                <div style={{ color: C.warn }} className="text-sm font-medium">Carte indisponible</div>
-                <div style={{ color: C.inkSoft, fontFamily: MONO, wordBreak: "break-word" }} className="t11 mt-2">{erreur}</div>
-              </div>
-            ) : (
-              <div style={{ color: C.teal }} className="p-10 text-center animate-pulse font-medium">Chargement de la carte…</div>
-            )}
-          </div>
-
-          {/* Légende : associe chaque repère à son étape. */}
-          <div style={{ background: C.card, border: `1px solid ${C.line}` }} className="rounded-2xl p-3 space-y-2">
-            {markers.map((m) => (
-              <div key={m.label} className="flex items-center gap-2.5">
-                <span style={{ background: m.color, color: "#fff", fontFamily: MONO }}
-                  className="shrink-0 h-6 w-6 rounded-full flex items-center justify-center text-xs font-semibold">{m.label}</span>
-                <span style={{ color: C.ink }} className="text-sm truncate">{m.name}</span>
-              </div>
-            ))}
+    <div className="fixed inset-0 z-40" style={{ background: C.paper }}>
+      {/* La carte occupe tout l'écran ; l'en-tête flotte au-dessus. */}
+      <div ref={hote} className="absolute inset-0" />
+      {erreur && (
+        <div className="absolute inset-0 flex items-center justify-center px-6">
+          <div style={{ background: C.card, border: `1px solid ${C.line}` }} className="rounded-2xl p-5 max-w-sm">
+            <div style={{ color: C.warn }} className="font-semibold">Carte indisponible</div>
+            <div style={{ color: C.inkSoft, fontFamily: MONO, wordBreak: "break-word" }} className="t11 mt-2">{erreur}</div>
+            <div style={{ color: C.inkSoft }} className="t11 mt-3">
+              Vérifiez que l'API « Maps JavaScript » est activée sur le projet Google.
+            </div>
           </div>
         </div>
+      )}
+      <div className="absolute top-0 inset-x-0 flex items-start gap-2 p-3 pointer-events-none">
+        <div style={{ background: "rgba(255,255,255,0.94)", border: `1px solid ${C.line}` }}
+          className="pointer-events-auto rounded-xl px-3 py-2 shadow-sm min-w-0">
+          <div style={{ color: C.ink }} className="text-sm font-semibold leading-tight">Carte de la journée</div>
+          <div style={{ color: C.inkSoft }} className="t11 capitalize truncate">{dayLabel}</div>
+        </div>
+        <div className="flex-1" />
+        <button onClick={onClose} aria-label="Fermer la carte"
+          style={{ background: "rgba(255,255,255,0.94)", border: `1px solid ${C.line}`, color: C.ink }}
+          className="pointer-events-auto h-10 w-10 rounded-full flex items-center justify-center shadow-sm active:scale-95 transition">
+          <X size={20} />
+        </button>
       </div>
     </div>
   );
