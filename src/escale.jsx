@@ -4,7 +4,10 @@ import {
   TrainFront, Sparkles, MapPin, Footprints, Car, Clock, Plus,
   ChevronLeft, Trash2, Pencil, Navigation, Calendar, X, AlertTriangle,
   Check, ExternalLink, MoreVertical, Route, Mail, LogOut,
-  Users, Share2, UserPlus, User, Home as HomeIcon, Building2, ClipboardPaste
+  Users, Share2, UserPlus, User, Home as HomeIcon, Building2, ClipboardPaste,
+  // Alias obligatoire : « Map » masquerait le constructeur Map de JavaScript,
+  // dont se servent les caches de trajets et de photos.
+  Map as MapIcon
 } from "lucide-react";
 import { supabase, redirectTo } from "./supabase";
 import { takeSharedLink } from "./shared-link";
@@ -236,6 +239,51 @@ const wazeDirUrl = (to) => {
 // Itinéraire dans l'application choisie. Waze ne connaît que la voiture : un
 // trajet à pied reste donc sur Google Maps, sinon l'itinéraire ouvert ne
 // correspondrait pas au mode affiché sur le trajet.
+// Nombre maximal d'étapes intermédiaires accepté par l'API d'URL Google Maps.
+const MAPS_MAX_WAYPOINTS = 9;
+
+// Point de passage tel qu'on le donne à Google Maps. Pour un hébergement,
+// l'adresse prime — comme pour son itinéraire, elle mène à la porte.
+const routePoint = (a) => {
+  const p = a && a.place;
+  if (!p) return "";
+  if (isStay(a) && typeof p.address === "string" && p.address.trim()) return p.address.trim();
+  return placeQuery(p);
+};
+
+// Parcours d'une journée sur Google Maps : première étape en départ, dernière en
+// arrivée, les autres en étapes intermédiaires. Un mode unique s'applique à tout
+// le trajet : dès qu'un segment se fait en voiture, c'est la voiture — un
+// itinéraire piéton sur des dizaines de kilomètres n'aurait aucun sens.
+// Renvoie null s'il n'y a aucun lieu exploitable dans la journée.
+const dayRouteUrl = (acts) => {
+  const seq = (acts || []).filter((a) => routePoint(a));
+  // Deux entrées du même hébergement encadrent la journée : sans ce filtre, un
+  // jour sans étape donnerait un itinéraire d'un point vers lui-même.
+  const pts = [];
+  for (const a of seq) {
+    const q = routePoint(a);
+    if (q !== pts[pts.length - 1]) pts.push(q);
+  }
+  if (!pts.length) return null;
+  if (pts.length === 1) {
+    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(pts[0])}`;
+  }
+  let voiture = false;
+  for (let i = 0; i < seq.length - 1; i++) {
+    if (resolveTravelMode(seq[i], seq[i + 1]) !== "walk") { voiture = true; break; }
+  }
+  const params = new URLSearchParams({
+    api: "1",
+    origin: pts[0],
+    destination: pts[pts.length - 1],
+    travelmode: voiture ? "driving" : "walking",
+  });
+  const etapes = pts.slice(1, -1).slice(0, MAPS_MAX_WAYPOINTS);
+  if (etapes.length) params.set("waypoints", etapes.join("|"));
+  return `https://www.google.com/maps/dir/?${params.toString()}`;
+};
+
 // preferAddress : cas de l'hébergement. Un lien Airbnb ou Booking ne désigne
 // qu'un quartier, et les coordonnées tirées du nom mènent au mieux devant la
 // façade. L'adresse donnée par l'hôte, elle, mène à la bonne porte : on la passe
@@ -1326,6 +1374,8 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onE
     [trip.activities, safeCurrent, travelTick]
   );
 
+  const routeUrl = useMemo(() => dayRouteUrl(acts), [acts]);
+
   const totalTravel = useMemo(() => {
     let t = 0;
     for (let i = 0; i < acts.length - 1; i++) { const l = legBetween(acts[i], acts[i + 1]); if (l.min != null) t += l.min; }
@@ -1404,6 +1454,19 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onE
         subtitle={fmtRange(trip.startDate, trip.endDate)}
         right={
           <div className="flex items-center">
+            {/* Parcours de la journée sur Google Maps, à gauche du partage. */}
+            {routeUrl ? (
+              <a href={routeUrl} target="_blank" rel="noopener noreferrer" aria-label="Voir la journée sur Google Maps"
+                style={{ color: C.ink }}
+                className="h-10 w-10 rounded-full flex items-center justify-center active:scale-95 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400">
+                <MapIcon size={19} />
+              </a>
+            ) : (
+              <span aria-hidden="true" style={{ color: C.line }}
+                className="h-10 w-10 rounded-full flex items-center justify-center" title="Aucun lieu à afficher ce jour">
+                <MapIcon size={19} />
+              </span>
+            )}
             <IconBtn onClick={onShare} label="Partager / gérer l'accès"><Share2 size={19} /></IconBtn>
             {canEdit && <IconBtn onClick={onEditTrip} label="Modifier le séjour"><MoreVertical size={20} /></IconBtn>}
           </div>
