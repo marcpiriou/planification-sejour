@@ -1298,15 +1298,47 @@ function loadGoogleMaps() {
 }
 
 // Repère en forme de goutte, à la couleur de l'étape, avec son étiquette.
-const markerIcon = (maps, color) => ({
-  path: "M 0,0 C -2,-20 -10,-22 -10,-30 A 10,10 0 1,1 10,-30 C 10,-22 2,-20 0,0 z",
-  fillColor: color,
-  fillOpacity: 1,
-  strokeColor: "#ffffff",
-  strokeWeight: 1.5,
-  scale: 1,
-  labelOrigin: new maps.Point(0, -30),
-});
+// Largeur réelle d'un texte, mesurée par le navigateur : une estimation au
+// nombre de caractères donnerait des étiquettes trop courtes ou trop larges.
+let mesureCtx = null;
+const largeurTexte = (texte, police) => {
+  if (!mesureCtx) mesureCtx = document.createElement("canvas").getContext("2d");
+  mesureCtx.font = police;
+  return Math.ceil(mesureCtx.measureText(texte).width);
+};
+const echapeXml = (t) => String(t)
+  .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+  .replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+
+// Repère dessiné d'un bloc : la goutte à la couleur de l'étape, son numéro, et
+// le nom dans une pastille accolée. L'API n'accepte qu'une image par marqueur,
+// nom compris — d'où ce SVG unique plutôt qu'un label, qui déborderait de
+// l'icône. Le nom est tronqué pour que l'étiquette reste lisible sur un écran
+// de téléphone.
+const MARKER_FONT = "600 12px -apple-system, 'Segoe UI', Roboto, sans-serif";
+const markerIcon = (maps, color, numero, nom) => {
+  const texte = (nom || "").length > 24 ? `${nom.slice(0, 23)}…` : (nom || "");
+  const pinL = 24, pinH = 32, ecart = 4;
+  const pilleL = texte ? largeurTexte(texte, MARKER_FONT) + 16 : 0;
+  const pilleH = 22;
+  const L = pinL + (texte ? ecart + pilleL : 0);
+  const H = pinH;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${L}" height="${H}" viewBox="0 0 ${L} ${H}">`
+    + `<path d="M12 32 C10 20 2 18 2 11 A10 10 0 1 1 22 11 C22 18 14 20 12 32 z" fill="${color}" stroke="#ffffff" stroke-width="1.5"/>`
+    + `<text x="12" y="15" text-anchor="middle" font-family="-apple-system, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="700" fill="#ffffff">${echapeXml(numero)}</text>`
+    + (texte
+      ? `<rect x="${pinL + ecart}" y="${(pinH - pilleH) / 2}" width="${pilleL}" height="${pilleH}" rx="11" fill="#ffffff" fill-opacity="0.95" stroke="${color}" stroke-width="1.5"/>`
+        + `<text x="${pinL + ecart + pilleL / 2}" y="${pinH / 2 + 4}" text-anchor="middle" font-family="-apple-system, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="600" fill="#16324A">${echapeXml(texte)}</text>`
+      : "")
+    + `</svg>`;
+  return {
+    url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
+    size: new maps.Size(L, H),
+    scaledSize: new maps.Size(L, H),
+    // Ancre à la pointe de la goutte : c'est elle qui désigne le lieu.
+    anchor: new maps.Point(12, pinH),
+  };
+};
 
 function DayMapSheet({ markers, dayLabel, onClose }) {
   const hote = useRef(null);
@@ -1331,8 +1363,9 @@ function DayMapSheet({ markers, dayLabel, onClose }) {
         bounds.extend(pos);
         const marqueur = new maps.Marker({
           position: pos, map: carte, title: m.name,
-          icon: markerIcon(maps, m.color),
-          label: { text: m.label, color: "#ffffff", fontSize: "12px", fontWeight: "600" },
+          // Numéro et nom sont dans l'image : pas de label séparé, il se
+          // superposerait au dessin.
+          icon: markerIcon(maps, m.color, m.label, m.name),
         });
         // Toucher un repère ouvre la fiche Google Maps de l'étape.
         if (m.url) marqueur.addListener("click", () => window.open(m.url, "_blank", "noopener"));
