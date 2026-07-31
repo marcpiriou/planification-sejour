@@ -1059,12 +1059,11 @@ function ActivityCard({ act, onEdit, onUpdate, onEditDuration, startMin, endMin,
             ) : (
               <div onClick={() => canEdit && setEditingTitle(true)} style={{ color: C.ink }} className={`font-semibold leading-tight ${canEdit ? "cursor-text" : ""}`}>{act.name}</div>
             )}
-            {stay && (
+            {/* Le soir, le nombre de nuits ; le matin, rien : on quitte les lieux,
+                il n'y a rien à annoncer que la carte ne dise déjà. */}
+            {stay && act.staySlot === STAY_PM && (
               <div style={{ color: STAY_COLOR }} className="t11 mt-1 inline-flex items-center gap-1 font-medium">
-                <BedDouble size={12} />
-                {act.staySlot === STAY_AM
-                  ? "Départ de l'hébergement"
-                  : `Nuit sur place · ${stayNights(act)} nuit${stayNights(act) > 1 ? "s" : ""}`}
+                <BedDouble size={12} /> {stayNights(act)} nuit{stayNights(act) > 1 ? "s" : ""}
               </div>
             )}
             {act.place && (
