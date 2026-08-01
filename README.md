@@ -1,4 +1,4 @@
-# Séjour — PWA
+# Periplo — PWA
 
 Planificateur de journées (week-end / vacances) : timeline avec heures de début/fin,
 durées et trajets à pied ou en voiture. Version web installable (PWA).
@@ -139,6 +139,23 @@ propre pied de page (« powered by Supabase », « Opt out of these emails ») e
 depuis `noreply@mail.app.supabase.io`. Ce bloc n'est pas modifiable par le gabarit ;
 il disparaît en configurant un SMTP à soi (**Project Settings** → **Authentication** →
 **SMTP Settings**), ce qui lève aussi la limite de débit des e-mails de test.
+
+## Marque et icônes
+Le logo fourni — repère cartographique dont la queue devient une route, au-dessus du
+mot « Periplo » — sert de source à tous les visuels. Il est détouré sur la luminance
+(l'encre du logo à ~#4F4F4F sur son papier à ~#FCFCFC devient un aplat #434343 sur
+fond transparent), puis découpé en deux :
+
+- `public/logo-periplo.png` : le logo complet, 600 px de large. Il tient l'en-tête de
+  la page d'accueil des séjours, à la place du titre et de la baseline. Chargé via
+  `import.meta.env.BASE_URL` : le site étant servi sous `/planification-sejour/`, un
+  chemin absolu manquerait sa cible.
+- `public/icon-192.png`, `icon-512.png`, `icon-512-maskable.png` : le **symbole seul**
+  (repère + route), centré sur le papier du logo. Le mot serait illisible à 192 px,
+  d'où le symbole. La variante *maskable* le réduit à 52 % de la hauteur pour tenir
+  dans les 80 % centraux que réclame le masque d'Android.
+- `public/favicon.svg` : le symbole redessiné en blanc sur un carré gris. À 16 px, un
+  tracé gris sur fond clair disparaîtrait dans l'onglet.
 
 ## Aller plus loin
 - Icônes : remplacez `public/icon-*.png` par les vôtres (192, 512, 512 maskable).

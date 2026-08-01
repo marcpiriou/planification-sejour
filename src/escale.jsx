@@ -970,10 +970,12 @@ function Home({ trips, onOpen, onNew, onExample, userEmail, onSignOut, home, onS
             navApp={navApp} onSaveNavApp={onSaveNavApp} />
         ) : (
           <>
+            {/* Le logo tient la place du titre et de la baseline. Il vit dans
+                public/, d'où le préfixe BASE_URL : le site est servi sous
+                /planification-sejour/, un chemin absolu manquerait sa cible. */}
             <div className="mb-6">
-              <div style={{ color: C.teal, fontFamily: MONO }} className="text-xs trk uppercase font-semibold">Planificateur de séjour · v{APP_VERSION}</div>
-              <h1 style={{ color: C.ink }} className="text-3xl font-bold tracking-tight mt-1">Séjour</h1>
-              <p style={{ color: C.inkSoft }} className="text-sm mt-1">Vos journées, étape par étape : horaires, durées et trajets.</p>
+              <img src={`${import.meta.env.BASE_URL}logo-periplo.png`} alt="Periplo"
+                width={600} height={437} className="h-auto" style={{ width: 168 }} />
             </div>
 
             {/* Lien reçu par partage, mais plusieurs séjours possibles : c'est à
@@ -2940,7 +2942,7 @@ function SejourApp() {
     return (
       <div style={{ background: C.paper, fontFamily: SANS }} className="min-h-screen flex items-center justify-center">
         <FontInject />
-        <div style={{ color: C.teal }} className="animate-pulse font-semibold" >Séjour…</div>
+        <div style={{ color: C.teal }} className="animate-pulse font-semibold" >Periplo…</div>
       </div>
     );
   }
@@ -3042,7 +3044,7 @@ class ErrorBoundary extends React.Component {
     this.clearData = this.clearData.bind(this);
   }
   static getDerivedStateFromError(error) { return { error }; }
-  componentDidCatch(error, info) { try { console.error("Séjour:", error, info); } catch { /* silencieux */ } }
+  componentDidCatch(error, info) { try { console.error("Periplo:", error, info); } catch { /* silencieux */ } }
   reset() { this.setState((s) => ({ error: null, epoch: s.epoch + 1, confirmWipe: false })); }
   // Destructif : efface TOUS les séjours en base. Uniquement après confirmation explicite.
   async clearData() {
@@ -3107,7 +3109,7 @@ function LoginScreen() {
       <FontInject />
       <div className="w-full max-w-sm">
         <div style={{ color: C.teal }} className="text-xs font-semibold trk uppercase mb-1">Planificateur de séjour · v{APP_VERSION}</div>
-        <h1 style={{ color: C.ink }} className="text-3xl font-bold mb-1">Séjour</h1>
+        <h1 style={{ color: C.ink }} className="text-3xl font-bold mb-1">Periplo</h1>
         <p style={{ color: C.inkSoft }} className="text-sm mb-6">Connectez-vous pour retrouver vos séjours sur tous vos appareils.</p>
 
         <div style={{ background: C.card, border: `1px solid ${C.line}` }} className="rounded-2xl p-5">
@@ -3168,7 +3170,7 @@ function AuthGate() {
     return (
       <div style={{ background: C.paper, fontFamily: SANS }} className="min-h-screen flex items-center justify-center">
         <FontInject />
-        <div style={{ color: C.teal }} className="animate-pulse font-semibold">Séjour…</div>
+        <div style={{ color: C.teal }} className="animate-pulse font-semibold">Periplo…</div>
       </div>
     );
   }

@@ -12,10 +12,10 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "autoUpdate",
-      includeAssets: ["favicon.svg", "icon-192.png", "icon-512.png", "icon-512-maskable.png"],
+      includeAssets: ["favicon.svg", "icon-192.png", "icon-512.png", "icon-512-maskable.png", "logo-periplo.png"],
       manifest: {
-        name: "Séjour — planificateur",
-        short_name: "Séjour",
+        name: "Periplo — planificateur de séjours",
+        short_name: "Periplo",
         description: "Planifiez vos journées, étape par étape : horaires, durées et trajets.",
         lang: "fr",
         theme_color: "#0F8A80",
