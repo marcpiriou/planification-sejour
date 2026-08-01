@@ -89,6 +89,9 @@ la nuit et rouvre la journée suivante — on part toujours du lieu où l'on a d
 deux entrées sont figées en tête et en queue de journée : rien ne se glisse avant ou
 après, et elles ne se déplacent pas.
 
+Sa carte n'affiche **pas de photo** — la largeur entière va au texte et aux boutons,
+qui se rangent alors en ligne — et la requête de photo n'est même pas lancée.
+
 ### Point de départ et de retour
 Le point de départ saisi à la création d'un séjour est un hébergement de **zéro
 nuit** : on n'y dort pas, mais on en part et on y rentre. Il en a donc la couleur,

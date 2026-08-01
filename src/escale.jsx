@@ -1105,21 +1105,24 @@ function ActivityCard({ act, onEdit, onUpdate, onEditDuration, startMin, endMin,
   const [editingTitle, setEditingTitle] = useState(false);
   const [title, setTitle] = useState(act.name);
   useEffect(() => { setTitle(act.name); }, [act.name]);
-  // Photo Google du lieu (à droite), si disponible.
+  const stay = isStay(act);
+  // Photo Google du lieu (à droite), si disponible. Un hébergement n'en a pas :
+  // sa carte donne toute sa largeur au texte et aux boutons, et la requête
+  // n'est même pas lancée.
   const [photo, setPhoto] = useState(null);
   useEffect(() => {
     let alive = true;
     setPhoto(null);
+    if (stay) return;
     fetchPlacePhoto(act.place).then((u) => { if (alive) setPhoto(u); });
     return () => { alive = false; };
-  }, [act.place?.mapsName, act.place?.lat, act.place?.lng]);
+  }, [stay, act.place?.mapsName, act.place?.lat, act.place?.lng]);
   const commitTitle = () => {
     const t = title.trim();
     if (t && t !== act.name) onUpdate(act.id, { name: t });
     else setTitle(act.name);
     setEditingTitle(false);
   };
-  const stay = isStay(act);
   const accent = stay ? STAY_COLOR : C.teal;
   return (
     <div className="flex gap-3">
@@ -1186,7 +1189,9 @@ function ActivityCard({ act, onEdit, onUpdate, onEditDuration, startMin, endMin,
               </div>
             )}
             {act.place && (
-              <div className="mt-1.5 flex flex-col items-start gap-1.5">
+              // Un hébergement dispose de toute la largeur : ses boutons se
+              // rangent en ligne plutôt qu'en colonne.
+              <div className={`mt-1.5 flex items-start gap-1.5 ${stay ? "flex-row flex-wrap" : "flex-col"}`}>
                 {placeDirectUrl(act.place) && (
                   <a href={placeDirectUrl(act.place)} target="_blank" rel="noopener noreferrer"
                     style={{ color: C.teal, border: `1px solid ${C.teal}` }}
@@ -1222,8 +1227,9 @@ function ActivityCard({ act, onEdit, onUpdate, onEditDuration, startMin, endMin,
         </div>
         {/* Vignette du lieu : photo Google si elle correspond, sinon bâtiment
             générique. Le bloc est présent dès qu'un lieu est renseigné, pour que
-            la carte ne change pas de largeur quand la photo arrive. */}
-        {act.place && (
+            la carte ne change pas de largeur quand la photo arrive. Rien pour un
+            hébergement : la place revient au texte et aux boutons. */}
+        {act.place && !stay && (
           <div className="shrink-0 w-28 self-stretch flex items-center justify-center"
             style={{
               borderLeft: `1px solid ${C.line}`,
@@ -1836,15 +1842,6 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onE
               </div>
               );
             })}
-            {/* fin de journée */}
-            <div className="flex gap-3">
-              <div className="shrink-0 flex justify-center" style={{ width: 66 }}>
-                <div style={{ background: C.teal }} className="h-3.5 w-3.5 rounded-full mt-0" />
-              </div>
-              <div style={{ color: C.inkSoft }} className="text-xs pt-0.5">
-                Fin : {minToTime(acts[acts.length - 1]._endMin)}
-              </div>
-            </div>
             {canEdit && acts.filter((a) => !isStay(a)).length > 1 && (
               <div style={{ color: C.inkSoft }} className="t11 mt-5 flex items-center gap-1">
                 <MoreVertical size={12} /> Appui long sur une activité pour la déplacer
