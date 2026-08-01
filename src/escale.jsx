@@ -1097,6 +1097,10 @@ function DaySummary({ acts, totalTravel }) {
 }
 
 /* --- Carte d'une activité ----------------------------------------- */
+// Facture commune des icônes d'action d'une carte : ronde, sans cadre ni fond,
+// posée sur la carte. Le crayon lui servait déjà de modèle.
+const ICON_BTN = "h-9 w-9 shrink-0 flex items-center justify-center rounded-full active:scale-95 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300";
+
 function ActivityCard({ act, onEdit, onUpdate, onEditDuration, startMin, endMin, auto, prev, canEdit = true, onDragStart, dragging = false }) {
   const navApp = useContext(NavAppContext);
   const longPress = useLongPress(onDragStart, !!onDragStart);
@@ -1188,41 +1192,37 @@ function ActivityCard({ act, onEdit, onUpdate, onEditDuration, startMin, endMin,
                 <HomeIcon size={12} /> {act.staySlot === STAY_PM ? "Retour" : "Départ"}
               </div>
             )}
-            {act.place && (
-              // Un hébergement dispose de toute la largeur : ses boutons se
-              // rangent en ligne plutôt qu'en colonne.
-              <div className={`mt-1.5 flex items-start gap-1.5 ${stay ? "flex-row flex-wrap" : "flex-col"}`}>
-                {placeDirectUrl(act.place) && (
-                  <a href={placeDirectUrl(act.place)} target="_blank" rel="noopener noreferrer"
-                    style={{ color: C.teal, border: `1px solid ${C.teal}` }}
-                    className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium bg-white active:scale-95 transition">
-                    <MapPin size={12} /> Lieu
-                  </a>
-                )}
-                {(() => {
-                  // Itinéraire depuis la position actuelle vers le lieu de cette activité.
-                  // Mode déduit du trajet menant à cette activité (activité précédente), sinon voiture.
-                  const mode = prev ? resolveTravelMode(prev, act) : "car";
-                  const walk = mode === "walk";
-                  const color = walk ? C.teal : C.amber;
-                  return (
-                    <a href={dirUrl(null, act.place, mode, navApp, stay)} target="_blank" rel="noopener noreferrer"
-                      style={{ color, border: `1px solid ${color}` }}
-                      className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium bg-white active:scale-95 transition">
-                      <Navigation size={12} /> Itin.
-                    </a>
-                  );
-                })()}
-              </div>
-            )}
             {act.notes && <div style={{ color: C.inkSoft }} className="text-xs mt-1 clamp2">{act.notes}</div>}
           </div>
-          {/* crayon : édition de l'activité, en bas à gauche */}
-          {canEdit && (
-            <button onClick={() => onEdit(act)} aria-label="Modifier l'activité"
-              className="self-start mt-2 -ml-1 h-9 w-9 flex items-center justify-center rounded-full active:scale-95 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300">
-              <Pencil size={16} style={{ color: C.inkSoft }} />
-            </button>
+          {/* Lieu, itinéraire et édition : trois icônes de même facture, sur une
+              seule ligne en bas à gauche. Sans libellé, l'intitulé passe par
+              aria-label et title — c'est lui que lit une aide technique et que
+              montre un appui prolongé. */}
+          {(act.place || canEdit) && (
+            <div className="mt-2 -ml-1 flex items-center gap-1">
+              {act.place && placeDirectUrl(act.place) && (
+                <a href={placeDirectUrl(act.place)} target="_blank" rel="noopener noreferrer"
+                  aria-label="Voir le lieu" title="Lieu" className={ICON_BTN}>
+                  <MapPin size={16} style={{ color: C.inkSoft }} />
+                </a>
+              )}
+              {act.place && (() => {
+                // Itinéraire depuis la position actuelle vers le lieu de cette activité.
+                // Mode déduit du trajet menant à cette activité (activité précédente), sinon voiture.
+                const mode = prev ? resolveTravelMode(prev, act) : "car";
+                return (
+                  <a href={dirUrl(null, act.place, mode, navApp, stay)} target="_blank" rel="noopener noreferrer"
+                    aria-label="Itinéraire vers ce lieu" title="Itinéraire" className={ICON_BTN}>
+                    <Navigation size={16} style={{ color: C.inkSoft }} />
+                  </a>
+                );
+              })()}
+              {canEdit && (
+                <button onClick={() => onEdit(act)} aria-label="Modifier l'activité" title="Modifier" className={ICON_BTN}>
+                  <Pencil size={16} style={{ color: C.inkSoft }} />
+                </button>
+              )}
+            </div>
           )}
         </div>
         {/* Vignette du lieu : photo Google si elle correspond, sinon bâtiment
