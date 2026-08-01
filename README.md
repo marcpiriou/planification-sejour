@@ -89,8 +89,10 @@ la nuit et rouvre la journée suivante — on part toujours du lieu où l'on a d
 deux entrées sont figées en tête et en queue de journée : rien ne se glisse avant ou
 après, et elles ne se déplacent pas.
 
-Sa carte n'affiche **pas de photo** — la largeur entière va au texte et aux boutons,
-qui se rangent alors en ligne — et la requête de photo n'est même pas lancée.
+Sa carte n'affiche **pas de photo** — la requête n'est même pas lancée. À la place
+de la vignette, son icône en grand sur le tiers droit de la carte : un lit pour une
+nuitée, une maison pour le point de départ. Le nombre de nuits, lui, s'écrit sans
+icône.
 
 ### Point de départ et de retour
 Le point de départ saisi à la création d'un séjour est un hébergement de **zéro

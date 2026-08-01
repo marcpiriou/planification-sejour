@@ -1183,13 +1183,13 @@ function ActivityCard({ act, onEdit, onUpdate, onEditDuration, startMin, endMin,
                 il n'y a rien à annoncer que la carte ne dise déjà. Le point de
                 départ, lui, n'a aucune nuit à annoncer : il dit son rôle. */}
             {stay && act.staySlot === STAY_PM && !isBase(act) && (
-              <div style={{ color: STAY_COLOR }} className="t11 mt-1 inline-flex items-center gap-1 font-medium">
-                <BedDouble size={12} /> {stayNights(act)} nuit{stayNights(act) > 1 ? "s" : ""}
+              <div style={{ color: STAY_COLOR }} className="t11 mt-1 font-medium">
+                {stayNights(act)} nuit{stayNights(act) > 1 ? "s" : ""}
               </div>
             )}
             {isBase(act) && (
-              <div style={{ color: STAY_COLOR }} className="t11 mt-1 inline-flex items-center gap-1 font-medium">
-                <HomeIcon size={12} /> {act.staySlot === STAY_PM ? "Retour" : "Départ"}
+              <div style={{ color: STAY_COLOR }} className="t11 mt-1 font-medium">
+                {act.staySlot === STAY_PM ? "Retour" : "Départ"}
               </div>
             )}
             {act.notes && <div style={{ color: C.inkSoft }} className="text-xs mt-1 clamp2">{act.notes}</div>}
@@ -1238,6 +1238,17 @@ function ActivityCard({ act, onEdit, onUpdate, onEditDuration, startMin, endMin,
             }}
             role="img" aria-label={photo ? `Photo de ${act.name}` : `Aucune photo pour ${act.name}`}>
             {!photo && <Building2 size={22} style={{ color: C.inkSoft, opacity: 0.45 }} />}
+          </div>
+        )}
+        {/* Un hébergement n'a pas de photo : à droite, son icône en grand — le lit
+            pour une nuitée, la maison pour le point de départ. Elle tient le tiers
+            de la carte, ce que le nombre de nuits disait en tout petit. */}
+        {stay && (
+          <div className="shrink-0 self-stretch flex items-center justify-center" style={{ width: "33%" }}
+            role="img" aria-label={isBase(act) ? "Point de départ et de retour" : "Hébergement"}>
+            {isBase(act)
+              ? <HomeIcon size={56} strokeWidth={1.5} style={{ color: STAY_COLOR, opacity: 0.35 }} />
+              : <BedDouble size={56} strokeWidth={1.5} style={{ color: STAY_COLOR, opacity: 0.35 }} />}
           </div>
         )}
       </div>
