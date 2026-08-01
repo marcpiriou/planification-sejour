@@ -1055,7 +1055,7 @@ function Home({ trips, onOpen, onNew, onExample, userEmail, onSignOut, home, onS
 function DateStrip({ days, current, onSelect, counts }) {
   return (
     <div style={{ background: C.card, borderBottom: `1px solid ${C.line}` }}>
-      <div className="mx-auto max-w-md px-2 py-2 flex gap-2 overflow-x-auto">
+      <div className="mx-auto max-w-md px-2 py-2 flex gap-2 overflow-x-auto noscrollbar">
         {days.map((d) => {
           const active = d === current;
           return (
@@ -3192,6 +3192,11 @@ function FontInject() {
     .trk{letter-spacing:0.22em}
     .dim{background:rgba(0,0,0,0.45)}
     .minw62{min-width:62px}
+    /* Défilement sans barre visible : la barre ne se masque pas en style inline,
+       le sélecteur ::-webkit-scrollbar réclame une règle CSS. Le contenu reste
+       défiluable au doigt comme à la molette. */
+    .noscrollbar{scrollbar-width:none;-ms-overflow-style:none}
+    .noscrollbar::-webkit-scrollbar{display:none;width:0;height:0}
     .clamp2{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}`}</style>
   );
 }
