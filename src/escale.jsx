@@ -1056,13 +1056,15 @@ function DateStrip({ days, current, onSelect, counts }) {
   return (
     <div style={{ background: C.card, borderBottom: `1px solid ${C.line}` }}>
       <div className="mx-auto max-w-md px-2 py-2 flex gap-2 overflow-x-auto">
-        {days.map((d, i) => {
+        {days.map((d) => {
           const active = d === current;
           return (
             <button key={d} onClick={() => onSelect(d)}
               style={{ background: active ? C.teal : C.paper, color: active ? "#fff" : C.ink, border: `1px solid ${active ? C.teal : C.line}` }}
               className="shrink-0 rounded-xl px-3 py-2 text-center minw62 active:scale-95 transition">
-              <div style={{ fontFamily: MONO }} className="t10 uppercase tracking-wider opacity-80">J{i + 1} · {fmtWd(d)}</div>
+              {/* Le jour de la semaine et la date suffisent : le rang dans le
+                  séjour (« J1 ») ne disait rien de plus. */}
+              <div style={{ fontFamily: MONO }} className="t10 uppercase tracking-wider opacity-80">{fmtWd(d)}</div>
               <div className="leading-none mt-0.5"><span className="text-lg font-bold">{fmtDay(d)}</span> <span className="text-xs font-semibold">{fmtMonthShort(d)}</span></div>
             </button>
           );
