@@ -981,7 +981,7 @@ function Home({ trips, onOpen, onNew, onExample, userEmail, onSignOut, home, onS
                 /planification-sejour/, un chemin absolu manquerait sa cible. */}
             <div className="mb-6">
               <img src={`${import.meta.env.BASE_URL}logo-periplo.png`} alt="Periplo"
-                width={600} height={437} className="h-auto" style={{ width: 168 }} />
+                width={600} height={437} className="h-auto mx-auto" style={{ width: 168 }} />
             </div>
 
             {/* Lien reçu par partage, mais plusieurs séjours possibles : c'est à
@@ -3116,7 +3116,7 @@ function LoginScreen() {
       <div className="w-full max-w-sm">
         {/* Le logo tient lieu de titre, comme sur l'accueil des séjours. */}
         <img src={`${import.meta.env.BASE_URL}logo-periplo.png`} alt="Periplo"
-          width={600} height={437} className="h-auto mb-2" style={{ width: 168 }} />
+          width={600} height={437} className="h-auto mx-auto mb-2" style={{ width: 168 }} />
         <p style={{ color: C.inkSoft }} className="text-sm mb-6">Connectez-vous pour retrouver vos séjours sur tous vos appareils.</p>
 
         <div style={{ background: C.card, border: `1px solid ${C.line}` }} className="rounded-2xl p-5">
