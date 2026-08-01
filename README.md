@@ -40,6 +40,12 @@ Le bouton carte de l'en-tête d'un séjour ouvre une carte Google **plein écran
 déplaçable et zoomable, avec un repère par étape à sa couleur — indigo pour un
 hébergement, teal pour le reste — le nom de l'étape écrit dans le repère.
 
+Un hébergement qui ouvre **et** referme la même journée n'est pas une étape du
+parcours mais son point fixe : il n'a qu'un repère, et sans numéro. Les numéros
+restent ceux du parcours, de 1 à n, sans trou. Un hébergement présent d'un seul
+côté de la journée — le soir de l'arrivée, le matin du départ — est bien une étape
+et garde son numéro.
+
 Toucher un repère ouvre la **fiche du lieu dans une bulle sur la carte**, sans
 quitter l'application : c'est la fiche de Google elle-même (photos, note, avis,
 horaires), rendue par le composant *Place Details* du **Places UI Kit**. Une seule

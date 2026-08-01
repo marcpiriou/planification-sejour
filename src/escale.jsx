@@ -262,17 +262,33 @@ const MAP_LABELS = "123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 // d'un même hébergement encadrent la journée : elles ne font qu'un seul repère.
 // Aucun itinéraire n'est demandé, seulement les points.
 const dayMarkers = (acts) => {
+  const liste = acts || [];
+  // Un hébergement qui ouvre ET referme la même journée n'est pas une étape du
+  // parcours : c'est le point fixe d'où l'on part et où l'on rentre le soir. Un
+  // seul repère, et sans numéro — la numérotation suit le parcours de la journée,
+  // et lui donner deux numéros pour un même lieu ne décrivait rien.
+  const entrees = new Map();
+  for (const a of liste) if (a && a.stayOf) entrees.set(a.stayOf, (entrees.get(a.stayOf) || 0) + 1);
+
   const out = [];
-  for (const a of acts || []) {
+  const posés = new Set();
+  let numero = 0;
+  for (const a of liste) {
     const p = a && a.place;
     if (!p || p.lat == null || p.lng == null) continue;
-    const dernier = out[out.length - 1];
-    if (dernier && dernier.lat === p.lat && dernier.lng === p.lng) continue;
-    if (out.length >= MAP_LABELS.length) break;
+    const socle = !!a.stayOf && entrees.get(a.stayOf) > 1;
+    if (socle) {
+      if (posés.has(a.stayOf)) continue; // déjà posé par l'entrée du matin
+      posés.add(a.stayOf);
+    } else {
+      const dernier = out[out.length - 1];
+      if (dernier && dernier.lat === p.lat && dernier.lng === p.lng) continue;
+      if (numero >= MAP_LABELS.length) break;
+    }
     out.push({
       lat: p.lat, lng: p.lng,
       color: isStay(a) ? STAY_COLOR : C.teal,
-      label: MAP_LABELS[out.length],
+      label: socle ? null : MAP_LABELS[numero++], // null : repère sans numéro
       name: a.name || "",
       url: googlePlaceUrl(a),
       // Le lieu voyage avec le repère : la fiche Google de la bulle a besoin de
@@ -1350,6 +1366,7 @@ const echapeXml = (t) => String(t)
 // de téléphone.
 const MARKER_FONT = "600 12px -apple-system, 'Segoe UI', Roboto, sans-serif";
 const markerIcon = (maps, color, numero, nom) => {
+  const chiffre = numero == null ? "" : String(numero);
   const texte = (nom || "").length > 24 ? `${nom.slice(0, 23)}…` : (nom || "");
   const pinL = 24, pinH = 32, ecart = 4;
   const pilleL = texte ? largeurTexte(texte, MARKER_FONT) + 16 : 0;
@@ -1358,7 +1375,11 @@ const markerIcon = (maps, color, numero, nom) => {
   const H = pinH;
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${L}" height="${H}" viewBox="0 0 ${L} ${H}">`
     + `<path d="M12 32 C10 20 2 18 2 11 A10 10 0 1 1 22 11 C22 18 14 20 12 32 z" fill="${color}" stroke="#ffffff" stroke-width="1.5"/>`
-    + `<text x="12" y="15" text-anchor="middle" font-family="-apple-system, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="700" fill="#ffffff">${echapeXml(numero)}</text>`
+    // Sans numéro, la goutte reste pleine : le repère marque le lieu, il ne
+    // porte simplement pas de rang dans le parcours.
+    + (chiffre
+      ? `<text x="12" y="15" text-anchor="middle" font-family="-apple-system, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="700" fill="#ffffff">${echapeXml(chiffre)}</text>`
+      : "")
     + (texte
       ? `<rect x="${pinL + ecart}" y="${(pinH - pilleH) / 2}" width="${pilleL}" height="${pilleH}" rx="11" fill="#ffffff" fill-opacity="0.95" stroke="${color}" stroke-width="1.5"/>`
         + `<text x="${pinL + ecart + pilleL / 2}" y="${pinH / 2 + 4}" text-anchor="middle" font-family="-apple-system, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="600" fill="#16324A">${echapeXml(texte)}</text>`
