@@ -1284,30 +1284,47 @@ function TravelLeg({ from, to, leg, onEdit, variant, fromEndMin, toStartMin }) {
 // navigateur ; celle-ci n'est pas dans le bundle, l'application la demande à
 // l'Edge Function maps-key, qui ne la remet qu'à un utilisateur authentifié.
 
+// Le script chargé ne veut pas dire l'API prête. Avec loading=async, Google est
+// formel : « no JavaScript code is triggered by the script's load event », et
+// chaque bibliothèque doit être attendue par importLibrary avant usage — même
+// énumérée dans l'URL. Sans cette attente, la toute première ouverture de la
+// carte trouvait maps.Map encore indéfini et n'affichait rien ; la seconde
+// marchait, les bibliothèques ayant fini d'arriver entre-temps.
+async function attendBibliotheques(maps) {
+  if (typeof maps.importLibrary !== "function") {
+    // Chargeur sans importLibrary : on attend que les classes apparaissent.
+    for (let i = 0; i < 100 && !maps.Map; i++) await new Promise((r) => setTimeout(r, 50));
+    return;
+  }
+  await Promise.all([
+    maps.importLibrary("core"),    // LatLngBounds, Size, Point
+    maps.importLibrary("maps"),    // Map, InfoWindow
+    maps.importLibrary("marker"),  // Marker
+    // La fiche de lieu est un supplément : son absence ne doit pas priver de carte.
+    maps.importLibrary("places").catch(() => null),
+  ]);
+}
+
 let mapsLoader = null; // une seule injection du script pour toute la session
 function loadGoogleMaps() {
   if (mapsLoader) return mapsLoader;
   mapsLoader = (async () => {
-    if (window.google?.maps) return window.google.maps;
-    const { data, error } = await supabase.functions.invoke("maps-key", { body: {} });
-    const key = data && data.key;
-    if (error || !key) throw new Error((data && data.error) || "clé Google indisponible");
-    await new Promise((resolve, reject) => {
-      const el = document.createElement("script");
-      // libraries=places : les composants de fiche de lieu (Places UI Kit) sont
-      // définis par cette bibliothèque, pas par le cœur de l'API.
-      el.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&libraries=places&language=fr&loading=async`;
-      el.async = true;
-      el.onload = resolve;
-      el.onerror = () => reject(new Error("chargement de Google Maps impossible"));
-      document.head.appendChild(el);
-    });
-    if (!window.google?.maps) throw new Error("Google Maps n'a pas pu démarrer");
-    // Repli si la bibliothèque n'est pas venue avec le script : l'API moderne
-    // sait la charger à la demande.
-    if (!window.google.maps.places && typeof window.google.maps.importLibrary === "function") {
-      try { await window.google.maps.importLibrary("places"); } catch { /* la carte marche sans fiches */ }
+    if (!window.google?.maps) {
+      const { data, error } = await supabase.functions.invoke("maps-key", { body: {} });
+      const key = data && data.key;
+      if (error || !key) throw new Error((data && data.error) || "clé Google indisponible");
+      await new Promise((resolve, reject) => {
+        const el = document.createElement("script");
+        el.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&language=fr&loading=async`;
+        el.async = true;
+        el.onload = resolve;
+        el.onerror = () => reject(new Error("chargement de Google Maps impossible"));
+        document.head.appendChild(el);
+      });
+      if (!window.google?.maps) throw new Error("Google Maps n'a pas pu démarrer");
     }
+    await attendBibliotheques(window.google.maps);
+    if (!window.google.maps.Map) throw new Error("Google Maps n'a pas pu démarrer (bibliothèque « maps » indisponible)");
     return window.google.maps;
   })().catch((e) => { mapsLoader = null; throw e; });
   return mapsLoader;
@@ -1431,51 +1448,56 @@ function DayMapSheet({ markers, dayLabel, onClose }) {
   useEffect(() => {
     let alive = true;
     (async () => {
-      let maps;
-      try { maps = await loadGoogleMaps(); } catch (e) { if (alive) setErreur(e.message || String(e)); return; }
-      if (!alive || !hote.current) return;
-      const bounds = new maps.LatLngBounds();
-      const carte = new maps.Map(hote.current, {
-        mapTypeControl: false,
-        streetViewControl: false,
-        fullscreenControl: false,
-        zoomControl: true,
-        gestureHandling: "greedy",   // un doigt suffit à déplacer la carte
-      });
-      // Une seule bulle à la fois : deux fiches ouvertes masqueraient la carte.
-      const bulle = new maps.InfoWindow({ maxWidth: FICHE_W + 32 });
-      let ouvertePour = null;
-      const ferme = () => { bulle.close(); ouvertePour = null; };
-      bulle.addListener("closeclick", () => { ouvertePour = null; });
-      carte.addListener("click", ferme);
-
-      // La fiche Google n'est demandée qu'au toucher, et pour ce seul lieu :
-      // chaque affichage est facturé, ouvrir la carte n'en paie aucun.
-      const montreFiche = async (m, marqueur) => {
-        if (ouvertePour === m) return ferme(); // deuxième toucher : on referme
-        ouvertePour = m;
-        bulle.setContent(blocTexte("Chargement de la fiche…", `font:400 12px ${SANS};color:${C.inkSoft}`));
-        bulle.open({ anchor: marqueur, map: carte });
-        const utilisable = maps.places && maps.places.PlaceDetailsCompactElement;
-        const placeId = utilisable ? await fetchPlaceId(m.place) : null;
-        // L'utilisateur a pu toucher ailleurs pendant la résolution.
-        if (!alive || ouvertePour !== m) return;
-        bulle.setContent(placeId ? bulleGoogle(maps, m, placeId) : bulleLocale(m));
-      };
-
-      markers.forEach((m) => {
-        const pos = { lat: m.lat, lng: m.lng };
-        bounds.extend(pos);
-        const marqueur = new maps.Marker({
-          position: pos, map: carte, title: m.name,
-          // Numéro et nom sont dans l'image : pas de label séparé, il se
-          // superposerait au dessin.
-          icon: markerIcon(maps, m.color, m.label, m.name),
+      // Tout est sous le même filet : une carte qui échoue le dit, elle ne laisse
+      // pas un écran vide comme lorsqu'elle se construisait sur une API pas prête.
+      try {
+        const maps = await loadGoogleMaps();
+        if (!alive || !hote.current) return;
+        const bounds = new maps.LatLngBounds();
+        const carte = new maps.Map(hote.current, {
+          mapTypeControl: false,
+          streetViewControl: false,
+          fullscreenControl: false,
+          zoomControl: true,
+          gestureHandling: "greedy",   // un doigt suffit à déplacer la carte
         });
-        marqueur.addListener("click", () => montreFiche(m, marqueur));
-      });
-      if (markers.length === 1) { carte.setCenter(bounds.getCenter()); carte.setZoom(15); }
-      else carte.fitBounds(bounds, 48);
+        // Une seule bulle à la fois : deux fiches ouvertes masqueraient la carte.
+        const bulle = new maps.InfoWindow({ maxWidth: FICHE_W + 32 });
+        let ouvertePour = null;
+        const ferme = () => { bulle.close(); ouvertePour = null; };
+        bulle.addListener("closeclick", () => { ouvertePour = null; });
+        carte.addListener("click", ferme);
+
+        // La fiche Google n'est demandée qu'au toucher, et pour ce seul lieu :
+        // chaque affichage est facturé, ouvrir la carte n'en paie aucun.
+        const montreFiche = async (m, marqueur) => {
+          if (ouvertePour === m) return ferme(); // deuxième toucher : on referme
+          ouvertePour = m;
+          bulle.setContent(blocTexte("Chargement de la fiche…", `font:400 12px ${SANS};color:${C.inkSoft}`));
+          bulle.open({ anchor: marqueur, map: carte });
+          const utilisable = maps.places && maps.places.PlaceDetailsCompactElement;
+          const placeId = utilisable ? await fetchPlaceId(m.place) : null;
+          // L'utilisateur a pu toucher ailleurs pendant la résolution.
+          if (!alive || ouvertePour !== m) return;
+          bulle.setContent(placeId ? bulleGoogle(maps, m, placeId) : bulleLocale(m));
+        };
+
+        markers.forEach((m) => {
+          const pos = { lat: m.lat, lng: m.lng };
+          bounds.extend(pos);
+          const marqueur = new maps.Marker({
+            position: pos, map: carte, title: m.name,
+            // Numéro et nom sont dans l'image : pas de label séparé, il se
+            // superposerait au dessin.
+            icon: markerIcon(maps, m.color, m.label, m.name),
+          });
+          marqueur.addListener("click", () => montreFiche(m, marqueur));
+        });
+        if (markers.length === 1) { carte.setCenter(bounds.getCenter()); carte.setZoom(15); }
+        else carte.fitBounds(bounds, 48);
+      } catch (e) {
+        if (alive) setErreur(e.message || String(e));
+      }
     })();
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps

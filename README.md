@@ -46,6 +46,13 @@ horaires), rendue par le composant *Place Details* du **Places UI Kit**. Une seu
 bulle est ouverte à la fois ; toucher la carte, ou le même repère à nouveau, la
 referme. Un lien vers la page Google Maps complète reste sous la fiche.
 
+Le chargement suit le contrat de `loading=async` : l'événement `load` du script ne
+garantit rien, chaque bibliothèque (`core`, `maps`, `marker`, `places`) est attendue
+par `importLibrary` avant usage. Sans cette attente, la toute première ouverture de
+la carte tombait sur des classes encore absentes et restait blanche, la suivante
+fonctionnant. `places` est la seule dont l'échec est toléré : sans elle, la carte
+reste entière et les bulles se rabattent.
+
 La fiche réclame un identifiant de lieu que l'application ne stocke pas : il est
 résolu au premier toucher par l'Edge Function `place-photo`, qui le renvoie avec la
 photo — une seule requête sert les deux, et le résultat est mis en cache avec celui
