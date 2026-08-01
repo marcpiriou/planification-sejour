@@ -151,11 +151,13 @@ fond transparent), puis découpé en deux :
   `import.meta.env.BASE_URL` : le site étant servi sous `/planification-sejour/`, un
   chemin absolu manquerait sa cible.
 - `public/icon-192.png`, `icon-512.png`, `icon-512-maskable.png` : le **symbole seul**
-  (repère + route), centré sur le papier du logo. Le mot serait illisible à 192 px,
-  d'où le symbole. La variante *maskable* le réduit à 52 % de la hauteur pour tenir
-  dans les 80 % centraux que réclame le masque d'Android.
-- `public/favicon.svg` : le symbole redessiné en blanc sur un carré gris. À 16 px, un
-  tracé gris sur fond clair disparaîtrait dans l'onglet.
+  (repère + route) en blanc, sur le vert `#0F8A80` de l'application — celui de ses
+  boutons et de son `theme_color`. Le mot serait illisible à 192 px, d'où le symbole ;
+  et un aplat de couleur porte mieux qu'un fond clair au milieu des autres icônes d'un
+  écran d'accueil. La variante *maskable* réduit le symbole à 52 % de la hauteur pour
+  tenir dans les 80 % centraux que réclame le masque d'Android.
+- `public/favicon.svg` : le même symbole redessiné à la main sur le même vert. À 16 px,
+  le logo complet serait illisible et un tracé sur fond clair disparaîtrait.
 
 ## Aller plus loin
 - Icônes : remplacez `public/icon-*.png` par les vôtres (192, 512, 512 maskable).
