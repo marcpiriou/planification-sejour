@@ -250,7 +250,7 @@ const NAV_APPS = [
   { id: "waze", label: "Waze" },
 ];
 // Waze navigue toujours depuis la position actuelle : il n'a pas de point de
-// départ à lui indiquer, ce qui convient puisque le bouton « Itin. » part de là.
+// départ à lui indiquer, ce qui convient puisque l'itinéraire d'une étape part de là.
 const wazeDirUrl = (to) => {
   const params = new URLSearchParams({ navigate: "yes" });
   if (to && to.lat != null) params.set("ll", `${to.lat},${to.lng}`);
@@ -330,7 +330,7 @@ const dirUrl = (from, to, mode, app, preferAddress = false) => {
   return (app === "waze" && mode !== "walk") ? wazeDirUrl(dest) : mapsDirUrl(from, dest, mode);
 };
 
-// La préférence est lue au moment du rendu du bouton « Itin. », profondément dans
+// La préférence est lue au moment du rendu de l'icône d'itinéraire, profondément dans
 // l'arborescence : un contexte évite de la faire descendre par tous les niveaux.
 const NavAppContext = createContext("gmaps");
 // Lien direct : quand le lieu vient d'une URL collée (ex. lien Google Maps), on l'ouvre telle quelle.
@@ -951,9 +951,15 @@ function AccountPanel({ userEmail, home, onSaveHome, navApp, onSaveNavApp }) {
           })}
         </div>
         <div style={{ color: C.inkSoft }} className="t11">
-          Ouvre le bouton « Itin. » d'une activité dans cette application. Waze ne connaissant
+          Ouvre l'icône d'itinéraire d'une activité dans cette application. Waze ne connaissant
           que la voiture, un trajet à pied reste sur Google Maps.
         </div>
+      </div>
+
+      {/* Version de l'application : le logo a pris la place où elle s'affichait,
+          et savoir quelle version tourne sert au moindre doute sur une mise à jour. */}
+      <div style={{ color: C.inkSoft, fontFamily: MONO }} className="t11 mt-6 text-center">
+        Periplo v{APP_VERSION}
       </div>
     </div>
   );
@@ -2059,7 +2065,7 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
                   placeholder="Ex. 1 avenue de l'Impératrice, 64200 Biarritz"
                   style={inputStyle} className="w-full rounded-xl px-3 py-2.5 outline-none text-sm" />
                 <div style={{ color: C.inkSoft }} className="t11 mt-1.5">
-                  Renseignée, c'est elle que « Itin. » ouvre dans votre application de navigation,
+                  Renseignée, c'est elle que l'icône d'itinéraire ouvre dans votre application de navigation,
                   et non le lien ci-dessus.
                 </div>
               </div>
@@ -3108,8 +3114,9 @@ function LoginScreen() {
     <div style={{ background: C.paper, fontFamily: SANS, minHeight: "100vh" }} className="flex items-center justify-center px-4">
       <FontInject />
       <div className="w-full max-w-sm">
-        <div style={{ color: C.teal }} className="text-xs font-semibold trk uppercase mb-1">Planificateur de séjour · v{APP_VERSION}</div>
-        <h1 style={{ color: C.ink }} className="text-3xl font-bold mb-1">Periplo</h1>
+        {/* Le logo tient lieu de titre, comme sur l'accueil des séjours. */}
+        <img src={`${import.meta.env.BASE_URL}logo-periplo.png`} alt="Periplo"
+          width={600} height={437} className="h-auto mb-2" style={{ width: 168 }} />
         <p style={{ color: C.inkSoft }} className="text-sm mb-6">Connectez-vous pour retrouver vos séjours sur tous vos appareils.</p>
 
         <div style={{ background: C.card, border: `1px solid ${C.line}` }} className="rounded-2xl p-5">
