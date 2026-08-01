@@ -81,10 +81,21 @@ const prevISO = (iso) => toISO(addDays(parseDate(iso), -1));
 // donc l'hébergement referme chaque journée dont il couvre la nuit et rouvre la
 // journée suivante. Aucune ligne n'est dupliquée en base.
 const isStay = (a) => !!a && a.category === "dormir";
-const stayNights = (a) => Math.max(1, Number(a?.nights) || 1);
+// Un nombre de nuits absent vaut une nuit ; zéro, lui, est un vrai zéro (voir
+// isBase). Number(null) valant 0, le cas non renseigné se teste avant.
+const stayNights = (a) => {
+  if (!a || a.nights == null || a.nights === "") return 1;
+  const n = Math.floor(Number(a.nights));
+  return Number.isFinite(n) && n >= 0 ? n : 1;
+};
+// Point de départ et de retour du séjour : un hébergement de zéro nuit. On n'y
+// dort pas, mais on en part le premier jour et on y rentre le dernier — d'où le
+// même code couleur et la même place inamovible en tête et en queue de journée.
+const isBase = (a) => isStay(a) && stayNights(a) === 0;
 const stayCheckout = (a) => toISO(addDays(parseDate(a.date), stayNights(a)));
-// La nuit qui suit <iso> est-elle passée dans cet hébergement ?
-const stayCoversNight = (a, iso) => isStay(a) && iso >= a.date && iso < stayCheckout(a);
+// La nuit qui suit <iso> est-elle passée dans cet hébergement ? Jamais pour le
+// point de départ : zéro nuit ne couvre rien, sa place vient des bornes du séjour.
+const stayCoversNight = (a, iso) => isStay(a) && !isBase(a) && iso >= a.date && iso < stayCheckout(a);
 // Heure de départ le matin (l'heure d'arrivée du soir, elle, se déduit du trajet).
 const STAY_LEAVE_TIME = "09:00";
 // Code couleur propre à l'hébergement, distinct des huit catégories.
@@ -134,10 +145,19 @@ const sameStay = (a, b) => !!(a && b && a.stayOf) && a.stayOf === b.stayOf;
 
 // Séquence d'une journée, hébergements compris et à leur place fixe : celui de
 // la nuit précédente en tête, celui de la nuit qui vient en queue.
-function dayList(activities, iso) {
+//
+// Le point de départ (zéro nuit) occupe les créneaux que personne ne réclame :
+// il ouvre la journée qu'il porte — le premier jour — et referme le dernier jour
+// du séjour, puisqu'on rentre d'où l'on est parti. Un hébergement réservé garde
+// toujours la priorité : sur un séjour d'un seul jour, le départ tient les deux
+// bouts, et les deux entrées ne font qu'un lieu.
+function dayList(activities, iso, dernierJour) {
   const all = activities || [];
-  const morning = all.find((a) => stayCoversNight(a, prevISO(iso)));
-  const evening = all.find((a) => stayCoversNight(a, iso));
+  const base = all.find(isBase) || null;
+  const morning = all.find((a) => stayCoversNight(a, prevISO(iso)))
+    || (base && base.date === iso ? base : null);
+  const evening = all.find((a) => stayCoversNight(a, iso))
+    || (base && dernierJour === iso ? base : null);
   const seq = [];
   if (morning) seq.push(stayEntry(morning, iso, STAY_AM));
   seq.push(...all.filter((a) => !isStay(a) && a.date === iso));
@@ -742,6 +762,28 @@ function enforceManualOrder(dayActs, firstStartMin) {
 }
 
 // Réordonne les activités de chaque jour par heure effective (ordre chronologique stable).
+// Reprise des séjours créés avant que le point de départ devienne un hébergement
+// de zéro nuit. Ces séjours n'y arriveraient jamais autrement : l'interface ne
+// permet pas de saisir zéro nuit, c'est une marque interne.
+//
+// La signature est celle qu'écrivait la création d'un séjour, et elle seule :
+// première activité du premier jour, catégorie « autre », aucune durée, trajet en
+// voiture. Un doute quelconque et on ne touche à rien — une activité ordinaire
+// promue point de retour se retrouverait figée en fin de dernier jour.
+function adopteBase(trips) {
+  return (trips || []).map((t) => {
+    const acts = t.activities || [];
+    if (acts.some(isBase)) return t;
+    const premiere = acts.filter((a) => a.date === t.startDate)[0];
+    if (!premiere || isStay(premiere)) return t;
+    const signature = premiere.category === "autre"
+      && Number(premiere.durationMin) === 0
+      && premiere.travelMode === "car";
+    if (!signature) return t;
+    return { ...t, activities: acts.map((a) => (a === premiere ? { ...a, category: "dormir", nights: 0 } : a)) };
+  });
+}
+
 function normalizeOrder(trips) {
   return (trips || []).map((t) => {
     // Les hébergements ne participent pas au tri : leur place dans une journée
@@ -1131,10 +1173,16 @@ function ActivityCard({ act, onEdit, onUpdate, onEditDuration, startMin, endMin,
               <div onClick={() => canEdit && setEditingTitle(true)} style={{ color: C.ink }} className={`font-semibold leading-tight ${canEdit ? "cursor-text" : ""}`}>{act.name}</div>
             )}
             {/* Le soir, le nombre de nuits ; le matin, rien : on quitte les lieux,
-                il n'y a rien à annoncer que la carte ne dise déjà. */}
-            {stay && act.staySlot === STAY_PM && (
+                il n'y a rien à annoncer que la carte ne dise déjà. Le point de
+                départ, lui, n'a aucune nuit à annoncer : il dit son rôle. */}
+            {stay && act.staySlot === STAY_PM && !isBase(act) && (
               <div style={{ color: STAY_COLOR }} className="t11 mt-1 inline-flex items-center gap-1 font-medium">
                 <BedDouble size={12} /> {stayNights(act)} nuit{stayNights(act) > 1 ? "s" : ""}
+              </div>
+            )}
+            {isBase(act) && (
+              <div style={{ color: STAY_COLOR }} className="t11 mt-1 inline-flex items-center gap-1 font-medium">
+                <HomeIcon size={12} /> {act.staySlot === STAY_PM ? "Retour" : "Départ"}
               </div>
             )}
             {act.place && (
@@ -1635,7 +1683,7 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onE
   // date d'arrivée : le compteur de la pastille suit ce qui est réellement affiché.
   const counts = useMemo(() => {
     const c = {};
-    for (const d of days) c[d] = dayList(trip.activities, d).length;
+    for (const d of days) c[d] = dayList(trip.activities, d, trip.endDate).length;
     return c;
   }, [trip.activities, days]);
 
@@ -1644,7 +1692,7 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onE
   const [travelTick, setTravelTick] = useState(0);
   useEffect(() => {
     let alive = true;
-    const seq = dayList(trip.activities, safeCurrent);
+    const seq = dayList(trip.activities, safeCurrent, trip.endDate);
     const legs = [];
     for (let i = 0; i < seq.length - 1; i++) {
       const l = travelRequestFor(seq[i], seq[i + 1]);
@@ -1657,8 +1705,8 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onE
 
   // Activités du jour dans l'ordre de séquence, avec heures effectives calculées (auto = cascade).
   const acts = useMemo(
-    () => scheduleForDay(dayList(trip.activities, safeCurrent)),
-    [trip.activities, safeCurrent, travelTick]
+    () => scheduleForDay(dayList(trip.activities, safeCurrent, trip.endDate)),
+    [trip.activities, safeCurrent, trip.endDate, travelTick]
   );
 
   const markers = useMemo(() => dayMarkers(acts), [acts]);
@@ -1836,6 +1884,8 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
   // Un hébergement se saisit autrement : pas de durée, mais un nombre de nuits et
   // une heure de départ le matin. Le reste du formulaire est commun.
   const stay = draft.kind === "stay";
+  // Zéro nuit : le point de départ/retour, dont le nombre de nuits ne se règle pas.
+  const base = stay && Number(draft.nights) === 0;
   const [customOpen, setCustomOpen] = useState(false);
   const [ch, setCh] = useState(0);
   const [cm, setCm] = useState(0);
@@ -1921,7 +1971,7 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
   // Heure : "auto" (calculée) ou fixe. La 1re activité du jour est forcément fixe.
   // dayList place l'hébergement de la nuit précédente en tête : une activité qui
   // le suit n'est donc pas « première du jour » et garde le droit d'être en auto.
-  const dayOrdered = scheduleForDay(dayList(allActs, draft.date));
+  const dayOrdered = scheduleForDay(dayList(allActs, draft.date, days[days.length - 1]));
   const isFirstOfDay = dayOrdered.length === 0 || dayOrdered[0].id === draft.id;
   const timeAuto = isAutoTime(draft.startTime) && !isFirstOfDay;
   const mine = dayOrdered.find((a) => a.id === draft.id);
@@ -2028,8 +2078,17 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
           </Field>
           )}
 
-          {/* nuits — propre à l'hébergement */}
-          {stay && (
+          {/* nuits — propre à l'hébergement. Le point de départ n'en a aucune :
+              son nombre de nuits reste à zéro, c'est ce qui le désigne. */}
+          {stay && base && (
+            <Field label="Rôle">
+              <div style={{ color: C.inkSoft }} className="t11">
+                Point de départ et de retour du séjour : il ouvre le premier jour et
+                referme le dernier. Aucune nuit ne s'y passe.
+              </div>
+            </Field>
+          )}
+          {stay && !base && (
             <Field label="Nombre de nuits">
               <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
                 {[1, 2, 3, 4, 5, 6, 7].map((n) => {
@@ -2550,8 +2609,18 @@ function SejourApp() {
   const [syncMsg, setSyncMsg] = useState(null);   // erreur de synchronisation à afficher
   useEffect(() => onSyncStatus(setSyncMsg), []);
 
-  const reloadTrips = async () => { setTrips(normalizeOrder(await loadTrips())); };
-  useEffect(() => { (async () => { setTrips(normalizeOrder(await loadTrips())); setLoaded(true); })(); }, []);
+  // La reprise du point de départ se réenregistre : sans cela, elle serait à
+  // refaire à chaque chargement, et la base garderait l'ancienne forme.
+  const chargeTrips = async (persiste) => {
+    const brut = await loadTrips();
+    const repris = adopteBase(brut);
+    const change = repris.some((t, i) => t !== brut[i]);
+    const norm = normalizeOrder(repris);
+    setTrips(norm);
+    if (change && persiste) queueSaveTrips(norm);
+  };
+  const reloadTrips = () => chargeTrips(false);
+  useEffect(() => { (async () => { await chargeTrips(true); setLoaded(true); })(); }, []);
   useEffect(() => { (async () => {
     const { data } = await supabase.auth.getUser();
     setUserEmail(data.user?.email || "");
@@ -2644,9 +2713,13 @@ function SejourApp() {
         depPlace = { name: depName, lat: null, lng: null };
       }
       if (depName || depRaw) {
+        // Le point de départ est un hébergement de zéro nuit : on n'y dort pas,
+        // mais on en part le premier jour et on y rentre le dernier. Il en tient
+        // la couleur, la place inamovible en tête et en queue de journée, et le
+        // repère unique sur la carte.
         activities.push({
-          id: uid(), date: d.startDate, name: depName || "Point de départ", category: "autre",
-          startTime: d.startTime || "09:00", durationMin: 0,
+          id: uid(), date: d.startDate, name: depName || "Point de départ", category: "dormir",
+          startTime: d.startTime || "09:00", durationMin: 0, nights: 0,
           place: depPlace, travelMode: "car", travelMinutes: null, notes: "",
         });
       }
@@ -2676,7 +2749,7 @@ function SejourApp() {
   const openNewActivity = (t, day, placeRaw = "") => {
     // 1re activité du jour : heure fixe ; les suivantes : "auto" (calculées en
     // cascade). Un hébergement au petit matin compte comme première étape.
-    const startTime = dayList(t.activities, day).length ? AUTO : "09:00";
+    const startTime = dayList(t.activities, day, t.endDate).length ? AUTO : "09:00";
     setEditor({ mode: "new", kind: "act", id: uid(), date: day, name: "", category: "visite", startTime, durationMin: 60, placeRaw, addressRaw: "", travelMode: MODE_AUTO, travelMinutes: "", notes: "", nights: null });
   };
   const newActivity = () => {
@@ -2794,7 +2867,11 @@ function SejourApp() {
       startTime: isStayDraft ? (isAutoTime(d.startTime) ? STAY_LEAVE_TIME : d.startTime) : d.startTime,
       durationMin: isStayDraft ? 0 : (Number(d.durationMin) || 0), place,
       travelMode: d.travelMode, travelMinutes: d.travelMinutes === "" ? null : Number(d.travelMinutes), notes: d.notes.trim(),
-      nights: isStayDraft ? Math.max(1, Math.min(60, Number(d.nights) || 1)) : null,
+      // Zéro nuit se conserve tel quel : c'est le point de départ/retour, que
+      // réenregistrer ne doit pas convertir en nuitée.
+      nights: !isStayDraft ? null
+        : Number(d.nights) === 0 ? 0
+        : Math.max(1, Math.min(60, Number(d.nights) || 1)),
     };
     // Une activité modifiée reprend SA place dans la liste. L'ordre du tableau
     // porte la cascade des heures « auto » (chacune part de la fin de la
@@ -2822,7 +2899,7 @@ function SejourApp() {
   // passe avant celui du matin ni après celui du soir.
   const reorderActivities = (date, from, to) => {
     if (!trip) return;
-    const seq = scheduleForDay(dayList(trip.activities, date));
+    const seq = scheduleForDay(dayList(trip.activities, date, trip.endDate));
     if (from < 0 || from >= seq.length || isStay(seq[from])) return;
     const firstFree = seq.findIndex((a) => !isStay(a));
     const lastFree = seq.length - 1 - [...seq].reverse().findIndex((a) => !isStay(a));
@@ -2917,7 +2994,7 @@ function SejourApp() {
         // activités enregistrées : une entrée d'hébergement porte un identifiant
         // dérivé (« s1#am ») qui n'existe pas en base, et le popup ne s'ouvrait
         // donc pas pour un trajet bordé par un hébergement.
-        const seq = dayList(trip.activities, travelEdit.date);
+        const seq = dayList(trip.activities, travelEdit.date, trip.endDate);
         const from = seq.find((a) => a.id === travelEdit.fromId);
         const to = seq.find((a) => a.id === travelEdit.toId);
         if (!from || !to) return null;

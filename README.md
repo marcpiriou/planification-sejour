@@ -89,6 +89,23 @@ la nuit et rouvre la journée suivante — on part toujours du lieu où l'on a d
 deux entrées sont figées en tête et en queue de journée : rien ne se glisse avant ou
 après, et elles ne se déplacent pas.
 
+### Point de départ et de retour
+Le point de départ saisi à la création d'un séjour est un hébergement de **zéro
+nuit** : on n'y dort pas, mais on en part et on y rentre. Il en a donc la couleur,
+la place inamovible et le repère unique sur la carte. Il ouvre la journée qu'il
+porte — le premier jour — et referme le **dernier** jour du séjour. Un hébergement
+réservé garde toujours la priorité sur un créneau ; sur un séjour d'un seul jour, le
+départ tient les deux bouts et ne fait qu'un repère, sans numéro. La carte de
+l'étape annonce « Départ » ou « Retour » au lieu d'un nombre de nuits.
+
+Zéro nuit est une marque interne, non saisissable : l'éditeur d'un hébergement à
+zéro nuit masque le réglage des nuits et le réenregistrement le conserve. Les
+séjours créés avant cette règle sont repris une fois au chargement, sur la seule
+signature qu'écrivait alors la création d'un séjour — première activité du premier
+jour, catégorie « autre », aucune durée, trajet en voiture. Au moindre écart, rien
+n'est touché : une activité ordinaire promue point de retour se retrouverait figée
+en fin de dernier jour.
+
 Le champ « Lieu » accepte un lien Google Maps, Airbnb ou Booking. L'Edge Function
 `resolve-place` déplie les liens de partage courts et en tire les dates de réservation
 (`checkin`/`checkout` pour Booking, `check_in`/`check_out` pour Airbnb), le nom de
