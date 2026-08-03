@@ -2725,8 +2725,10 @@ function SejourApp() {
   const [curDay, setCurDay] = useState(null);
   // Dernier jour consulté de chaque séjour, pour y revenir tel quel : changer de
   // séjour puis rouvrir celui-ci ne doit pas revenir au premier jour à chaque fois.
-  // En mémoire seulement (pas persisté) : la reprise ne vaut que pour la session
-  // en cours, comme les onglets d'un navigateur qui gardent leur défilement.
+  // Rangé dans les métadonnées du compte (comme le lieu de départ ou l'application
+  // d'itinéraire) : la reprise vaut donc aussi après fermeture de l'app, et sur un
+  // autre appareil. Propre à l'utilisateur et non au séjour, pour qu'un séjour
+  // partagé n'impose pas la position de lecture d'un collaborateur à un autre.
   const [lastDayByTrip, setLastDayByTrip] = useState({});
   const [editor, setEditor] = useState(null);       // { mode, ...draft }
   const [tripModal, setTripModal] = useState(null); // { isNew, ...draft }
@@ -2765,6 +2767,9 @@ function SejourApp() {
       address: md.home_address != null ? md.home_address : "20 rue des grillons 31700 BEAUZELLE",
     });
     if (NAV_APPS.some((a) => a.id === md.nav_app)) setNavApp(md.nav_app);
+    // Un objet inattendu (compte jamais écrit par cette fonctionnalité, ou
+    // altéré à la main) ne doit pas empêcher l'application de démarrer.
+    if (md.last_day_by_trip && typeof md.last_day_by_trip === "object") setLastDayByTrip(md.last_day_by_trip);
   })(); }, []);
 
   // Enregistre le lieu de départ par défaut dans les métadonnées de l'utilisateur.
@@ -2807,10 +2812,21 @@ function SejourApp() {
   };
   const openTrip = (id) => { const t = trips.find((x) => x.id === id); if (t) enterTrip(t); };
 
-  // Mémorise le jour affiché à chaque changement, pour ce séjour précisément.
+  // Mémorise le jour affiché à chaque changement, pour ce séjour précisément, et
+  // l'enregistre sur le compte. Best-effort : une panne de sauvegarde ne doit pas
+  // empêcher de naviguer, elle prive seulement la prochaine ouverture de la reprise.
   useEffect(() => {
-    if (!tripId || !curDay) return;
-    setLastDayByTrip((m) => (m[tripId] === curDay ? m : { ...m, [tripId]: curDay }));
+    if (!tripId || !curDay || lastDayByTrip[tripId] === curDay) return;
+    // Élague au passage les séjours supprimés depuis : les métadonnées du compte
+    // voyagent dans le jeton d'authentification, une carte qui ne fait que
+    // grossir finirait par le faire déborder.
+    const ids = new Set(trips.map((t) => t.id));
+    const next = { [tripId]: curDay };
+    for (const [k, v] of Object.entries(lastDayByTrip)) if (k !== tripId && ids.has(k)) next[k] = v;
+    setLastDayByTrip(next);
+    supabase.auth.updateUser({ data: { last_day_by_trip: next } })
+      .catch((e) => console.error("Sauvegarde du jour consulté:", e));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tripId, curDay]);
 
   // Partage reçu : avec un seul séjour il n'y a rien à choisir, on y entre

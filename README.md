@@ -105,6 +105,16 @@ l'application vers un autre outil. Renseignée, c'est elle qu'ouvrent l'épingle
 l'itinéraire de la carte — un lien de réservation ne montre qu'un quartier, l'adresse
 de l'hôte mène à la porte.
 
+### Reprise du dernier jour consulté
+Rouvrir un séjour affiche le dernier jour qu'on y a consulté, plutôt que toujours le
+premier. C'est rangé dans les métadonnées du compte (`last_day_by_trip`), comme le
+lieu de départ ou l'application d'itinéraire préférée : la reprise vaut donc aussi
+après fermeture de l'application et sur un autre appareil. Propre à l'utilisateur,
+et non au séjour, pour qu'un séjour partagé n'impose pas à un collaborateur la
+position de lecture d'un autre. Un séjour supprimé est élagué de cette carte à la
+prochaine sauvegarde, pour qu'elle ne grossisse pas indéfiniment — les métadonnées
+d'un compte Supabase voyagent dans le jeton d'authentification.
+
 ### Point de départ et de retour
 Le point de départ saisi à la création d'un séjour est un hébergement de **zéro
 nuit** : on n'y dort pas, mais on en part et on y rentre. Il en a donc la couleur,
