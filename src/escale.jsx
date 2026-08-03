@@ -4,7 +4,7 @@ import {
   TrainFront, Sparkles, MapPin, Footprints, Car, Clock, Plus,
   ChevronLeft, Trash2, Pencil, Navigation, Calendar, X, AlertTriangle,
   Check, ExternalLink, MoreVertical, Route, Mail, LogOut,
-  Users, Share2, UserPlus, User, Home as HomeIcon, Building2, ClipboardPaste,
+  Users, Share2, UserPlus, User, Home as HomeIcon, Building2, ClipboardPaste, Copy,
   // Alias obligatoire : « Map » masquerait le constructeur Map de JavaScript,
   // dont se servent les caches de trajets et de photos.
   Map as MapIcon
@@ -242,6 +242,8 @@ const mapsDirUrl = (from, to, mode) => {
   return `https://www.google.com/maps/dir/?${params.toString()}`;
 };
 const mapsPlaceUrl = (p) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(placeQuery(p))}`;
+// Recherche Google Maps sur une adresse écrite : c'est Google qui la géocode.
+const adresseUrl = (addr) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addr)}`;
 const isMapsLink = (u) => /^https?:\/\/([a-z0-9-]+\.)*(google\.[a-z.]+|goo\.gl)\//i.test((u || "").trim());
 
 // Applications d'itinéraire proposées dans l'écran Compte.
@@ -267,9 +269,7 @@ const googlePlaceUrl = (a) => {
   const p = a && a.place;
   if (!p) return null;
   if (p.url && isMapsLink(p.url)) return p.url;
-  if (isStay(a) && typeof p.address === "string" && p.address.trim()) {
-    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(p.address.trim())}`;
-  }
+  if (isStay(a) && typeof p.address === "string" && p.address.trim()) return adresseUrl(p.address.trim());
   return mapsPlaceUrl(p);
 };
 
@@ -1210,12 +1210,21 @@ function ActivityCard({ act, onEdit, onUpdate, onEditDuration, startMin, endMin,
               montre un appui prolongé. */}
           {(act.place || canEdit) && (
             <div className="mt-2 -ml-1 flex items-center gap-1">
-              {act.place && placeDirectUrl(act.place) && (
-                <a href={placeDirectUrl(act.place)} target="_blank" rel="noopener noreferrer"
-                  aria-label="Voir le lieu" title="Lieu" className={ICON_BTN}>
-                  <MapPin size={16} style={{ color: C.inkSoft }} />
-                </a>
-              )}
+              {(() => {
+                // Sur un hébergement, l'épingle mène à son ADRESSE dès qu'elle est
+                // renseignée : un lien de réservation ne montre qu'un quartier,
+                // l'adresse de l'hôte mène à la porte.
+                const adresse = stay && act.place && typeof act.place.address === "string" ? act.place.address.trim() : "";
+                const url = adresse ? adresseUrl(adresse) : placeDirectUrl(act.place);
+                if (!act.place || !url) return null;
+                return (
+                  <a href={url} target="_blank" rel="noopener noreferrer"
+                    aria-label={adresse ? "Voir l'adresse" : "Voir le lieu"} title={adresse ? "Adresse" : "Lieu"}
+                    className={ICON_BTN}>
+                    <MapPin size={16} style={{ color: C.inkSoft }} />
+                  </a>
+                );
+              })()}
               {act.place && (() => {
                 // Itinéraire depuis la position actuelle vers le lieu de cette activité.
                 // Mode déduit du trajet menant à cette activité (activité précédente), sinon voiture.
@@ -1971,6 +1980,8 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const [adresseMsg, setAdresseMsg] = useState("");
+
   // Bouton « Coller » : la lecture du presse-papier est déclenchée par l'utilisateur,
   // et non à l'ouverture du formulaire — selon le navigateur elle demande une
   // confirmation, qui apparaissait alors même quand on n'en avait pas besoin.
@@ -1984,6 +1995,27 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
     }
     if (!txt) { setPasteError("Presse-papier vide."); return; }
     onPlaceRawChange(txt);
+  };
+
+  // Adresse : coller depuis le presse-papier, ou l'y copier. Une adresse se
+  // recopie souvent d'un e-mail de réservation vers l'application, et de
+  // l'application vers un autre outil — les deux sens servent.
+  const collerAdresse = async () => {
+    let txt = "";
+    try { txt = ((await navigator.clipboard?.readText?.()) || "").trim(); }
+    catch { setAdresseMsg("Presse-papier illisible : saisissez l'adresse à la main."); return; }
+    if (!txt) { setAdresseMsg("Presse-papier vide."); return; }
+    upd("addressRaw", txt);
+    setAdresseMsg("");
+  };
+  const copierAdresse = async () => {
+    const adr = (draft.addressRaw || "").trim();
+    if (!adr) { setAdresseMsg("Aucune adresse à copier."); return; }
+    try {
+      await navigator.clipboard.writeText(adr);
+      setAdresseMsg("Adresse copiée.");
+      setTimeout(() => setAdresseMsg(""), 2000);
+    } catch { setAdresseMsg("Copie impossible : sélectionnez l'adresse à la main."); }
   };
 
   // Heure : "auto" (calculée) ou fixe. La 1re activité du jour est forcément fixe.
@@ -2060,13 +2092,26 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
                 réservation ne mène pas à la porte, l'adresse de l'hôte si. */}
             {stay && (
               <div className="pt-1">
-                <div style={{ color: C.inkSoft }} className="text-xs font-medium uppercase tracking-wide mb-1.5">Adresse (pour l'itinéraire)</div>
-                <input value={draft.addressRaw || ""} onChange={(e) => upd("addressRaw", e.target.value)}
-                  placeholder="Ex. 1 avenue de l'Impératrice, 64200 Biarritz"
-                  style={inputStyle} className="w-full rounded-xl px-3 py-2.5 outline-none text-sm" />
+                <div style={{ color: C.inkSoft }} className="text-xs font-medium uppercase tracking-wide mb-1.5">Adresse</div>
+                <div className="flex gap-2">
+                  <input value={draft.addressRaw || ""} onChange={(e) => upd("addressRaw", e.target.value)}
+                    placeholder="Ex. 1 avenue de l'Impératrice, 64200 Biarritz"
+                    style={inputStyle} className="flex-1 min-w-0 rounded-xl px-3 py-2.5 outline-none text-sm" />
+                  <button type="button" onClick={collerAdresse} aria-label="Coller l'adresse depuis le presse-papier" title="Coller"
+                    style={{ border: `1px solid ${C.line}`, background: "#fff", color: C.teal }}
+                    className="shrink-0 w-11 rounded-xl flex items-center justify-center active:scale-95 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300">
+                    <ClipboardPaste size={18} />
+                  </button>
+                  <button type="button" onClick={copierAdresse} aria-label="Copier l'adresse dans le presse-papier" title="Copier"
+                    style={{ border: `1px solid ${C.line}`, background: "#fff", color: C.teal }}
+                    className="shrink-0 w-11 rounded-xl flex items-center justify-center active:scale-95 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300">
+                    <Copy size={18} />
+                  </button>
+                </div>
+                {adresseMsg && <div style={{ color: /copiée/i.test(adresseMsg) ? C.teal : C.amber }} className="text-xs mt-1.5">{adresseMsg}</div>}
                 <div style={{ color: C.inkSoft }} className="t11 mt-1.5">
-                  Renseignée, c'est elle que l'icône d'itinéraire ouvre dans votre application de navigation,
-                  et non le lien ci-dessus.
+                  Renseignée, c'est elle qu'ouvrent l'épingle et l'itinéraire de la carte
+                  d'hébergement, et non le lien ci-dessus.
                 </div>
               </div>
             )}

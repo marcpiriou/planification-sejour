@@ -94,6 +94,12 @@ de la vignette, son icône en grand sur le tiers droit de la carte : un lit pour
 nuitée, une maison pour le point de départ. Le nombre de nuits, lui, s'écrit sans
 icône.
 
+Le champ **Adresse** porte deux boutons : coller depuis le presse-papier et y
+copier. Une adresse se recopie d'un e-mail de réservation vers l'application, et de
+l'application vers un autre outil. Renseignée, c'est elle qu'ouvrent l'épingle et
+l'itinéraire de la carte — un lien de réservation ne montre qu'un quartier, l'adresse
+de l'hôte mène à la porte.
+
 ### Point de départ et de retour
 Le point de départ saisi à la création d'un séjour est un hébergement de **zéro
 nuit** : on n'y dort pas, mais on en part et on y rentre. Il en a donc la couleur,
