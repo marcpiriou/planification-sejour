@@ -2152,9 +2152,7 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
           <Field label="Heure de début">
             {isFirstOfDay ? (
               <>
-                <input type="time" value={isAutoTime(draft.startTime) ? "09:00" : draft.startTime}
-                  onChange={(e) => upd("startTime", e.target.value)}
-                  style={{ ...inputStyle, fontFamily: MONO }} className="w-full rounded-xl px-3 py-2.5 outline-none" />
+                <TimeFields value={draft.startTime} onChange={(v) => upd("startTime", v)} />
                 <div style={{ color: C.inkSoft }} className="t11 mt-1">Première activité du jour : heure de début fixe.</div>
               </>
             ) : (
@@ -2455,8 +2453,7 @@ function TripModal({ draft, setDraft, onSave, onClose, onDelete, isNew, canDelet
               )}
               <div>
                 <div style={{ color: C.inkSoft }} className="text-xs mb-1">Heure de départ</div>
-                <input type="time" value={draft.startTime || "09:00"} onChange={(e) => upd("startTime", e.target.value)}
-                  style={{ ...inputStyle, fontFamily: MONO }} className="w-full rounded-xl px-3 py-2.5 outline-none" />
+                <TimeFields value={draft.startTime} onChange={(v) => upd("startTime", v)} className="mt-0.5" />
               </div>
               <div style={{ color: C.inkSoft }} className="t11">Le point de départ devient la première activité du 1er jour, à l'heure indiquée (éditable ensuite comme toute activité).</div>
             </div>
