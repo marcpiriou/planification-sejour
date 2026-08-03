@@ -1202,7 +1202,7 @@ function ActivityCard({ act, onEdit, onUpdate, onEditDuration, startMin, endMin,
                 {act.staySlot === STAY_PM ? "Retour" : "Départ"}
               </div>
             )}
-            {act.notes && <div style={{ color: C.inkSoft }} className="text-xs mt-1 clamp2">{act.notes}</div>}
+            {act.notes && <div style={{ color: C.inkSoft }} className="text-xs mt-1 clamp3">{act.notes}</div>}
           </div>
           {/* Lieu, itinéraire et édition : trois icônes de même facture, sur une
               seule ligne en bas à gauche. Sans libellé, l'intitulé passe par
@@ -3248,6 +3248,8 @@ function FontInject() {
        défiluable au doigt comme à la molette. */
     .noscrollbar{scrollbar-width:none;-ms-overflow-style:none}
     .noscrollbar::-webkit-scrollbar{display:none;width:0;height:0}
-    .clamp2{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}`}</style>
+    /* Notes tronquées à trois lignes, les points de suspension venant du clamp
+       lui-même. Au-delà, la carte volerait la place de la timeline. */
+    .clamp3{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}`}</style>
   );
 }
