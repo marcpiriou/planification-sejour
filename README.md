@@ -94,8 +94,13 @@ de la vignette, son icône en grand sur le tiers droit de la carte : un lit pour
 nuitée, une maison pour le point de départ. Le nombre de nuits, lui, s'écrit sans
 icône.
 
-Le champ **Adresse** porte deux boutons : coller depuis le presse-papier et y
-copier. Une adresse se recopie d'un e-mail de réservation vers l'application, et de
+Son champ **Lieu** ne porte que le **lien de réservation** (Airbnb, Booking, Google
+Maps) : l'adresse a son propre champ, et les coordonnées en découlent. Y afficher des
+coordonnées ne servait à rien et empêchait de rouvrir le lien. Le champ est suivi d'un
+bouton **Ouvrir**, qui lance le lien — présent seulement quand le champ en contient un.
+
+Les champs **Lieu** et **Adresse** portent chacun un bouton coller et un bouton
+copier, celui-ci tout à droite. Une adresse se recopie d'un e-mail de réservation vers l'application, et de
 l'application vers un autre outil. Renseignée, c'est elle qu'ouvrent l'épingle et
 l'itinéraire de la carte — un lien de réservation ne montre qu'un quartier, l'adresse
 de l'hôte mène à la porte.

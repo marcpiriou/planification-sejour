@@ -1939,6 +1939,18 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
   };
 
   const [pasteError, setPasteError] = useState("");
+  // Le champ Lieu porte un lien dès qu'il commence par http : c'est lui que le
+  // bouton « Ouvrir » lance, et il n'a rien à ouvrir sur des coordonnées.
+  const lienLieu = isUrl((draft.placeRaw || "").trim()) ? draft.placeRaw.trim() : "";
+  const copierLieu = async () => {
+    const v = (draft.placeRaw || "").trim();
+    if (!v) { setPasteError("Aucun lieu à copier."); return; }
+    try {
+      await navigator.clipboard.writeText(v);
+      setPasteError("Lieu copié.");
+      setTimeout(() => setPasteError(""), 2000);
+    } catch { setPasteError("Copie impossible : sélectionnez le texte à la main."); }
+  };
   const [stayInfo, setStayInfo] = useState("");
 
   // Applique les dates de réservation lues dans un lien. L'arrivée n'est reprise
@@ -2066,12 +2078,25 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
             <div className="flex gap-2">
               <input value={draft.placeRaw}
                 onChange={(e) => onPlaceRawChange(e.target.value)}
-                placeholder="Lien Google Maps ou coordonnées (43.48, -1.56)"
+                placeholder={stay ? "Lien Airbnb, Booking ou Google Maps" : "Lien Google Maps ou coordonnées (43.48, -1.56)"}
                 style={inputStyle} className="flex-1 min-w-0 rounded-xl px-3 py-2.5 outline-none text-sm" />
+              {lienLieu && (
+                <a href={lienLieu} target="_blank" rel="noopener noreferrer"
+                  aria-label="Ouvrir le lien du lieu" title="Ouvrir"
+                  style={{ border: `1px solid ${C.line}`, background: "#fff", color: C.teal }}
+                  className="shrink-0 w-11 rounded-xl flex items-center justify-center active:scale-95 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300">
+                  <ExternalLink size={18} />
+                </a>
+              )}
               <button type="button" onClick={pasteFromClipboard} aria-label="Coller depuis le presse-papier" title="Coller"
                 style={{ border: `1px solid ${C.line}`, background: "#fff", color: C.teal }}
                 className="shrink-0 w-11 rounded-xl flex items-center justify-center active:scale-95 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300">
                 <ClipboardPaste size={18} />
+              </button>
+              <button type="button" onClick={copierLieu} aria-label="Copier le lieu dans le presse-papier" title="Copier"
+                style={{ border: `1px solid ${C.line}`, background: "#fff", color: C.teal }}
+                className="shrink-0 w-11 rounded-xl flex items-center justify-center active:scale-95 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300">
+                <Copy size={18} />
               </button>
             </div>
             {nameLoading && (
@@ -2081,7 +2106,7 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
               <div style={{ color: C.teal }} className="text-xs flex items-center gap-1"><Check size={13} /> Coordonnées détectées : {parsed.lat.toFixed(4)}, {parsed.lng.toFixed(4)}</div>
             )}
             {pasteError && (
-              <div style={{ color: C.amber }} className="text-xs">{pasteError}</div>
+              <div style={{ color: /copié/i.test(pasteError) ? C.teal : C.amber }} className="text-xs">{pasteError}</div>
             )}
             {stay && stayInfo && (
               <div style={{ color: STAY_COLOR }} className="text-xs flex items-start gap-1">
@@ -2877,12 +2902,13 @@ function SejourApp() {
       mode: "edit", kind: isStay(a) ? "stay" : "act",
       id: a.id, date: a.date, name: a.name, category: a.category, startTime: a.startTime, durationMin: a.durationMin,
       nights: isStay(a) ? stayNights(a) : null,
-      // Pour un hébergement, l'adresse a son propre champ : elle ne retombe pas
-      // dans celui du lien, qui l'afficherait en double.
+      // Pour un hébergement, le champ Lieu ne porte QUE le lien de réservation :
+      // son adresse a son propre champ, et ses coordonnées en découlent. Y afficher
+      // des coordonnées ne servait à rien et empêchait de rouvrir le lien.
       placeRaw: !a.place ? ""
         : (a.place.url
           || (isStay(a)
-            ? (a.place.lat != null ? `${a.place.lat}, ${a.place.lng}` : "")
+            ? ""
             : (a.place.address || (a.place.lat != null ? `${a.place.lat}, ${a.place.lng}` : (a.place.name || ""))))),
       addressRaw: isStay(a) ? (a.place?.address || "") : "",
       travelMode: a.travelMode, travelMinutes: a.travelMinutes ?? "", notes: a.notes || "",
