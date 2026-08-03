@@ -2723,6 +2723,11 @@ function SejourApp() {
   const [loaded, setLoaded] = useState(false);
   const [tripId, setTripId] = useState(null);
   const [curDay, setCurDay] = useState(null);
+  // Dernier jour consulté de chaque séjour, pour y revenir tel quel : changer de
+  // séjour puis rouvrir celui-ci ne doit pas revenir au premier jour à chaque fois.
+  // En mémoire seulement (pas persisté) : la reprise ne vaut que pour la session
+  // en cours, comme les onglets d'un navigateur qui gardent leur défilement.
+  const [lastDayByTrip, setLastDayByTrip] = useState({});
   const [editor, setEditor] = useState(null);       // { mode, ...draft }
   const [tripModal, setTripModal] = useState(null); // { isNew, ...draft }
   const [durEdit, setDurEdit] = useState(null);     // { id, durationMin }
@@ -2789,14 +2794,24 @@ function SejourApp() {
   const handleRemoveMember = async (memberId) => { const r = await removeMember(memberId); if (!r.error) await reloadTrips(); return r; };
   const handleLeaveTrip = async () => { await leaveTrip(shareTripId); setShareTripId(null); setTripId(null); await reloadTrips(); };
 
-  // Ouvre un séjour à partir de l'objet lui-même : évite de lire un état périmé
+  // Ouvre un séjour à partir de l'objet lui-même : évite de lire un état périmé.
+  // Reprend le dernier jour consulté de CE séjour s'il est encore dans ses dates
+  // (elles ont pu être raccourcies depuis), sinon retombe sur le premier jour.
   const enterTrip = (t) => {
-    const day = daysInRange(t.startDate, t.endDate)[0];
+    const days = daysInRange(t.startDate, t.endDate);
+    const dernier = lastDayByTrip[t.id];
+    const day = dernier && days.includes(dernier) ? dernier : days[0];
     setTripId(t.id); setCurDay(day);
     // Un lien attend d'être placé (reçu par partage) : le formulaire s'ouvre dessus.
     if (sharedLink) { openNewActivity(t, day, sharedLink); setSharedLink(null); }
   };
   const openTrip = (id) => { const t = trips.find((x) => x.id === id); if (t) enterTrip(t); };
+
+  // Mémorise le jour affiché à chaque changement, pour ce séjour précisément.
+  useEffect(() => {
+    if (!tripId || !curDay) return;
+    setLastDayByTrip((m) => (m[tripId] === curDay ? m : { ...m, [tripId]: curDay }));
+  }, [tripId, curDay]);
 
   // Partage reçu : avec un seul séjour il n'y a rien à choisir, on y entre
   // directement. Sinon l'accueil affiche un bandeau et attend le choix.
