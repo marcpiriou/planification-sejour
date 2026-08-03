@@ -2171,9 +2171,8 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
                 {timeAuto ? (
                   <div style={{ color: C.inkSoft }} className="t11 mt-1.5">Calculée d'après la fin de l'activité précédente et le temps de trajet.</div>
                 ) : (
-                  <input type="time" value={isAutoTime(draft.startTime) ? suggestedTime : draft.startTime}
-                    onChange={(e) => upd("startTime", e.target.value)}
-                    style={{ ...inputStyle, fontFamily: MONO }} className="w-full rounded-xl px-3 py-2.5 mt-2 outline-none" />
+                  <TimeFields value={draft.startTime} defaut={suggestedTime}
+                    onChange={(v) => upd("startTime", v)} className="mt-2" />
                 )}
               </>
             )}
@@ -2234,6 +2233,53 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
 }
 
 const inputStyle = { background: "#fff", border: `1px solid ${C.line}`, color: C.ink };
+
+/* --- Heure fixe en deux champs : heure et minute -------------------- */
+// Un <input type="time"> ouvre le sélecteur en roue d'Android, pénible pour
+// corriger une heure. Deux champs numériques comme ceux de la durée s'atteignent
+// au clavier, chiffre par chiffre. Réservé à l'heure fixe : l'heure automatique
+// se calcule et n'a rien à saisir.
+const deuxChiffres = (n) => String(n).padStart(2, "0");
+const borne = (v, max) => Math.min(max, Math.max(0, parseInt(v, 10) || 0));
+
+function TimeFields({ value, defaut = "09:00", onChange, className = "" }) {
+  const affiche = isAutoTime(value) || !value ? defaut : value;
+  const [h, setH] = useState(affiche.split(":")[0]);
+  const [m, setM] = useState(affiche.split(":")[1]);
+  // Ce que ce composant vient d'émettre : sans ce repère, la normalisation
+  // renvoyée par le parent réécrirait le champ sous les doigts de l'utilisateur.
+  const emis = useRef(null);
+  useEffect(() => {
+    if (value === emis.current) return;
+    const v = isAutoTime(value) || !value ? defaut : value;
+    setH(v.split(":")[0]); setM(v.split(":")[1]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+  const emet = (hh, mm) => {
+    const s = `${deuxChiffres(borne(hh, 23))}:${deuxChiffres(borne(mm, 59))}`;
+    emis.current = s;
+    onChange(s);
+  };
+  const champ = { ...inputStyle, fontFamily: MONO };
+  return (
+    <div className={`flex items-end gap-2 ${className}`}>
+      <label className="flex-1">
+        <div style={{ color: C.inkSoft }} className="text-xs mb-1">Heure</div>
+        <input type="number" inputMode="numeric" min="0" max="23" value={h}
+          onChange={(e) => { setH(e.target.value); emet(e.target.value, m); }}
+          onBlur={() => setH(deuxChiffres(borne(h, 23)))}
+          style={champ} className="w-full rounded-xl px-3 py-2.5 outline-none" />
+      </label>
+      <label className="flex-1">
+        <div style={{ color: C.inkSoft }} className="text-xs mb-1">Minute</div>
+        <input type="number" inputMode="numeric" min="0" max="59" value={m}
+          onChange={(e) => { setM(e.target.value); emet(h, e.target.value); }}
+          onBlur={() => setM(deuxChiffres(borne(m, 59)))}
+          style={champ} className="w-full rounded-xl px-3 py-2.5 outline-none" />
+      </label>
+    </div>
+  );
+}
 function Field({ label, children }) {
   return (
     <label className="block">
