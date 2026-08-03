@@ -2138,9 +2138,8 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
           {/* heure de départ le matin — l'arrivée du soir se déduit du trajet */}
           {stay && (
             <Field label="Heure de départ le matin">
-              <input type="time" value={isAutoTime(draft.startTime) ? STAY_LEAVE_TIME : draft.startTime}
-                onChange={(e) => upd("startTime", e.target.value)}
-                style={{ ...inputStyle, fontFamily: MONO }} className="w-full rounded-xl px-3 py-2.5 outline-none" />
+              <TimeFields value={draft.startTime} defaut={STAY_LEAVE_TIME}
+                onChange={(v) => upd("startTime", v)} />
               <div style={{ color: C.inkSoft }} className="t11 mt-1">
                 Heure à laquelle vous quittez les lieux, chaque matin du séjour sauf le premier.
                 L'heure d'arrivée du soir, elle, découle du trajet depuis l'étape précédente.
@@ -2237,8 +2236,8 @@ const inputStyle = { background: "#fff", border: `1px solid ${C.line}`, color: C
 /* --- Heure fixe en deux champs : heure et minute -------------------- */
 // Un <input type="time"> ouvre le sélecteur en roue d'Android, pénible pour
 // corriger une heure. Deux champs numériques comme ceux de la durée s'atteignent
-// au clavier, chiffre par chiffre. Réservé à l'heure fixe : l'heure automatique
-// se calcule et n'a rien à saisir.
+// au clavier, chiffre par chiffre. Réservé aux heures qu'on choisit : l'heure
+// automatique se calcule et n'a rien à saisir.
 const deuxChiffres = (n) => String(n).padStart(2, "0");
 const borne = (v, max) => Math.min(max, Math.max(0, parseInt(v, 10) || 0));
 
