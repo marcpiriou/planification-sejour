@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef, createContext, useContext } from "react";
+import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, createContext, useContext } from "react";
 import {
   Landmark, UtensilsCrossed, Coffee, Waves, ShoppingBag, BedDouble,
   TrainFront, Sparkles, MapPin, Footprints, Car, Clock, Plus,
@@ -1061,13 +1061,31 @@ function Home({ trips, onOpen, onNew, onExample, userEmail, onSignOut, home, onS
 
 /* --- Bandeau des jours -------------------------------------------- */
 function DateStrip({ days, current, onSelect, counts }) {
+  const barreRef = useRef(null);
+  const actifRef = useRef(null);
+  // À l'ouverture d'un séjour, place le jour repris (dernier consulté, ou premier
+  // jour) au bord gauche de la bande, plutôt que de laisser le défilement à zéro
+  // pendant que le jour actif est mis en évidence hors champ. DateStrip est
+  // remonté à chaque ouverture de séjour (TripView ne survit pas entre deux) :
+  // un effet à l'exécution unique suffit, pas besoin de le refaire à chaque jour
+  // choisi manuellement dans la liste. useLayoutEffect pour positionner avant la
+  // première peinture, sans à-coup visible.
+  useLayoutEffect(() => {
+    const barre = barreRef.current, actif = actifRef.current;
+    if (!barre || !actif) return;
+    const rBarre = barre.getBoundingClientRect();
+    const rActif = actif.getBoundingClientRect();
+    const marge = parseFloat(getComputedStyle(barre).paddingLeft) || 0;
+    barre.scrollLeft += (rActif.left - rBarre.left) - marge;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   return (
     <div style={{ background: C.card, borderBottom: `1px solid ${C.line}` }}>
-      <div className="mx-auto max-w-md px-2 py-2 flex gap-2 overflow-x-auto noscrollbar">
+      <div ref={barreRef} className="mx-auto max-w-md px-2 py-2 flex gap-2 overflow-x-auto noscrollbar">
         {days.map((d) => {
           const active = d === current;
           return (
-            <button key={d} onClick={() => onSelect(d)}
+            <button key={d} ref={active ? actifRef : undefined} onClick={() => onSelect(d)}
               style={{ background: active ? C.teal : C.paper, color: active ? "#fff" : C.ink, border: `1px solid ${active ? C.teal : C.line}` }}
               className="shrink-0 rounded-xl px-3 py-2 text-center minw62 active:scale-95 transition">
               {/* Le jour de la semaine et la date suffisent : le rang dans le
