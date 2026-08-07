@@ -1033,7 +1033,7 @@ function Home({ trips, onOpen, onNew, onExample, userEmail, onSignOut, home, onS
                 </div>
                 <div className="flex items-center gap-2 flex-wrap mt-2">
                   <div style={{ color: C.teal, fontFamily: MONO }} className="text-xs font-medium">
-                    {days.length} jour{days.length > 1 ? "s" : ""} · {t.activities.length} activité{t.activities.length > 1 ? "s" : ""}
+                    {days.length} jour{days.length > 1 ? "s" : ""}
                   </div>
                   {t.isOwner && (t.members?.length > 0) && (
                     <span style={{ background: C.tealSoft, color: C.teal }} className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium">
