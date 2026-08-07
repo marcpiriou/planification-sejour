@@ -5,6 +5,7 @@ import {
   ChevronLeft, Trash2, Pencil, Navigation, Calendar, X, AlertTriangle,
   Check, ExternalLink, MoreVertical, Route, Mail, LogOut,
   Users, Share2, UserPlus, User, Home as HomeIcon, Building2, ClipboardPaste, Copy,
+  ListChecks, ChevronRight,
   // Alias obligatoire : « Map » masquerait le constructeur Map de JavaScript,
   // dont se servent les caches de trajets et de photos.
   Map as MapIcon
@@ -446,6 +447,7 @@ async function loadTrips() {
       role,
       members: tripMembers,
       activities: (acts || []).filter((a) => a.trip_id === t.id).map(rowToActivity),
+      checklist: Array.isArray(t.checklist) ? t.checklist : [],
     };
   });
 }
@@ -477,12 +479,14 @@ async function saveTrips(trips) {
         const { error } = await supabase.from("trips").upsert({
           id: t.id, owner_id: me, name: t.name || "",
           start_date: t.startDate, end_date: t.endDate, updated_at: now,
+          checklist: t.checklist || [],
         });
         if (error) throw error;
       } else {
         // Séjour partagé (éditeur) : on met à jour les champs sans toucher owner_id
         const { error } = await supabase.from("trips").update({
           name: t.name || "", start_date: t.startDate, end_date: t.endDate, updated_at: now,
+          checklist: t.checklist || [],
         }).eq("id", t.id);
         if (error) throw error;
       }
@@ -1729,8 +1733,70 @@ function TravelPicker({ from, to, onCancel, onValidate }) {
   );
 }
 
+/* --- Checklist avant le départ ------------------------------------- */
+// Une page dédiée, comme la carte de la journée : plein écran, pas une simple
+// feuille modale. Élément : { id, text, done }. Un élément coché reste dans la
+// liste, simplement grisé — rien ne se réordonne ni ne disparaît tout seul.
+function ChecklistSheet({ trip, onUpdate, onClose, canEdit }) {
+  const items = trip.checklist || [];
+  const [texte, setTexte] = useState("");
+
+  const ajoute = (e) => {
+    e.preventDefault();
+    const t = texte.trim();
+    if (!t) return;
+    onUpdate([...items, { id: uid(), text: t, done: false }]);
+    setTexte("");
+  };
+  const bascule = (id) => onUpdate(items.map((it) => (it.id === id ? { ...it, done: !it.done } : it)));
+  const supprime = (id) => onUpdate(items.filter((it) => it.id !== id));
+
+  return (
+    <div className="fixed inset-0 z-40 flex flex-col" style={{ background: C.paper }}>
+      <TopBar
+        left={<IconBtn onClick={onClose} label="Retour"><ChevronLeft size={22} /></IconBtn>}
+        title="Checklist avant le départ"
+        subtitle={trip.name}
+      />
+      <div className="flex-1 overflow-y-auto">
+        <div className="mx-auto max-w-md px-4 py-4">
+          {items.length === 0 && (
+            <div style={{ background: C.card, border: `1px dashed ${C.line}` }} className="rounded-2xl p-8 text-center">
+              <div style={{ color: C.inkSoft }} className="text-sm">Aucun élément pour l'instant.</div>
+            </div>
+          )}
+          {items.map((it) => (
+            <div key={it.id} style={{ borderBottom: `1px solid ${C.line}` }} className="flex items-center gap-3 py-2.5">
+              <button onClick={() => canEdit && bascule(it.id)} disabled={!canEdit}
+                aria-label={it.done ? "Décocher cet élément" : "Cocher cet élément"}
+                style={{ background: it.done ? C.teal : "#fff", border: `1.5px solid ${it.done ? C.teal : C.line}` }}
+                className="shrink-0 h-6 w-6 rounded-md flex items-center justify-center active:scale-95 transition">
+                {it.done && <Check size={15} color="#fff" />}
+              </button>
+              {/* Toujours visible, seulement grisé : cocher n'efface rien. */}
+              <div className="flex-1 min-w-0 break-words" style={{ color: it.done ? C.inkSoft : C.ink }}>{it.text}</div>
+              {canEdit && (
+                <button onClick={() => supprime(it.id)} aria-label="Supprimer l'élément" className={ICON_BTN}>
+                  <Trash2 size={16} style={{ color: C.inkSoft }} />
+                </button>
+              )}
+            </div>
+          ))}
+          {canEdit && (
+            <form onSubmit={ajoute} className="flex items-center gap-3 py-2.5">
+              <Plus size={18} style={{ color: C.inkSoft }} className="shrink-0" />
+              <input value={texte} onChange={(e) => setTexte(e.target.value)} placeholder="Élément de liste"
+                style={{ color: C.ink }} className="flex-1 min-w-0 bg-transparent outline-none text-sm py-1" />
+            </form>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* --- Vue d'un séjour ---------------------------------------------- */
-function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onEditAct, onEditTrip, onUpdateAct, onEditDuration, onEditTravel, onReorder, canEdit = true, canShare = false, onShare }) {
+function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onEditAct, onEditTrip, onUpdateAct, onUpdateChecklist, onEditDuration, onEditTravel, onReorder, canEdit = true, canShare = false, onShare }) {
   const days = daysInRange(trip.startDate, trip.endDate);
   const safeCurrent = current && days.includes(current) ? current : days[0];
   // Un hébergement compte dans chaque journée où il apparaît, pas seulement à sa
@@ -1765,6 +1831,7 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onE
 
   const markers = useMemo(() => dayMarkers(acts), [acts]);
   const [mapOpen, setMapOpen] = useState(false);
+  const [checklistOpen, setChecklistOpen] = useState(false);
 
   const totalTravel = useMemo(() => {
     let t = 0;
@@ -1861,6 +1928,25 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onE
       <DateStrip days={days} current={safeCurrent} onSelect={onSelectDay} counts={counts} />
 
       <div className="mx-auto max-w-md px-4 pt-4 pb-28">
+        {/* Uniquement le premier jour : c'est celui d'où l'on part. */}
+        {safeCurrent === days[0] && (
+          <button onClick={() => setChecklistOpen(true)}
+            style={{ background: C.card, border: `1px solid ${C.line}` }}
+            className="w-full flex items-center gap-3 rounded-2xl px-4 py-3 mb-3 text-left active:scale-95 transition">
+            <div style={{ background: C.tealSoft, color: C.teal }} className="shrink-0 h-9 w-9 rounded-xl flex items-center justify-center">
+              <ListChecks size={18} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div style={{ color: C.ink }} className="font-medium text-sm">Checklist avant le départ</div>
+              {trip.checklist?.length > 0 && (
+                <div style={{ color: C.inkSoft }} className="t11 mt-0.5">
+                  {trip.checklist.filter((it) => it.done).length} / {trip.checklist.length} fait{trip.checklist.length > 1 ? "s" : ""}
+                </div>
+              )}
+            </div>
+            <ChevronRight size={18} style={{ color: C.inkSoft }} className="shrink-0" />
+          </button>
+        )}
         {acts.length === 0 ? (
           <div style={{ background: C.card, border: `1px dashed ${C.line}` }} className="rounded-2xl p-8 text-center">
             <div style={{ color: C.inkSoft }} className="text-sm">Aucune activité ce jour.</div>
@@ -1901,6 +1987,10 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onE
 
       {mapOpen && markers.length > 0 && (
         <DayMapSheet markers={markers} dayLabel={fmtLong(safeCurrent)} onClose={() => setMapOpen(false)} />
+      )}
+
+      {checklistOpen && (
+        <ChecklistSheet trip={trip} onUpdate={onUpdateChecklist} onClose={() => setChecklistOpen(false)} canEdit={canEdit} />
       )}
 
       {/* bouton flottant ajouter (masqué en lecture seule) */}
@@ -3105,6 +3195,13 @@ function SejourApp() {
     commit(next);
   };
 
+  // Checklist avant le départ : un tableau remplacé en bloc à chaque ajout,
+  // coche ou suppression — pas de quoi justifier une comparaison fine.
+  const updateChecklist = (items) => {
+    if (!trip) return;
+    commit(trips.map((t) => (t.id === trip.id ? { ...t, checklist: items } : t)));
+  };
+
   /* --- rendu --- */
   if (!loaded) {
     return (
@@ -3145,7 +3242,7 @@ function SejourApp() {
         <TripView
           trip={trip} current={curDay} onSelectDay={setCurDay}
           onBack={() => setTripId(null)} onAddAct={newActivity} onAddStay={newStay} onEditAct={editActivity} onEditTrip={editTrip}
-          onUpdateAct={updateActivity} onReorder={reorderActivities}
+          onUpdateAct={updateActivity} onUpdateChecklist={updateChecklist} onReorder={reorderActivities}
           onEditDuration={(a) => setDurEdit({ id: a.id, durationMin: a.durationMin })}
           onEditTravel={(from, to) => setTravelEdit({ date: from.date, fromId: from.id, toId: to.id })}
           canEdit={canEditTrip} onShare={() => setShareTripId(trip.id)}

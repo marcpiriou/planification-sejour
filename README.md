@@ -105,6 +105,18 @@ l'application vers un autre outil. Renseignée, c'est elle qu'ouvrent l'épingle
 l'itinéraire de la carte — un lien de réservation ne montre qu'un quartier, l'adresse
 de l'hôte mène à la porte.
 
+### Checklist avant le départ
+Un encart au-dessus de la timeline du **premier jour** d'un séjour ouvre une page
+dédiée, plein écran, listant des éléments à cocher — papiers, valises, tout ce
+qu'on prépare avant de partir. On y ajoute un élément par le champ du bas (comme
+Google Keep), on le coche ou le décoche, on le supprime. Un élément coché reste
+dans la liste, simplement grisé : cocher n'efface rien, ce n'est pas un tri.
+
+Rangée dans une seule colonne JSON du séjour (`trips.checklist`, migration `0006`,
+défaut `[]`), lue et réécrite en bloc à chaque modification — pas de table à part,
+la checklist n'a ni recherche ni tri à faire dessus côté base. L'encart affiche le
+compte fait/total dès qu'elle contient un élément.
+
 ### Reprise du dernier jour consulté
 Rouvrir un séjour affiche le dernier jour qu'on y a consulté, plutôt que toujours le
 premier. C'est rangé dans les métadonnées du compte (`last_day_by_trip`), comme le
