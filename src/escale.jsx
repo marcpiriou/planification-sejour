@@ -1746,6 +1746,21 @@ const decoupeLignes = (texte) => texte.split(/\r\n|\r|\n/).map((l) => l.trim()).
 function ChecklistSheet({ trip, onUpdate, onClose, canEdit }) {
   const items = trip.checklist || [];
   const [texte, setTexte] = useState("");
+  const [colleMsg, setColleMsg] = useState("");
+
+  // Bouton de la barre du haut : l'événement "paste" du champ ne se déclenche pas
+  // de façon fiable depuis le menu de collage natif d'un clavier mobile. On lit
+  // donc directement le presse-papier au clic, comme les boutons « Coller »
+  // ailleurs dans l'application — même découpage par ligne que le collage clavier.
+  const colleDepuisPressePapier = async () => {
+    let txt = "";
+    try { txt = (await navigator.clipboard?.readText?.()) || ""; }
+    catch { setColleMsg("Presse-papier illisible : collez à la main dans le champ."); return; }
+    const lignes = decoupeLignes(txt);
+    if (!lignes.length) { setColleMsg("Presse-papier vide."); return; }
+    onUpdate([...items, ...lignes.map((t) => ({ id: uid(), text: t, done: false }))]);
+    setColleMsg("");
+  };
 
   const ajoute = (e) => {
     e.preventDefault();
@@ -1776,9 +1791,15 @@ function ChecklistSheet({ trip, onUpdate, onClose, canEdit }) {
         left={<IconBtn onClick={onClose} label="Retour"><ChevronLeft size={22} /></IconBtn>}
         title="Checklist avant le départ"
         subtitle={trip.name}
+        right={canEdit && (
+          <IconBtn onClick={colleDepuisPressePapier} label="Coller des éléments depuis le presse-papier">
+            <ClipboardPaste size={19} />
+          </IconBtn>
+        )}
       />
       <div className="flex-1 overflow-y-auto">
         <div className="mx-auto max-w-md px-4 py-4">
+          {colleMsg && <div style={{ color: C.amber }} className="text-xs mb-3">{colleMsg}</div>}
           {items.length === 0 && (
             <div style={{ background: C.card, border: `1px dashed ${C.line}` }} className="rounded-2xl p-8 text-center">
               <div style={{ color: C.inkSoft }} className="text-sm">Aucun élément pour l'instant.</div>

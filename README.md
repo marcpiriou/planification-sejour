@@ -122,6 +122,11 @@ plutôt qu'un seul élément portant tout le texte bout à bout : pratique pour 
 une checklist toute faite. Les lignes vides sont ignorées. Un collage d'une seule
 ligne suit le comportement normal du champ (position du curseur, sélection).
 
+La barre du haut porte aussi un bouton coller, qui lit le presse-papier directement
+(`navigator.clipboard.readText`) sans dépendre de l'événement `paste` du champ — celui
+du clavier ne se déclenche pas de façon fiable sur mobile. Même découpage par ligne
+que le collage clavier.
+
 ### Reprise du dernier jour consulté
 Rouvrir un séjour affiche le dernier jour qu'on y a consulté, plutôt que toujours le
 premier. C'est rangé dans les métadonnées du compte (`last_day_by_trip`), comme le
