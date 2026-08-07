@@ -127,6 +127,11 @@ La barre du haut porte aussi un bouton coller, qui lit le presse-papier directem
 du clavier ne se déclenche pas de façon fiable sur mobile. Même découpage par ligne
 que le collage clavier.
 
+Le texte d'un élément s'édite sur place, au clic — même geste que le titre d'une
+activité : le texte devient un champ, Entrée ou la perte du focus valide, Échap
+annule. Aucune autre page ni popup. Un texte vidé ou inchangé rétablit l'original
+plutôt que de supprimer l'élément.
+
 ### Reprise du dernier jour consulté
 Rouvrir un séjour affiche le dernier jour qu'on y a consulté, plutôt que toujours le
 premier. C'est rangé dans les métadonnées du compte (`last_day_by_trip`), comme le

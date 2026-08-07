@@ -1743,6 +1743,56 @@ function TravelPicker({ from, to, onCancel, onValidate }) {
 // collage le peut).
 const decoupeLignes = (texte) => texte.split(/\r\n|\r|\n/).map((l) => l.trim()).filter(Boolean);
 
+// Une ligne de la checklist : le texte s'édite sur place au clic, comme le
+// titre d'une activité (même geste : clic → champ, Entrée/perte du focus valide,
+// Échap annule). Aucun autre écran ni popup à ouvrir pour corriger une coquille.
+function ChecklistItemRow({ item, canEdit, onToggle, onDelete, onRename }) {
+  const [editing, setEditing] = useState(false);
+  const [texte, setTexte] = useState(item.text);
+  useEffect(() => { setTexte(item.text); }, [item.text]);
+  const commit = () => {
+    const t = texte.trim();
+    if (t && t !== item.text) onRename(t);
+    else setTexte(item.text);
+    setEditing(false);
+  };
+  return (
+    <div style={{ borderBottom: `1px solid ${C.line}` }} className="flex items-center gap-3 py-2.5">
+      <button onClick={() => canEdit && onToggle()} disabled={!canEdit}
+        aria-label={item.done ? "Décocher cet élément" : "Cocher cet élément"}
+        style={{ background: item.done ? C.teal : "#fff", border: `1.5px solid ${item.done ? C.teal : C.line}` }}
+        className="shrink-0 h-6 w-6 rounded-md flex items-center justify-center active:scale-95 transition">
+        {item.done && <Check size={15} color="#fff" />}
+      </button>
+      {editing ? (
+        <input
+          autoFocus
+          value={texte}
+          onChange={(e) => setTexte(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") { e.preventDefault(); e.currentTarget.blur(); }
+            else if (e.key === "Escape") { setTexte(item.text); setEditing(false); }
+          }}
+          style={{ background: "#fff", border: `1px solid ${C.teal}`, color: C.ink, userSelect: "text", WebkitUserSelect: "text" }}
+          className="flex-1 min-w-0 rounded-lg px-2 py-1 text-sm outline-none"
+        />
+      ) : (
+        // Toujours visible, seulement grisé : cocher n'efface rien.
+        <div onClick={() => canEdit && setEditing(true)} style={{ color: item.done ? C.inkSoft : C.ink }}
+          className={`flex-1 min-w-0 break-words ${canEdit ? "cursor-text" : ""}`}>
+          {item.text}
+        </div>
+      )}
+      {canEdit && (
+        <button onClick={onDelete} aria-label="Supprimer l'élément" className={ICON_BTN}>
+          <Trash2 size={16} style={{ color: C.inkSoft }} />
+        </button>
+      )}
+    </div>
+  );
+}
+
 function ChecklistSheet({ trip, onUpdate, onClose, canEdit }) {
   const items = trip.checklist || [];
   const [texte, setTexte] = useState("");
@@ -1784,6 +1834,7 @@ function ChecklistSheet({ trip, onUpdate, onClose, canEdit }) {
   };
   const bascule = (id) => onUpdate(items.map((it) => (it.id === id ? { ...it, done: !it.done } : it)));
   const supprime = (id) => onUpdate(items.filter((it) => it.id !== id));
+  const renomme = (id, text) => onUpdate(items.map((it) => (it.id === id ? { ...it, text } : it)));
 
   return (
     <div className="fixed inset-0 z-40 flex flex-col" style={{ background: C.paper }}>
@@ -1806,21 +1857,9 @@ function ChecklistSheet({ trip, onUpdate, onClose, canEdit }) {
             </div>
           )}
           {items.map((it) => (
-            <div key={it.id} style={{ borderBottom: `1px solid ${C.line}` }} className="flex items-center gap-3 py-2.5">
-              <button onClick={() => canEdit && bascule(it.id)} disabled={!canEdit}
-                aria-label={it.done ? "Décocher cet élément" : "Cocher cet élément"}
-                style={{ background: it.done ? C.teal : "#fff", border: `1.5px solid ${it.done ? C.teal : C.line}` }}
-                className="shrink-0 h-6 w-6 rounded-md flex items-center justify-center active:scale-95 transition">
-                {it.done && <Check size={15} color="#fff" />}
-              </button>
-              {/* Toujours visible, seulement grisé : cocher n'efface rien. */}
-              <div className="flex-1 min-w-0 break-words" style={{ color: it.done ? C.inkSoft : C.ink }}>{it.text}</div>
-              {canEdit && (
-                <button onClick={() => supprime(it.id)} aria-label="Supprimer l'élément" className={ICON_BTN}>
-                  <Trash2 size={16} style={{ color: C.inkSoft }} />
-                </button>
-              )}
-            </div>
+            <ChecklistItemRow key={it.id} item={it} canEdit={canEdit}
+              onToggle={() => bascule(it.id)} onDelete={() => supprime(it.id)}
+              onRename={(t) => renomme(it.id, t)} />
           ))}
           {canEdit && (
             <form onSubmit={ajoute} className="flex items-center gap-3 py-2.5">
