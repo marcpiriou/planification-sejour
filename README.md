@@ -117,6 +117,11 @@ défaut `[]`), lue et réécrite en bloc à chaque modification — pas de table
 la checklist n'a ni recherche ni tri à faire dessus côté base. L'encart affiche le
 compte fait/total dès qu'elle contient un élément.
 
+Coller un texte à plusieurs lignes dans le champ d'ajout crée un élément par ligne,
+plutôt qu'un seul élément portant tout le texte bout à bout : pratique pour reprendre
+une checklist toute faite. Les lignes vides sont ignorées. Un collage d'une seule
+ligne suit le comportement normal du champ (position du curseur, sélection).
+
 ### Reprise du dernier jour consulté
 Rouvrir un séjour affiche le dernier jour qu'on y a consulté, plutôt que toujours le
 premier. C'est rangé dans les métadonnées du compte (`last_day_by_trip`), comme le

@@ -1737,15 +1737,34 @@ function TravelPicker({ from, to, onCancel, onValidate }) {
 // Une page dédiée, comme la carte de la journée : plein écran, pas une simple
 // feuille modale. Élément : { id, text, done }. Un élément coché reste dans la
 // liste, simplement grisé — rien ne se réordonne ni ne disparaît tout seul.
+// Une ligne par élément : sert au collage d'un texte multi-lignes, et par
+// défense à la validation normale si la valeur portait malgré tout des retours
+// à la ligne (un <input> à une ligne n'en produit pas au clavier, seul un
+// collage le peut).
+const decoupeLignes = (texte) => texte.split(/\r\n|\r|\n/).map((l) => l.trim()).filter(Boolean);
+
 function ChecklistSheet({ trip, onUpdate, onClose, canEdit }) {
   const items = trip.checklist || [];
   const [texte, setTexte] = useState("");
 
   const ajoute = (e) => {
     e.preventDefault();
-    const t = texte.trim();
-    if (!t) return;
-    onUpdate([...items, { id: uid(), text: t, done: false }]);
+    const lignes = decoupeLignes(texte);
+    if (!lignes.length) return;
+    onUpdate([...items, ...lignes.map((t) => ({ id: uid(), text: t, done: false }))]);
+    setTexte("");
+  };
+  // Un <input> n'affiche qu'une ligne, mais le presse-papier collé peut en
+  // porter plusieurs (une checklist copiée d'ailleurs, une liste de courses…) :
+  // chacune devient un élément séparé, plutôt que de finir bout à bout sur une
+  // seule ligne ou tronquée par le navigateur. Un collage d'une seule ligne suit
+  // le comportement normal du champ (position du curseur, sélection).
+  const colle = (e) => {
+    const texteColle = e.clipboardData?.getData("text") || "";
+    const lignes = decoupeLignes(texteColle);
+    if (lignes.length <= 1) return;
+    e.preventDefault();
+    onUpdate([...items, ...lignes.map((t) => ({ id: uid(), text: t, done: false }))]);
     setTexte("");
   };
   const bascule = (id) => onUpdate(items.map((it) => (it.id === id ? { ...it, done: !it.done } : it)));
@@ -1785,7 +1804,7 @@ function ChecklistSheet({ trip, onUpdate, onClose, canEdit }) {
           {canEdit && (
             <form onSubmit={ajoute} className="flex items-center gap-3 py-2.5">
               <Plus size={18} style={{ color: C.inkSoft }} className="shrink-0" />
-              <input value={texte} onChange={(e) => setTexte(e.target.value)} placeholder="Élément de liste"
+              <input value={texte} onChange={(e) => setTexte(e.target.value)} onPaste={colle} placeholder="Élément de liste"
                 style={{ color: C.ink }} className="flex-1 min-w-0 bg-transparent outline-none text-sm py-1" />
             </form>
           )}
