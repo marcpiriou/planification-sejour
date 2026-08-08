@@ -167,6 +167,10 @@ d'être capté par le défilement natif du navigateur) et la page `overscroll-be
 none` (pour qu'un balayage horizontal ne déclenche jamais le retour en arrière du
 navigateur).
 
+Changer de jour — bande des dates ou balayage — remet aussi le défilement en
+haut de la page : la position atteinte dans un jour ne doit pas se reporter
+sur le suivant.
+
 ### Point de départ et de retour
 Le point de départ saisi à la création d'un séjour est un hébergement de **zéro
 nuit** : on n'y dort pas, mais on en part et on y rentre. Il en a donc la couleur,

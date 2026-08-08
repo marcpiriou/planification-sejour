@@ -1934,6 +1934,10 @@ function ChecklistSheet({ trip, onUpdate, onClose, canEdit }) {
 function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onEditAct, onEditTrip, onUpdateChecklist, onEditDuration, onEditTravel, onReorder, canEdit = true, canShare = false, onShare }) {
   const days = daysInRange(trip.startDate, trip.endDate);
   const safeCurrent = current && days.includes(current) ? current : days[0];
+  // Changer de jour (bande des dates ou balayage) repart du haut de la
+  // timeline : la position de défilement d'un jour ne doit pas s'appliquer
+  // au suivant.
+  useEffect(() => { window.scrollTo(0, 0); }, [safeCurrent]);
   // Un hébergement compte dans chaque journée où il apparaît, pas seulement à sa
   // date d'arrivée : le compteur de la pastille suit ce qui est réellement affiché.
   const counts = useMemo(() => {
