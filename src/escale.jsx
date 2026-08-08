@@ -106,6 +106,12 @@ const STAY_AM = "am", STAY_PM = "pm";
 
 // Entrée d'affichage dérivée d'une réservation. Son id porte le créneau pour
 // rester unique dans la journée ; stayOf ramène à l'activité enregistrée.
+//
+// stayNight numérote la nuit couverte par ce créneau (1 = la première depuis
+// l'arrivée) : le soir où elle commence comme le matin où on la quitte portent
+// le même numéro. stayArrivee et stayDepart ne valent que sur les deux
+// créneaux qui bornent le séjour dans cet hébergement — le premier soir et le
+// dernier matin — jamais sur les nuits intermédiaires.
 const stayEntry = (s, iso, slot) => ({
   ...s,
   id: `${s.id}#${slot}`,
@@ -114,6 +120,9 @@ const stayEntry = (s, iso, slot) => ({
   date: iso,
   startTime: slot === STAY_AM ? (s.startTime || STAY_LEAVE_TIME) : AUTO,
   durationMin: 0,
+  stayNight: Math.round((parseDate(iso) - parseDate(s.date)) / 86400000) + (slot === STAY_PM ? 1 : 0),
+  stayArrivee: slot === STAY_PM && iso === s.date,
+  stayDepart: slot === STAY_AM && iso === stayCheckout(s),
 });
 
 // Dates de réservation portées par un lien. Booking écrit checkin/checkout,
@@ -1231,12 +1240,15 @@ function ActivityCard({ act, onEdit, onEditDuration, startMin, endMin, auto, pre
             {/* Le nom ne s'édite plus ici : la photo (ou l'icône d'un hébergement)
                 ouvre désormais l'édition complète, comme le crayon. */}
             <div style={{ color: C.ink }} className="font-semibold leading-tight">{act.name}</div>
-            {/* Le soir, le nombre de nuits ; le matin, rien : on quitte les lieux,
-                il n'y a rien à annoncer que la carte ne dise déjà. Le point de
-                départ, lui, n'a aucune nuit à annoncer : il dit son rôle. */}
-            {stay && act.staySlot === STAY_PM && !isBase(act) && (
+            {/* Le numéro de la nuit s'affiche matin et soir. Arrivée/Départ ne
+                marquent que les deux bornes du séjour dans cet hébergement — le
+                premier soir, le dernier matin — jamais les nuits intermédiaires.
+                Le point de départ du voyage, lui, n'a aucune nuit à annoncer :
+                il dit son rôle (Départ/Retour), pas un décompte. */}
+            {stay && !isBase(act) && (
               <div style={{ color: STAY_COLOR }} className="t11 mt-1 font-medium">
-                {stayNights(act)} nuit{stayNights(act) > 1 ? "s" : ""}
+                {act.stayArrivee ? "Arrivée · " : act.stayDepart ? "Départ · " : ""}
+                Nuit {act.stayNight}/{stayNights(act)}
               </div>
             )}
             {isBase(act) && (

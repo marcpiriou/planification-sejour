@@ -184,6 +184,14 @@ jour, catégorie « autre », aucune durée, trajet en voiture. Au moindre écar
 n'est touché : une activité ordinaire promue point de retour se retrouverait figée
 en fin de dernier jour.
 
+Un hébergement réservé (nuits > 0) apparaît matin et soir tant qu'il couvre le
+séjour, avec le numéro de la nuit — « Nuit 1/3 », « Nuit 2/3 »… — commun aux deux
+créneaux qui l'encadrent : le soir où elle commence, le matin où on la quitte. Les
+deux seuls créneaux qui portent en plus une mention sont les bornes du séjour dans
+cet hébergement : « Arrivée » le premier soir, « Départ » le dernier matin — jamais
+sur les nuits intermédiaires. Le point de départ/retour du voyage (zéro nuit), lui,
+garde ses propres mentions « Départ »/« Retour » : il ne compte aucune nuit.
+
 Le champ « Lieu » accepte un lien Google Maps, Airbnb ou Booking. L'Edge Function
 `resolve-place` déplie les liens de partage courts et en tire les dates de réservation
 (`checkin`/`checkout` pour Booking, `check_in`/`check_out` pour Airbnb), le nom de
