@@ -1133,14 +1133,11 @@ function DaySummary({ acts, totalTravel }) {
 // posée sur la carte. Le crayon lui servait déjà de modèle.
 const ICON_BTN = "h-9 w-9 shrink-0 flex items-center justify-center rounded-full active:scale-95 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300";
 
-function ActivityCard({ act, onEdit, onUpdate, onEditDuration, startMin, endMin, auto, prev, canEdit = true, onDragStart, dragging = false }) {
+function ActivityCard({ act, onEdit, onEditDuration, startMin, endMin, auto, prev, canEdit = true, onDragStart, dragging = false }) {
   const navApp = useContext(NavAppContext);
   const longPress = useLongPress(onDragStart, !!onDragStart);
   const start = minToTime(startMin != null ? startMin : timeToMin(act.startTime));
   const end = minToTime(endMin != null ? endMin : timeToMin(act.startTime) + act.durationMin);
-  const [editingTitle, setEditingTitle] = useState(false);
-  const [title, setTitle] = useState(act.name);
-  useEffect(() => { setTitle(act.name); }, [act.name]);
   const stay = isStay(act);
   // Photo Google du lieu (à droite), si disponible. Un hébergement n'en a pas :
   // sa carte donne toute sa largeur au texte et aux boutons, et la requête
@@ -1153,12 +1150,6 @@ function ActivityCard({ act, onEdit, onUpdate, onEditDuration, startMin, endMin,
     fetchPlacePhoto(act.place).then((u) => { if (alive) setPhoto(u); });
     return () => { alive = false; };
   }, [stay, act.place?.mapsName, act.place?.lat, act.place?.lng]);
-  const commitTitle = () => {
-    const t = title.trim();
-    if (t && t !== act.name) onUpdate(act.id, { name: t });
-    else setTitle(act.name);
-    setEditingTitle(false);
-  };
   const accent = stay ? STAY_COLOR : C.teal;
   return (
     <div className="flex gap-3">
@@ -1195,22 +1186,9 @@ function ActivityCard({ act, onEdit, onUpdate, onEditDuration, startMin, endMin,
         className="flex-1 rounded-2xl mb-1 overflow-hidden flex items-stretch">
         <div className="flex-1 min-w-0 p-3 flex flex-col">
           <div className="flex-1 min-w-0">
-            {editingTitle ? (
-              <input
-                autoFocus
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                onBlur={commitTitle}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") { e.preventDefault(); e.currentTarget.blur(); }
-                  else if (e.key === "Escape") { setTitle(act.name); setEditingTitle(false); }
-                }}
-                style={{ background: "#fff", border: `1px solid ${C.teal}`, color: C.ink, userSelect: "text", WebkitUserSelect: "text" }}
-                className="w-full rounded-lg px-2 py-1 font-semibold outline-none"
-              />
-            ) : (
-              <div onClick={() => canEdit && setEditingTitle(true)} style={{ color: C.ink }} className={`font-semibold leading-tight ${canEdit ? "cursor-text" : ""}`}>{act.name}</div>
-            )}
+            {/* Le nom ne s'édite plus ici : la photo (ou l'icône d'un hébergement)
+                ouvre désormais l'édition complète, comme le crayon. */}
+            <div style={{ color: C.ink }} className="font-semibold leading-tight">{act.name}</div>
             {/* Le soir, le nombre de nuits ; le matin, rien : on quitte les lieux,
                 il n'y a rien à annoncer que la carte ne dise déjà. Le point de
                 départ, lui, n'a aucune nuit à annoncer : il dit son rôle. */}
@@ -1269,28 +1247,52 @@ function ActivityCard({ act, onEdit, onUpdate, onEditDuration, startMin, endMin,
         {/* Vignette du lieu : photo Google si elle correspond, sinon bâtiment
             générique. Le bloc est présent dès qu'un lieu est renseigné, pour que
             la carte ne change pas de largeur quand la photo arrive. Rien pour un
-            hébergement : la place revient au texte et aux boutons. */}
+            hébergement : la place revient au texte et aux boutons. Le nom ne
+            s'éditant plus en ligne, toucher la vignette ouvre l'édition complète —
+            même geste que le crayon. */}
         {act.place && !stay && (
-          <div className="shrink-0 w-28 self-stretch flex items-center justify-center"
-            style={{
-              borderLeft: `1px solid ${C.line}`,
-              background: photo ? undefined : C.paper,
-              ...(photo ? { backgroundImage: `url("${photo}")`, backgroundSize: "cover", backgroundPosition: "center" } : {}),
-            }}
-            role="img" aria-label={photo ? `Photo de ${act.name}` : `Aucune photo pour ${act.name}`}>
-            {!photo && <Building2 size={22} style={{ color: C.inkSoft, opacity: 0.45 }} />}
-          </div>
+          canEdit ? (
+            <button onClick={() => onEdit(act)} aria-label="Modifier l'activité"
+              className="shrink-0 w-28 self-stretch flex items-center justify-center active:scale-95 transition"
+              style={{
+                borderLeft: `1px solid ${C.line}`,
+                background: photo ? undefined : C.paper,
+                ...(photo ? { backgroundImage: `url("${photo}")`, backgroundSize: "cover", backgroundPosition: "center" } : {}),
+              }}>
+              {!photo && <Building2 size={22} style={{ color: C.inkSoft, opacity: 0.45 }} />}
+            </button>
+          ) : (
+            <div className="shrink-0 w-28 self-stretch flex items-center justify-center"
+              style={{
+                borderLeft: `1px solid ${C.line}`,
+                background: photo ? undefined : C.paper,
+                ...(photo ? { backgroundImage: `url("${photo}")`, backgroundSize: "cover", backgroundPosition: "center" } : {}),
+              }}
+              role="img" aria-label={photo ? `Photo de ${act.name}` : `Aucune photo pour ${act.name}`}>
+              {!photo && <Building2 size={22} style={{ color: C.inkSoft, opacity: 0.45 }} />}
+            </div>
+          )
         )}
         {/* Un hébergement n'a pas de photo : à droite, son icône en grand — le lit
             pour une nuitée, la maison pour le point de départ. Elle tient le tiers
-            de la carte, ce que le nombre de nuits disait en tout petit. */}
+            de la carte, ce que le nombre de nuits disait en tout petit, et ouvre
+            l'édition complète au toucher, pour la même raison que la vignette. */}
         {stay && (
-          <div className="shrink-0 self-stretch flex items-center justify-center" style={{ width: "33%" }}
-            role="img" aria-label={isBase(act) ? "Point de départ et de retour" : "Hébergement"}>
-            {isBase(act)
-              ? <HomeIcon size={56} strokeWidth={1.5} style={{ color: STAY_COLOR, opacity: 0.35 }} />
-              : <BedDouble size={56} strokeWidth={1.5} style={{ color: STAY_COLOR, opacity: 0.35 }} />}
-          </div>
+          canEdit ? (
+            <button onClick={() => onEdit(act)} aria-label={isBase(act) ? "Modifier le point de départ" : "Modifier l'hébergement"}
+              className="shrink-0 self-stretch flex items-center justify-center active:scale-95 transition" style={{ width: "33%" }}>
+              {isBase(act)
+                ? <HomeIcon size={56} strokeWidth={1.5} style={{ color: STAY_COLOR, opacity: 0.35 }} />
+                : <BedDouble size={56} strokeWidth={1.5} style={{ color: STAY_COLOR, opacity: 0.35 }} />}
+            </button>
+          ) : (
+            <div className="shrink-0 self-stretch flex items-center justify-center" style={{ width: "33%" }}
+              role="img" aria-label={isBase(act) ? "Point de départ et de retour" : "Hébergement"}>
+              {isBase(act)
+                ? <HomeIcon size={56} strokeWidth={1.5} style={{ color: STAY_COLOR, opacity: 0.35 }} />
+                : <BedDouble size={56} strokeWidth={1.5} style={{ color: STAY_COLOR, opacity: 0.35 }} />}
+            </div>
+          )
         )}
       </div>
     </div>
@@ -1875,7 +1877,7 @@ function ChecklistSheet({ trip, onUpdate, onClose, canEdit }) {
 }
 
 /* --- Vue d'un séjour ---------------------------------------------- */
-function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onEditAct, onEditTrip, onUpdateAct, onUpdateChecklist, onEditDuration, onEditTravel, onReorder, canEdit = true, canShare = false, onShare }) {
+function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onEditAct, onEditTrip, onUpdateChecklist, onEditDuration, onEditTravel, onReorder, canEdit = true, canShare = false, onShare }) {
   const days = daysInRange(trip.startDate, trip.endDate);
   const safeCurrent = current && days.includes(current) ? current : days[0];
   // Un hébergement compte dans chaque journée où il apparaît, pas seulement à sa
@@ -2044,7 +2046,7 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onE
                     ? { transform: `translateY(${drag.dy}px) scale(1.02)`, position: "relative", zIndex: 40, touchAction: "none" }
                     : (drag ? { opacity: 0.55, transition: "opacity .15s" } : undefined)}
                 >
-                  <ActivityCard act={a} onEdit={onEditAct} onUpdate={onUpdateAct} onEditDuration={onEditDuration}
+                  <ActivityCard act={a} onEdit={onEditAct} onEditDuration={onEditDuration}
                     startMin={a._startMin} endMin={a._endMin} auto={a._auto}
                     prev={i > 0 ? acts[i - 1] : null} canEdit={canEdit} dragging={!!isDragged}
                     onDragStart={canEdit && !isStay(a) && acts.filter((x) => !isStay(x)).length > 1 && !drag ? (y) => startDrag(i, a.id, y) : null} />
@@ -3321,7 +3323,7 @@ function SejourApp() {
         <TripView
           trip={trip} current={curDay} onSelectDay={setCurDay}
           onBack={() => setTripId(null)} onAddAct={newActivity} onAddStay={newStay} onEditAct={editActivity} onEditTrip={editTrip}
-          onUpdateAct={updateActivity} onUpdateChecklist={updateChecklist} onReorder={reorderActivities}
+          onUpdateChecklist={updateChecklist} onReorder={reorderActivities}
           onEditDuration={(a) => setDurEdit({ id: a.id, durationMin: a.durationMin })}
           onEditTravel={(from, to) => setTravelEdit({ date: from.date, fromId: from.id, toId: to.id })}
           canEdit={canEditTrip} onShare={() => setShareTripId(trip.id)}

@@ -94,6 +94,11 @@ de la vignette, son icône en grand sur le tiers droit de la carte : un lit pour
 nuitée, une maison pour le point de départ. Le nombre de nuits, lui, s'écrit sans
 icône.
 
+Toucher sa photo (ou l'icône d'un hébergement, dans le tiers droit de sa carte) ouvre
+désormais l'édition complète de l'étape, comme le crayon — deux chemins vers le même
+formulaire. Le nom ne s'édite plus en tapant dessus dans la timeline : cette édition
+sur place a disparu, au profit de ces deux boutons.
+
 Son champ **Lieu** ne porte que le **lien de réservation** (Airbnb, Booking, Google
 Maps) : l'adresse a son propre champ, et les coordonnées en découlent. Y afficher des
 coordonnées ne servait à rien et empêchait de rouvrir le lien. Le champ est suivi d'un
