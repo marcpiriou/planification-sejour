@@ -99,12 +99,19 @@ désormais l'édition complète de l'étape, comme le crayon — deux chemins ve
 formulaire. Le nom ne s'édite plus en tapant dessus dans la timeline : cette édition
 sur place a disparu, au profit de ces deux boutons.
 
-L'heure de départ le matin est propre à **chaque matin** du séjour (colonne
-`activities.night_times`, migration `0007` : `{ "AAAA-MM-JJ": "HH:MM" }`), pas
-partagée par tous. Ouvrir l'édition depuis un matin ne change que ce matin-là ;
-depuis un soir, elle vise le matin qui suit. Un matin jamais réglé
-individuellement retombe sur l'ancienne colonne `start_time`, conservée comme
-valeur par défaut pour les hébergements déjà enregistrés.
+L'heure de départ le matin et l'heure d'arrivée le soir sont chacune propres à
+**chaque matin/soir** du séjour (colonnes `activities.night_times` / `night_arrivals`,
+migrations `0007`/`0008` : `{ "AAAA-MM-JJ": "HH:MM" }`), pas partagées par tous.
+Ouvrir l'édition depuis un matin ne change que le départ de ce matin-là ; depuis
+un soir, elle vise le départ du lendemain matin. Symétriquement, l'arrivée
+éditée depuis un soir ne change que ce soir-là, et depuis un matin vise
+l'arrivée de la veille au soir. Un créneau jamais réglé individuellement
+retombe sur le réglage par défaut du séjour (`start_time` / `arrive_time`) ;
+pour l'arrivée, un hébergement enregistré avant cette carte n'a pas ce réglage
+et garde donc son calcul par trajet depuis l'étape précédente (AUTO), inchangé
+tant qu'on n'édite pas son arrivée. Un nouvel hébergement, lui, part avec un
+départ à 9 h 00 et une arrivée à 18 h 00 — chacun ensuite ajustable jour par
+jour.
 
 Son champ **Lieu** ne porte que le **lien de réservation** (Airbnb, Booking, Google
 Maps) : l'adresse a son propre champ, et les coordonnées en découlent. Y afficher des
