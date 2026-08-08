@@ -73,6 +73,7 @@ const fmtDay = (iso) => parseDate(iso).getDate();
 const fmtMonthShort = (iso) => new Intl.DateTimeFormat("fr-FR", { month: "short" }).format(parseDate(iso));
 const fmtRange = (a, b) => (a === b ? fmtShort(a) : `${fmtShort(a)} – ${fmtShort(b)}`);
 const prevISO = (iso) => toISO(addDays(parseDate(iso), -1));
+const nextISO = (iso) => toISO(addDays(parseDate(iso), 1));
 
 /* ------------------------------------------------------------------ */
 /* Hébergement : une réservation, plusieurs nuits                      */
@@ -112,13 +113,18 @@ const STAY_AM = "am", STAY_PM = "pm";
 // le même numéro. stayArrivee et stayDepart ne valent que sur les deux
 // créneaux qui bornent le séjour dans cet hébergement — le premier soir et le
 // dernier matin — jamais sur les nuits intermédiaires.
+//
+// L'heure de départ le matin est propre à CE matin-là (nightTimes[iso]) : la
+// modifier un jour ne doit pas déplacer le départ des autres. Un matin jamais
+// réglé individuellement retombe sur startTime (l'ancien réglage unique,
+// conservé tel quel pour les hébergements enregistrés avant cette carte).
 const stayEntry = (s, iso, slot) => ({
   ...s,
   id: `${s.id}#${slot}`,
   stayOf: s.id,
   staySlot: slot,
   date: iso,
-  startTime: slot === STAY_AM ? (s.startTime || STAY_LEAVE_TIME) : AUTO,
+  startTime: slot === STAY_AM ? ((s.nightTimes && s.nightTimes[iso]) || s.startTime || STAY_LEAVE_TIME) : AUTO,
   durationMin: 0,
   stayNight: Math.round((parseDate(iso) - parseDate(s.date)) / 86400000) + (slot === STAY_PM ? 1 : 0),
   stayArrivee: slot === STAY_PM && iso === s.date,
@@ -381,6 +387,7 @@ function rowToActivity(a) {
     travelMinutes: a.travel_minutes === "" || a.travel_minutes == null ? null : Number(a.travel_minutes),
     notes: a.notes || "",
     nights: a.nights == null ? null : Number(a.nights),
+    nightTimes: a.night_times || {},
   };
 }
 
@@ -479,6 +486,7 @@ async function saveTrips(trips) {
     travel_minutes: a.travelMinutes == null ? "" : String(a.travelMinutes),
     notes: a.notes || "", position: i,
     nights: a.nights == null ? null : Number(a.nights),
+    night_times: a.nightTimes || {},
   });
 
   try {
@@ -2462,14 +2470,16 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
             </select>
           </Field>
 
-          {/* heure de départ le matin — l'arrivée du soir se déduit du trajet */}
+          {/* heure de départ le matin — propre au seul matin ouvert ; l'arrivée
+              du soir, elle, se déduit du trajet */}
           {stay && (
             <Field label="Heure de départ le matin">
               <TimeFields value={draft.startTime} defaut={STAY_LEAVE_TIME}
                 onChange={(v) => upd("startTime", v)} />
               <div style={{ color: C.inkSoft }} className="t11 mt-1">
-                Heure à laquelle vous quittez les lieux, chaque matin du séjour sauf le premier.
-                L'heure d'arrivée du soir, elle, découle du trajet depuis l'étape précédente.
+                {draft.editingMorning
+                  ? `Ne change que le départ du ${fmtShort(draft.editingMorning)} : les autres matins du séjour restent tels quels.`
+                  : "Heure à laquelle vous quittez les lieux le matin. L'heure d'arrivée du soir, elle, découle du trajet depuis l'étape précédente."}
               </div>
             </Field>
           )}
@@ -3180,15 +3190,24 @@ function SejourApp() {
     const day = curDay && days.includes(curDay) ? curDay : days[0];
     setEditor({ mode: "new", kind: "stay", id: uid(), date: day, name: "", category: "dormir",
       startTime: STAY_LEAVE_TIME, durationMin: 0, placeRaw: "", addressRaw: "", travelMode: MODE_AUTO,
-      travelMinutes: "", notes: "", nights: 1 });
+      travelMinutes: "", notes: "", nights: 1, editingMorning: null, nightTimes: {} });
   };
   const editActivity = (entry) => {
     // Les entrées d'hébergement affichées sont dérivées : on modifie la
     // réservation enregistrée, avec sa date d'arrivée et son nombre de nuits.
     const a = entry.stayOf ? (trip.activities.find((x) => x.id === entry.stayOf) || entry) : entry;
+    // Le matin concerné par l'heure de départ affichée : celui du créneau
+    // ouvert (matin), ou celui qui suit un soir (on part le lendemain matin).
+    // Le champ ne modifie QUE ce matin-là, jamais les autres du même séjour.
+    const editingMorning = entry.stayOf
+      ? (entry.staySlot === STAY_AM ? entry.date : nextISO(entry.date))
+      : null;
     setEditor({
       mode: "edit", kind: isStay(a) ? "stay" : "act",
-      id: a.id, date: a.date, name: a.name, category: a.category, startTime: a.startTime, durationMin: a.durationMin,
+      id: a.id, date: a.date, name: a.name, category: a.category,
+      startTime: editingMorning ? ((a.nightTimes && a.nightTimes[editingMorning]) || a.startTime || STAY_LEAVE_TIME) : a.startTime,
+      durationMin: a.durationMin,
+      editingMorning, nightTimes: a.nightTimes || {},
       nights: isStay(a) ? stayNights(a) : null,
       // Pour un hébergement, le champ Lieu ne porte QUE le lien de réservation :
       // son adresse a son propre champ, et ses coordonnées en découlent. Y afficher
@@ -3280,10 +3299,20 @@ function SejourApp() {
         place = reste;
       }
     }
+    // Édition depuis un matin précis (editingMorning) : seule l'heure de CE
+    // matin change, dans night_times — le réglage par défaut (startTime),
+    // repli des matins jamais réglés individuellement, reste tel quel. Sans
+    // matin précis (nouvel hébergement), le champ saisi devient ce défaut.
+    const nightTimes = isStayDraft && d.editingMorning
+      ? { ...(d.nightTimes || {}), [d.editingMorning]: d.startTime }
+      : (d.nightTimes || {});
+    const prevStartTime = (trip.activities.find((a) => a.id === d.id) || {}).startTime;
     const act = {
       id: d.id, date: d.date, name: d.name.trim(),
       category: isStayDraft ? "dormir" : d.category,
-      startTime: isStayDraft ? (isAutoTime(d.startTime) ? STAY_LEAVE_TIME : d.startTime) : d.startTime,
+      startTime: isStayDraft
+        ? (d.editingMorning ? (prevStartTime || STAY_LEAVE_TIME) : (isAutoTime(d.startTime) ? STAY_LEAVE_TIME : d.startTime))
+        : d.startTime,
       durationMin: isStayDraft ? 0 : (Number(d.durationMin) || 0), place,
       travelMode: d.travelMode, travelMinutes: d.travelMinutes === "" ? null : Number(d.travelMinutes), notes: d.notes.trim(),
       // Zéro nuit se conserve tel quel : c'est le point de départ/retour, que
@@ -3291,6 +3320,7 @@ function SejourApp() {
       nights: !isStayDraft ? null
         : Number(d.nights) === 0 ? 0
         : Math.max(1, Math.min(60, Number(d.nights) || 1)),
+      nightTimes: isStayDraft ? nightTimes : {},
     };
     // Une activité modifiée reprend SA place dans la liste. L'ordre du tableau
     // porte la cascade des heures « auto » (chacune part de la fin de la

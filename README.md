@@ -99,6 +99,13 @@ désormais l'édition complète de l'étape, comme le crayon — deux chemins ve
 formulaire. Le nom ne s'édite plus en tapant dessus dans la timeline : cette édition
 sur place a disparu, au profit de ces deux boutons.
 
+L'heure de départ le matin est propre à **chaque matin** du séjour (colonne
+`activities.night_times`, migration `0007` : `{ "AAAA-MM-JJ": "HH:MM" }`), pas
+partagée par tous. Ouvrir l'édition depuis un matin ne change que ce matin-là ;
+depuis un soir, elle vise le matin qui suit. Un matin jamais réglé
+individuellement retombe sur l'ancienne colonne `start_time`, conservée comme
+valeur par défaut pour les hébergements déjà enregistrés.
+
 Son champ **Lieu** ne porte que le **lien de réservation** (Airbnb, Booking, Google
 Maps) : l'adresse a son propre champ, et les coordonnées en découlent. Y afficher des
 coordonnées ne servait à rien et empêchait de rouvrir le lien. Le champ est suivi d'un
