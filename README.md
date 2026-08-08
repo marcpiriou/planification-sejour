@@ -147,6 +147,26 @@ position de lecture d'un autre. Un séjour supprimé est élagué de cette carte
 prochaine sauvegarde, pour qu'elle ne grossisse pas indéfiniment — les métadonnées
 d'un compte Supabase voyagent dans le jeton d'authentification.
 
+### Bande des jours fixe et balayage pour changer de jour
+Sur l'écran d'un jour, la barre du haut et la bande des dates restent collées en
+haut de l'écran (`sticky top-0`) : elles ne défilent plus avec la timeline, donc
+toujours visibles même tout en bas d'une longue journée.
+
+Rester appuyé sur la timeline puis glisser horizontalement change le jour affiché :
+vers la droite ouvre le jour suivant, vers la gauche le précédent — sans effet au
+delà du premier ou du dernier jour. Le geste (hook `useSwipeDay`) est capté en
+Pointer Events, donc valable aussi bien au doigt qu'à la souris. Son seuil de
+déclenchement (60 px horizontaux, pas plus de 70 px de dérive verticale) est
+délibérément plus large que les 10 px qui annulent l'appui long de réorganisation
+des activités (`useLongPress`) : un vrai balayage a donc toujours déjà annulé toute
+réorganisation en cours avant même d'atteindre son propre seuil, sans code de
+coordination entre les deux — `dragging` sert simplement de garde-fou
+supplémentaire pendant qu'une réorganisation est en cours. Le conteneur porte aussi
+`touch-action: pan-y` (le geste horizontal doit rester piloté à la main plutôt que
+d'être capté par le défilement natif du navigateur) et la page `overscroll-behavior-x:
+none` (pour qu'un balayage horizontal ne déclenche jamais le retour en arrière du
+navigateur).
+
 ### Point de départ et de retour
 Le point de départ saisi à la création d'un séjour est un hébergement de **zéro
 nuit** : on n'y dort pas, mais on en part et on y rentre. Il en a donc la couleur,

@@ -843,6 +843,48 @@ function useLongPress(onLongPress, enabled, delay = 420) {
   };
 }
 
+// Change de jour au glissement horizontal sur la timeline : glisser vers la
+// droite affiche le jour suivant (celui à droite dans la bande des dates),
+// vers la gauche le précédent. Le seuil (60 px) est délibérément plus large que
+// les 10 px qui annulent l'appui long de useLongPress : un vrai balayage aura
+// donc déjà annulé toute réorganisation en cours d'activité avant même
+// d'atteindre son propre seuil, sans code de coordination entre les deux.
+// `desactive` sert de garde-fou supplémentaire pendant qu'une réorganisation
+// est déjà en cours.
+const SWIPE_MIN_X = 60;
+const SWIPE_MAX_Y = 70;
+function useSwipeDay(days, current, onSelect, desactive) {
+  const origin = useRef(null);
+  const fin = () => {
+    const o = origin.current; origin.current = null;
+    return o;
+  };
+  return {
+    onPointerDown: (e) => {
+      if (e.button === 2) return;
+      origin.current = { x: e.clientX, y: e.clientY };
+    },
+    onPointerMove: (e) => {
+      const o = origin.current;
+      if (!o) return;
+      // Un mouvement franchement vertical n'est pas un balayage de jour : on
+      // n'y touche plus, pour laisser le défilement normal de la page agir.
+      if (Math.abs(e.clientY - o.y) > SWIPE_MAX_Y && Math.abs(e.clientY - o.y) > Math.abs(e.clientX - o.x)) origin.current = null;
+    },
+    onPointerUp: (e) => {
+      const o = fin();
+      if (!o || desactive) return;
+      const dx = e.clientX - o.x, dy = e.clientY - o.y;
+      if (Math.abs(dx) < SWIPE_MIN_X || Math.abs(dy) > SWIPE_MAX_Y) return;
+      const i = days.indexOf(current);
+      if (i === -1) return;
+      const suivant = i + (dx > 0 ? 1 : -1);
+      if (suivant >= 0 && suivant < days.length) onSelect(days[suivant]);
+    },
+    onPointerCancel: () => { origin.current = null; },
+  };
+}
+
 function TopBar({ left, title, subtitle, right }) {
   return (
     <div style={{ background: C.card, borderBottom: `1px solid ${C.line}` }} className="sticky top-0 z-20">
@@ -1941,6 +1983,7 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onE
   };
 
   const dragging = !!drag;
+  const swipeJour = useSwipeDay(days, safeCurrent, onSelectDay, dragging);
   useEffect(() => {
     if (!dragging) return;
     const onMove = (e) => {
@@ -1986,29 +2029,38 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onE
 
   return (
     <div>
-      <TopBar
-        left={<IconBtn onClick={onBack} label="Retour"><ChevronLeft size={22} /></IconBtn>}
-        title={trip.name}
-        subtitle={fmtRange(trip.startDate, trip.endDate)}
-        right={
-          <div className="flex items-center">
-            {/* Carte des étapes de la journée, à gauche du partage. */}
-            {markers.length ? (
-              <IconBtn onClick={() => setMapOpen(true)} label="Voir la carte de la journée"><MapIcon size={19} /></IconBtn>
-            ) : (
-              <span aria-hidden="true" style={{ color: C.line }}
-                className="h-10 w-10 rounded-full flex items-center justify-center" title="Aucun lieu situé ce jour">
-                <MapIcon size={19} />
-              </span>
-            )}
-            <IconBtn onClick={onShare} label="Partager / gérer l'accès"><Share2 size={19} /></IconBtn>
-            {canEdit && <IconBtn onClick={onEditTrip} label="Modifier le séjour"><MoreVertical size={20} /></IconBtn>}
-          </div>
-        }
-      />
-      <DateStrip days={days} current={safeCurrent} onSelect={onSelectDay} counts={counts} />
+      {/* TopBar et bande des jours groupées dans un même bloc collé en haut : la
+          bande reste visible même en défilant plus bas dans la journée, au lieu
+          de disparaître avec le reste de l'en-tête. */}
+      <div className="sticky top-0 z-20">
+        <TopBar
+          left={<IconBtn onClick={onBack} label="Retour"><ChevronLeft size={22} /></IconBtn>}
+          title={trip.name}
+          subtitle={fmtRange(trip.startDate, trip.endDate)}
+          right={
+            <div className="flex items-center">
+              {/* Carte des étapes de la journée, à gauche du partage. */}
+              {markers.length ? (
+                <IconBtn onClick={() => setMapOpen(true)} label="Voir la carte de la journée"><MapIcon size={19} /></IconBtn>
+              ) : (
+                <span aria-hidden="true" style={{ color: C.line }}
+                  className="h-10 w-10 rounded-full flex items-center justify-center" title="Aucun lieu situé ce jour">
+                  <MapIcon size={19} />
+                </span>
+              )}
+              <IconBtn onClick={onShare} label="Partager / gérer l'accès"><Share2 size={19} /></IconBtn>
+              {canEdit && <IconBtn onClick={onEditTrip} label="Modifier le séjour"><MoreVertical size={20} /></IconBtn>}
+            </div>
+          }
+        />
+        <DateStrip days={days} current={safeCurrent} onSelect={onSelectDay} counts={counts} />
+      </div>
 
-      <div className="mx-auto max-w-md px-4 pt-4 pb-28">
+      {/* min-h-screen : le balayage doit marcher partout sous la bande des jours,
+          y compris sous la dernière activité d'une journée courte — un <div> qui
+          s'arrête à son contenu laisserait cette zone basse hors de portée du
+          geste. */}
+      <div {...swipeJour} className="mx-auto max-w-md px-4 pt-4 pb-28 min-h-screen" style={{ touchAction: "pan-y" }}>
         {/* Uniquement le premier jour : c'est celui d'où l'on part. */}
         {safeCurrent === days[0] && (
           <button onClick={() => setChecklistOpen(true)}
@@ -3536,6 +3588,9 @@ function FontInject() {
     * { -webkit-tap-highlight-color: transparent; }
     input, select, textarea { font-family: ${SANS}; font-size: 16px; }
     @media (prefers-reduced-motion: reduce){ *{ transition:none !important; animation:none !important; } }
+    /* Empêche le geste natif « glisser pour revenir en arrière » du navigateur/OS
+       de voler le balayage horizontal jour-suivant/précédent de la timeline. */
+    html,body{overscroll-behavior-x:none}
     .t10{font-size:10px;line-height:1.3}
     .t11{font-size:11px;line-height:1.45}
     .trk{letter-spacing:0.22em}
