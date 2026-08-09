@@ -961,11 +961,12 @@ function BottomNav({ tab, setTab, onSignOut }) {
 }
 
 /* --- Onglet Compte ------------------------------------------------- */
-function AccountPanel({ userEmail, home, onSaveHome, navApp, onSaveNavApp }) {
+function AccountPanel({ userEmail, home, onSaveHome, navApp, onSaveNavApp, defaultChecklist, onSaveDefaultChecklist }) {
   const [label, setLabel] = useState(home?.label || "Maison");
   const [address, setAddress] = useState(home?.address || "");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [checklistOpen, setChecklistOpen] = useState(false);
   useEffect(() => { setLabel(home?.label || "Maison"); setAddress(home?.address || ""); }, [home]);
   const save = async () => {
     setSaving(true); setSaved(false);
@@ -1008,6 +1009,28 @@ function AccountPanel({ userEmail, home, onSaveHome, navApp, onSaveNavApp }) {
         {saved && <div style={{ color: C.teal }} className="text-xs flex items-center gap-1"><Check size={13} /> Enregistré</div>}
       </div>
 
+      {/* checklist par défaut : reprise telle quelle dans chaque nouveau séjour */}
+      <button onClick={() => setChecklistOpen(true)}
+        style={{ background: C.card, border: `1px solid ${C.line}` }}
+        className="w-full flex items-center gap-3 rounded-2xl px-4 py-4 mt-4 text-left active:scale-95 transition">
+        <div style={{ background: C.tealSoft, color: C.teal }} className="shrink-0 h-9 w-9 rounded-xl flex items-center justify-center">
+          <ListChecks size={18} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div style={{ color: C.ink }} className="font-medium text-sm">Checklist par défaut</div>
+          <div style={{ color: C.inkSoft }} className="t11 mt-0.5">
+            {defaultChecklist?.length > 0
+              ? `${defaultChecklist.length} élément${defaultChecklist.length > 1 ? "s" : ""} repris dans chaque nouveau séjour`
+              : "Éléments repris automatiquement dans chaque nouveau séjour"}
+          </div>
+        </div>
+      </button>
+      {checklistOpen && (
+        <ChecklistSheet trip={{ checklist: defaultChecklist }} onUpdate={onSaveDefaultChecklist}
+          onClose={() => setChecklistOpen(false)} canEdit
+          title="Checklist par défaut" subtitle="Reprise dans chaque nouveau séjour" />
+      )}
+
       {/* application d'itinéraire — le choix s'applique tout de suite, sans bouton */}
       <div style={{ background: C.card, border: `1px solid ${C.line}` }} className="rounded-2xl p-4 mt-4 space-y-3">
         <div style={{ color: C.ink }} className="text-sm font-medium flex items-center gap-1.5">
@@ -1041,14 +1064,15 @@ function AccountPanel({ userEmail, home, onSaveHome, navApp, onSaveNavApp }) {
 }
 
 /* --- Accueil : liste des séjours + navigation ---------------------- */
-function Home({ trips, onOpen, onNew, onExample, userEmail, onSignOut, home, onSaveHome, sharedLink, onDismissShared, navApp, onSaveNavApp }) {
+function Home({ trips, onOpen, onNew, onExample, userEmail, onSignOut, home, onSaveHome, sharedLink, onDismissShared, navApp, onSaveNavApp, defaultChecklist, onSaveDefaultChecklist }) {
   const [tab, setTab] = useState("trips");
   return (
     <div>
       <div className="mx-auto max-w-md px-4 pt-6 pb-28">
         {tab === "account" ? (
           <AccountPanel userEmail={userEmail} home={home} onSaveHome={onSaveHome}
-            navApp={navApp} onSaveNavApp={onSaveNavApp} />
+            navApp={navApp} onSaveNavApp={onSaveNavApp}
+            defaultChecklist={defaultChecklist} onSaveDefaultChecklist={onSaveDefaultChecklist} />
         ) : (
           <>
             {/* Le logo tient la place du titre et de la baseline. Il vit dans
@@ -1869,7 +1893,9 @@ function ChecklistItemRow({ item, canEdit, onToggle, onDelete, onRename }) {
   );
 }
 
-function ChecklistSheet({ trip, onUpdate, onClose, canEdit }) {
+// Réutilisée telle quelle pour la checklist par défaut (Compte) : title et
+// subtitle sont paramétrables, trip n'a alors besoin que d'un champ checklist.
+function ChecklistSheet({ trip, onUpdate, onClose, canEdit, title = "Checklist avant le départ", subtitle = trip.name }) {
   const items = trip.checklist || [];
   const [texte, setTexte] = useState("");
   const [colleMsg, setColleMsg] = useState("");
@@ -1916,8 +1942,8 @@ function ChecklistSheet({ trip, onUpdate, onClose, canEdit }) {
     <div className="fixed inset-0 z-40 flex flex-col" style={{ background: C.paper }}>
       <TopBar
         left={<IconBtn onClick={onClose} label="Retour"><ChevronLeft size={22} /></IconBtn>}
-        title="Checklist avant le départ"
-        subtitle={trip.name}
+        title={title}
+        subtitle={subtitle}
         right={canEdit && (
           <IconBtn onClick={colleDepuisPressePapier} label="Coller des éléments depuis le presse-papier">
             <ClipboardPaste size={19} />
@@ -3031,6 +3057,10 @@ function SejourApp() {
   const [shareTripId, setShareTripId] = useState(null);
   const [home, setHome] = useState({ label: "Maison", address: "20 rue des grillons 31700 BEAUZELLE" });
   const [navApp, setNavApp] = useState("gmaps");
+  // Checklist par défaut (Compte) : reprise telle quelle (nouveaux id, décochée)
+  // dans les activités de chaque nouveau séjour créé. Propre au compte, comme
+  // le lieu de départ ou l'application d'itinéraire.
+  const [defaultChecklist, setDefaultChecklist] = useState([]);
   // Lien reçu par partage Android (voir shared-link.js). Lu une seule fois au
   // démarrage : il survit donc à l'écran de connexion, puisque celui-ci ne
   // remonte pas jusqu'ici sans session.
@@ -3063,12 +3093,22 @@ function SejourApp() {
     // Un objet inattendu (compte jamais écrit par cette fonctionnalité, ou
     // altéré à la main) ne doit pas empêcher l'application de démarrer.
     if (md.last_day_by_trip && typeof md.last_day_by_trip === "object") setLastDayByTrip(md.last_day_by_trip);
+    if (Array.isArray(md.default_checklist)) setDefaultChecklist(md.default_checklist);
   })(); }, []);
 
   // Enregistre le lieu de départ par défaut dans les métadonnées de l'utilisateur.
   const saveHome = async (label, address) => {
     setHome({ label, address });
     try { await supabase.auth.updateUser({ data: { home_label: label, home_address: address } }); }
+    catch (e) { console.error("Sauvegarde compte:", e); }
+  };
+
+  // Checklist par défaut : même geste que la checklist d'un séjour (ajout,
+  // coche, suppression, renommage), mais rangée sur le compte plutôt que sur
+  // un séjour — elle doit exister avant même la création du premier séjour.
+  const saveDefaultChecklist = async (items) => {
+    setDefaultChecklist(items);
+    try { await supabase.auth.updateUser({ data: { default_checklist: items } }); }
     catch (e) { console.error("Sauvegarde compte:", e); }
   };
 
@@ -3177,7 +3217,10 @@ function SejourApp() {
           place: depPlace, travelMode: "car", travelMinutes: null, notes: "",
         });
       }
-      const t = { id: uid(), name: d.name.trim(), startDate: d.startDate, endDate: d.endDate, activities, isOwner: true, role: "owner", members: [] };
+      // Checklist par défaut reprise ici : nouveaux id (des éléments propres à
+      // CE séjour) et toujours décochée, même si l'original portait des coches.
+      const checklist = (defaultChecklist || []).map((it) => ({ id: uid(), text: it.text, done: false }));
+      const t = { id: uid(), name: d.name.trim(), startDate: d.startDate, endDate: d.endDate, activities, isOwner: true, role: "owner", members: [], checklist };
       commit([...trips, t]); setTripModal(null); enterTrip(t);
     } else {
       const next = trips.map((t) => t.id === d.id ? { ...t, name: d.name.trim(), startDate: d.startDate, endDate: d.endDate } : t);
@@ -3469,7 +3512,8 @@ function SejourApp() {
         <Home trips={trips} onOpen={openTrip} onNew={newTrip} onExample={loadExample}
           userEmail={userEmail} onSignOut={signOut} home={home} onSaveHome={saveHome}
           sharedLink={sharedLink} onDismissShared={() => setSharedLink(null)}
-          navApp={navApp} onSaveNavApp={saveNavApp} />
+          navApp={navApp} onSaveNavApp={saveNavApp}
+          defaultChecklist={defaultChecklist} onSaveDefaultChecklist={saveDefaultChecklist} />
       ) : (
         <TripView
           trip={trip} current={curDay} onSelectDay={setCurDay}

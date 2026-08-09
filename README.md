@@ -151,6 +151,18 @@ activité : le texte devient un champ, Entrée ou la perte du focus valide, Éch
 annule. Aucune autre page ni popup. Un texte vidé ou inchangé rétablit l'original
 plutôt que de supprimer l'élément.
 
+#### Checklist par défaut
+Un bouton **Checklist par défaut**, dans le menu Compte, ouvre le même écran
+plein écran que la checklist d'un séjour — ajout, coche, suppression, édition
+sur place, collage multi-lignes, tout identique (`ChecklistSheet` est
+paramétrée par un titre et un sous-titre, réutilisée telle quelle).
+
+Rangée dans les métadonnées du compte (`default_checklist`), comme le lieu de
+départ ou l'application d'itinéraire : propre à l'utilisateur, pas au séjour.
+Chaque nouveau séjour créé reprend ses éléments (nouveaux identifiants, tous
+décochés), qui deviennent alors propres à ce séjour — cocher ou modifier l'un
+n'affecte plus jamais l'autre.
+
 ### Reprise du dernier jour consulté
 Rouvrir un séjour affiche le dernier jour qu'on y a consulté, plutôt que toujours le
 premier. C'est rangé dans les métadonnées du compte (`last_day_by_trip`), comme le
