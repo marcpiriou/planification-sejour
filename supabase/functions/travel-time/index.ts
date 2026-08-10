@@ -92,7 +92,10 @@ Deno.serve(async (req: Request) => {
         results[leg.key] = await routeOne(KEY, leg);
       } catch (e) {
         // Un trajet en échec ne doit pas faire tomber le lot : le client
-        // retombe sur son estimation à vol d'oiseau.
+        // retombe sur son estimation à vol d'oiseau. Ce repli étant silencieux,
+        // un refus de Google — clé restreinte, quota — resterait invisible sans
+        // cette trace.
+        console.error(`travel-time: ${String(e).slice(0, 300)}`);
         results[leg.key] = null;
         failure = failure ?? String(e);
       }

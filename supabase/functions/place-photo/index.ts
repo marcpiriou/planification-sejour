@@ -125,6 +125,11 @@ Deno.serve(async (req: Request) => {
     });
     if (!searchRes.ok) {
       const t = await searchRes.text();
+      // Journalisé : sans cela un refus de Google est indétectable, la réponse
+      // partant en 200 avec l'erreur dans le corps et le client se rabattant
+      // silencieusement sur l'icône générique. Une clé restreinte aux référents
+      // HTTP, ou à la seule API Maps JavaScript, échoue précisément ici.
+      console.error(`place-photo: searchText ${searchRes.status} — ${t.slice(0, 300)}`);
       return json({ error: "searchText a échoué", status: searchRes.status, detail: t.slice(0, 300) }, 200);
     }
     const searchData = await searchRes.json();
@@ -167,6 +172,7 @@ Deno.serve(async (req: Request) => {
     const photoRes = await fetch(mediaUrl, { headers: { "X-Goog-Api-Key": KEY } });
     if (!photoRes.ok) {
       const t = await photoRes.text();
+      console.error(`place-photo: media ${photoRes.status} — ${t.slice(0, 300)}`);
       return json({ placeId, error: "media a échoué", status: photoRes.status, detail: t.slice(0, 300) }, 200);
     }
     const photoData = await photoRes.json();
