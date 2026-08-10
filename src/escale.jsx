@@ -1527,6 +1527,20 @@ async function attendBibliotheques(maps) {
   ]);
 }
 
+// Message d'erreur écrit par une Edge Function. Sur un statut non-2xx,
+// supabase-js laisse `data` à null et range la réponse dans `error.context` :
+// sans aller la lire, le message explicite de la fonction — « secret
+// GOOGLE_MAPS_BROWSER_KEY absent », par exemple — serait perdu, et l'écran
+// n'afficherait qu'un texte générique sur lequel on ne peut rien faire.
+async function messageFonction(error) {
+  try {
+    const rep = error?.context;
+    if (!rep || typeof rep.json !== "function") return null;
+    const corps = await (typeof rep.clone === "function" ? rep.clone() : rep).json();
+    return (corps && typeof corps.error === "string" && corps.error) || null;
+  } catch { return null; }
+}
+
 let mapsLoader = null; // une seule injection du script pour toute la session
 function loadGoogleMaps() {
   if (mapsLoader) return mapsLoader;
@@ -1534,7 +1548,7 @@ function loadGoogleMaps() {
     if (!window.google?.maps) {
       const { data, error } = await supabase.functions.invoke("maps-key", { body: {} });
       const key = data && data.key;
-      if (error || !key) throw new Error((data && data.error) || "clé Google indisponible");
+      if (error || !key) throw new Error((data && data.error) || (await messageFonction(error)) || "clé Google indisponible");
       await new Promise((resolve, reject) => {
         const el = document.createElement("script");
         el.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&language=fr&loading=async`;
