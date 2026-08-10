@@ -76,10 +76,27 @@ Google, en plus de l'API Maps JavaScript.
 Une carte déplaçable aux repères cliquables ne peut pas être une image : elle vient
 de l'API **Maps JavaScript**, dont le chargeur réclame la clé dans le navigateur.
 Cette clé n'est donc pas dans le bundle : l'application la demande à l'Edge Function
-`maps-key`, qui ne la remet qu'à un utilisateur connecté. À compléter côté Google
-Cloud par une restriction aux référents HTTP du site, et de préférence par une clé
-dédiée à cette seule API — le secret Supabase `GOOGLE_MAPS_BROWSER_KEY` est lu en
-priorité s'il existe, sinon `GOOGLE_PLACES_KEY` sert de repli.
+`maps-key`, qui ne la remet qu'à un utilisateur connecté.
+
+**Deux clés Google distinctes**, et c'est structurel — une seule ne peut pas servir
+les deux usages :
+
+| Secret Supabase | Restriction d'application | APIs |
+|---|---|---|
+| `GOOGLE_MAPS_BROWSER_KEY` | Référents HTTP du site | Maps JavaScript (+ Places UI Kit) |
+| `GOOGLE_PLACES_KEY` | **aucune** | Places API (New), Routes API |
+
+La clé serveur ne peut pas être restreinte par référent : un appel depuis une Edge
+Function n'en a aucun, Google le refuserait (`Requests from referer <empty> are
+blocked`). Ce qui la protège, c'est qu'elle ne quitte jamais la fonction, et que
+les fonctions exigent une session utilisateur. À l'inverse, la clé de navigateur
+est nécessairement visible de son porteur : seule la restriction par référent
+borne son usage.
+
+`maps-key` ne lit **que** `GOOGLE_MAPS_BROWSER_KEY`, sans repli. Le repli vers
+`GOOGLE_PLACES_KEY` a existé, et il était piégeux : le secret manquant, la clé
+serveur — non restreignable — partait dans le navigateur. Mieux vaut une carte en
+erreur, visible, qu'un secret exposé en silence.
 
 ### Accès aux Edge Functions
 Les quatre fonctions (`maps-key`, `resolve-place`, `travel-time`, `place-photo`)
