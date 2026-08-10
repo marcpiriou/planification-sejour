@@ -2,6 +2,12 @@
 // Reçoit un lot de trajets { key, from:{lat,lng}, to:{lat,lng}, mode } et renvoie
 // pour chaque clé { min, km } (ou null si Google ne sait pas répondre).
 // La clé API reste secrète côté serveur (secret Supabase GOOGLE_PLACES_KEY).
+//
+// Réservée aux utilisateurs connectés : `verify_jwt` seul laissait passer la clé
+// publiable du bundle, ce qui ouvrait ce calcul d'itinéraires — et le quota
+// Google qu'il consomme — à n'importe qui (voir _shared/auth.ts).
+
+import { refusAuth, utilisateurConnecte } from "../_shared/auth.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -68,6 +74,7 @@ async function routeOne(key: string, leg: Leg): Promise<{ min: number; km: numbe
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
+  if (!utilisateurConnecte(req)) return refusAuth(CORS);
 
   const KEY = Deno.env.get("GOOGLE_PLACES_KEY");
   if (!KEY) return json({ error: "GOOGLE_PLACES_KEY manquant (secret Supabase)" }, 500);

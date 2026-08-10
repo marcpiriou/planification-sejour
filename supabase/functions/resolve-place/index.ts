@@ -6,6 +6,12 @@
 // Dans les deux cas, si on obtient un nom mais pas de coordonnées, on géocode le nom
 // pour renvoyer, autant que possible, { lat, lng, name }.
 // La clé API reste secrète côté serveur (secret Supabase GOOGLE_PLACES_KEY).
+//
+// Réservée aux utilisateurs connectés : `verify_jwt` seul laissait passer la clé
+// publiable du bundle, ce qui ouvrait ce géocodeur — et le quota Google qu'il
+// consomme — à n'importe qui (voir _shared/auth.ts).
+
+import { refusAuth, utilisateurConnecte } from "../_shared/auth.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -159,6 +165,7 @@ async function geocode(text: string, bias?: { lat: number; lng: number }): Promi
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
+  if (!utilisateurConnecte(req)) return refusAuth(CORS);
   try {
     const payload = await req.json().catch(() => ({}));
     const url = typeof payload?.url === "string" ? payload.url : "";

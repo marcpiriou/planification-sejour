@@ -3,6 +3,10 @@
 // La clé API reste secrète côté serveur (secret Supabase GOOGLE_PLACES_KEY),
 // jamais exposée au navigateur ni au dépôt public.
 //
+// Réservée aux utilisateurs connectés : `verify_jwt` seul laissait passer la clé
+// publiable du bundle, ce qui ouvrait cette recherche de lieux — et le quota
+// Google qu'elle consomme — à n'importe qui (voir _shared/auth.ts).
+//
 // Le placeId sert à la fiche Google affichée sur la carte de la journée : il est
 // soumis à la même vérification que la photo, et pour la même raison — une fiche
 // de commerce voisin serait aussi fausse qu'une vitrine en photo de domicile.
@@ -13,6 +17,8 @@
 // vitrine s'affichait comme photo du domicile. On vérifie donc que le lieu trouvé
 // correspond bien à ce qui était demandé, et on ne renvoie aucune photo sinon —
 // l'application affiche alors une icône de bâtiment générique.
+
+import { refusAuth, utilisateurConnecte } from "../_shared/auth.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -89,6 +95,7 @@ function looksLikeMatch(query: string, displayName: string, address: string): bo
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
+  if (!utilisateurConnecte(req)) return refusAuth(CORS);
 
   const KEY = Deno.env.get("GOOGLE_PLACES_KEY");
   if (!KEY) return json({ error: "GOOGLE_PLACES_KEY manquant (secret Supabase)" }, 500);

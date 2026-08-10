@@ -76,10 +76,29 @@ Google, en plus de l'API Maps JavaScript.
 Une carte déplaçable aux repères cliquables ne peut pas être une image : elle vient
 de l'API **Maps JavaScript**, dont le chargeur réclame la clé dans le navigateur.
 Cette clé n'est donc pas dans le bundle : l'application la demande à l'Edge Function
-`maps-key`, qui ne la remet qu'à un utilisateur authentifié. À compléter côté Google
+`maps-key`, qui ne la remet qu'à un utilisateur connecté. À compléter côté Google
 Cloud par une restriction aux référents HTTP du site, et de préférence par une clé
 dédiée à cette seule API — le secret Supabase `GOOGLE_MAPS_BROWSER_KEY` est lu en
 priorité s'il existe, sinon `GOOGLE_PLACES_KEY` sert de repli.
+
+### Accès aux Edge Functions
+Les quatre fonctions (`maps-key`, `resolve-place`, `travel-time`, `place-photo`)
+consomment le quota Google du projet : elles vérifient donc chacune, en première
+instruction, que l'appel vient d'une **session utilisateur** (`_shared/auth.ts`).
+
+`verify_jwt` ne suffisait pas : la passerelle Supabase accepte aussi la clé
+publiable comme jeton, et cette clé est dans le bundle public — les quatre
+fonctions étaient donc appelables par n'importe qui, sans compte. La
+vérification s'appuie sur ce que la passerelle garantit déjà (la **signature**
+du jeton, un JWT forgé étant refusé avant d'atteindre la fonction) et n'a donc
+qu'à distinguer une session d'une clé d'API : lecture des revendications, sans
+appel réseau ni secret supplémentaire. Une clé récente (`sb_publishable_…`) n'a
+pas la forme d'un JWT ; une clé anon ou service_role héritée porte `role=anon`
+ou `role=service_role`, jamais `role=authenticated`.
+
+Côté client, rien à faire : supabase-js met le JWT de l'utilisateur connecté
+dans `Authorization` et n'y met jamais la clé publique. Le préflight `OPTIONS`
+reste libre, sans quoi le navigateur ne pourrait plus émettre l'appel.
 
 ## Activités « Hébergement »
 Un hébergement est enregistré **une seule fois**, à sa date d'arrivée, avec son nombre
