@@ -57,27 +57,74 @@ function json(obj: unknown, status = 200): Response {
 }
 
 // N'autorise que Google Maps et les deux plateformes de réservation prises en
-// charge (évite un proxy SSRF ouvert : la fonction va chercher l'URL elle-même).
+// charge : la fonction va chercher l'URL elle-même, un hôte libre en ferait un
+// proxy de requêtes sortantes (SSRF).
+//
+// Suffixes publics acceptés après « google. » ou « airbnb. » : un TLD simple
+// (« fr », « com »), ou l'un des suffixes à deux niveaux réellement utilisés.
+// C'est précisément ce qui sépare « google.fr », légitime, de
+// « google.evil.com » — même forme, mais « evil.com » n'est pas un suffixe
+// public : n'importe qui peut enregistrer ce nom, le faire résoudre vers une
+// adresse interne, et se servir de cette fonction pour l'atteindre. Le motif
+// précédent, /(^|\.)google\.[a-z.]+$/, acceptait ce cas.
+const SUFFIXES_DOUBLES = new Set([
+  "co.uk", "com.au", "co.jp", "com.br", "co.in", "com.mx",
+  "co.nz", "com.tr", "co.za", "com.ar", "com.co", "com.sg",
+]);
+const estSuffixePublic = (s: string) => /^[a-z]{2,6}$/.test(s) || SUFFIXES_DOUBLES.has(s);
+
+// Domaines dont on accepte le domaine lui-même et ses sous-domaines : ils n'ont
+// pas de déclinaison nationale à reconnaître.
+const DOMAINES_FIXES = ["goo.gl", "abnb.me", "booking.com"];
+
+function hoteAutorise(h: string): boolean {
+  for (const d of DOMAINES_FIXES) if (h === d || h.endsWith(`.${d}`)) return true;
+  for (const racine of ["google", "airbnb"]) {
+    const m = h.match(new RegExp(`(?:^|\\.)${racine}\\.([a-z0-9.-]+)$`));
+    if (m && estSuffixePublic(m[1])) return true;
+  }
+  return false;
+}
+
 function isAllowed(url: string): boolean {
   try {
     const u = new URL(url);
     if (u.protocol !== "https:" && u.protocol !== "http:") return false;
-    const h = u.hostname.toLowerCase();
-    return (
-      h === "maps.app.goo.gl" ||
-      h === "goo.gl" ||
-      h === "maps.google.com" ||
-      h === "google.com" ||
-      h.endsWith(".google.com") ||
-      /(^|\.)google\.[a-z.]+$/.test(h) ||
-      h === "abnb.me" ||
-      h === "airbnb.com" || h.endsWith(".airbnb.com") ||
-      /(^|\.)airbnb\.[a-z.]+$/.test(h) ||
-      h === "booking.com" || h.endsWith(".booking.com")
-    );
+    // Identifiants dans l'URL et port inhabituel : deux façons classiques de
+    // brouiller la lecture d'une adresse. Aucun lien de partage n'en a besoin.
+    if (u.username || u.password) return false;
+    if (u.port && u.port !== "80" && u.port !== "443") return false;
+    // Le point final d'un nom pleinement qualifié (« google.com. ») est retiré :
+    // sans cela il déjouerait les comparaisons de suffixe.
+    return hoteAutorise(u.hostname.toLowerCase().replace(/\.$/, ""));
   } catch {
     return false;
   }
+}
+
+// Suit les redirections à la main, en revalidant l'allowlist à CHAQUE saut.
+// « redirect: follow » ne contrôlait que l'URL de départ : un raccourcisseur
+// autorisé, ou une redirection ouverte hébergée sur un domaine autorisé,
+// suffisait à faire appeler n'importe quelle adresse — service interne compris.
+// Le nombre de sauts est borné, une boucle de redirections ne doit pas occuper
+// la fonction indéfiniment.
+const MAX_SAUTS = 5;
+
+async function recupere(url: string): Promise<{ res: Response; finalUrl: string }> {
+  let courante = url;
+  for (let saut = 0; saut <= MAX_SAUTS; saut++) {
+    if (!isAllowed(courante)) throw new Error("redirection vers un domaine non autorisé");
+    const res = await fetch(courante, {
+      redirect: "manual",
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; SejourBot/1.0)" },
+    });
+    if (res.status < 300 || res.status >= 400) return { res, finalUrl: courante };
+    const cible = res.headers.get("location");
+    if (!cible) return { res, finalUrl: courante };
+    // Une redirection peut être relative : on la résout sur l'URL courante.
+    courante = new URL(cible, courante).toString();
+  }
+  throw new Error("trop de redirections");
 }
 
 // Dates de réservation d'un lien Airbnb/Booking. Les URL longues les portent en
@@ -181,11 +228,14 @@ Deno.serve(async (req: Request) => {
     if (!url) return json({ error: "url ou query requis" }, 400);
     if (!isAllowed(url)) return json({ error: "domaine non autorisé" }, 400);
 
-    const res = await fetch(url, {
-      redirect: "follow",
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; SejourBot/1.0)" },
-    });
-    const finalUrl = res.url || url;
+    let res: Response;
+    let finalUrl: string;
+    try {
+      ({ res, finalUrl } = await recupere(url));
+    } catch (e) {
+      // Redirection sortie de l'allowlist, ou boucle : refus explicite, en 400.
+      return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+    }
 
     // --- Lien de réservation (Airbnb / Booking) ---
     // Traité à part : les repères propres à Google Maps n'ont pas cours ici, et

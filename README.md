@@ -117,6 +117,34 @@ Côté client, rien à faire : supabase-js met le JWT de l'utilisateur connecté
 dans `Authorization` et n'y met jamais la clé publique. Le préflight `OPTIONS`
 reste libre, sans quoi le navigateur ne pourrait plus émettre l'appel.
 
+### `resolve-place` : liste blanche des hôtes
+La fonction va chercher l'URL qu'on lui donne. Sans garde, elle serait un relais
+de requêtes sortantes (SSRF) : on ne suit donc que Google Maps, Airbnb et
+Booking, et **la liste est revérifiée à chaque redirection** — `redirect: follow`
+ne contrôlait que l'URL de départ, si bien qu'un lien court autorisé pouvait
+mener n'importe où, service interne compris. Les sauts sont bornés à cinq.
+
+Un hôte n'est accepté que si le libellé qui suit `google.` ou `airbnb.` est un
+**suffixe public** (`fr`, `com`, `co.uk`…). C'est ce qui distingue `google.fr`
+de `google.evil.com` : même forme, mais `evil.com` n'est pas un suffixe public,
+et n'importe qui peut enregistrer ce nom puis le faire résoudre vers une adresse
+interne. Le motif précédent, `/(^|\.)google\.[a-z.]+$/`, l'acceptait. Sont aussi
+écartés : identifiants dans l'URL, port inhabituel, schéma autre que http(s).
+Le point final d'un nom pleinement qualifié (`google.com.`) est normalisé avant
+comparaison, sinon il déjouerait les tests de suffixe.
+
+### Qui gère les accès d'un séjour
+Le **propriétaire seul** (migration `0009`, fonction `is_trip_owner`). Les
+policies d'écriture sur `trip_members` étaient conditionnées à `can_edit_trip()`,
+donc satisfaites par un simple éditeur : en appelant l'API REST directement, un
+collaborateur pouvait inviter des tiers, changer les rôles ou évincer les autres
+membres. L'interface ne le proposait qu'à demi, mais l'interface n'est pas la
+barrière — la RLS l'est.
+
+Ce qui ne change pas : un éditeur modifie toujours librement le séjour et ses
+activités, voit la liste des accès (l'écran de partage en a besoin), et peut se
+retirer lui-même — d'où la clause sur son propre email dans `members_delete`.
+
 ## Activités « Hébergement »
 Un hébergement est enregistré **une seule fois**, à sa date d'arrivée, avec son nombre
 de nuits (colonne `activities.nights`, migration `0005`). Sa présence dans les journées

@@ -713,7 +713,15 @@ function fetchPlaceInfo(place) {
 const fetchPlacePhoto = (place) => fetchPlaceInfo(place).then((i) => (i && i.photoUri) || null);
 const fetchPlaceId = (place) => fetchPlaceInfo(place).then((i) => (i && i.placeId) || null);
 
-const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+// Identifiants tirés du générateur cryptographique du navigateur. L'ancienne
+// forme, horodatage + Math.random(), était devinable : Math.random() n'est pas
+// imprévisible et l'horodatage se déduit. Deviner un identifiant ne donnait
+// certes aucun accès — il faut être membre du séjour pour lire quoi que ce soit
+// — mais autant ne pas bâtir sur une primitive faible. Repli sur l'ancienne
+// forme hors contexte sécurisé, où crypto.randomUUID n'existe pas.
+const uid = () => (globalThis.crypto?.randomUUID
+  ? globalThis.crypto.randomUUID()
+  : Date.now().toString(36) + Math.random().toString(36).slice(2, 7));
 
 /* ------------------------------------------------------------------ */
 /* ------------------------------------------------------------------ */
@@ -1625,7 +1633,13 @@ const markerIcon = (maps, color, numero, nom) => {
 // sur ce que l'application sait du lieu.
 const FICHE_W = 280; // le composant compact n'est pas supporté sous 160 px
 
+// Garde de schéma, en défense : ce lien vient des données d'une activité, qu'un
+// collaborateur peut écrire. Tous les appelants valident déjà (isMapsLink), mais
+// l'ancre est posée dans le DOM à la main, hors de la protection de React : un
+// futur appelant qui oublierait de valider ouvrirait un « javascript: ». Renvoie
+// null plutôt qu'un lien inerte, pour que rien ne soit ajouté à la bulle.
 const ligneLien = (href, texte) => {
+  if (!/^https?:\/\//i.test((href || "").trim())) return null;
   const a = document.createElement("a");
   a.href = href;
   a.target = "_blank";
@@ -1652,7 +1666,8 @@ const bulleLocale = (m, note = "") => {
     || (m.place && m.place.lat != null ? `${m.place.lat.toFixed(5)}, ${m.place.lng.toFixed(5)}` : "");
   if (sous) box.appendChild(blocTexte(sous, `margin-top:4px;font:400 12px ${SANS};color:${C.inkSoft}`));
   if (note) box.appendChild(blocTexte(note, `margin-top:6px;font:400 11px ${SANS};color:${C.warn}`));
-  if (m.url) box.appendChild(ligneLien(m.url, "Ouvrir dans Google Maps ↗"));
+  const lien = ligneLien(m.url, "Ouvrir dans Google Maps ↗");
+  if (lien) box.appendChild(lien);
   return box;
 };
 
@@ -1678,7 +1693,8 @@ const bulleGoogle = (maps, m, placeId) => {
     box.replaceChildren(bulleLocale(m, "Fiche Google indisponible (API « Places UI Kit » à activer sur le projet)."));
   });
   box.appendChild(fiche);
-  if (m.url) box.appendChild(ligneLien(m.url, "Ouvrir dans Google Maps ↗"));
+  const lien = ligneLien(m.url, "Ouvrir dans Google Maps ↗");
+  if (lien) box.appendChild(lien);
   return box;
 };
 
@@ -2928,7 +2944,13 @@ function buildExample() {
 
 /* --- Modale de partage -------------------------------------------- */
 function ShareModal({ trip, myEmail, onClose, onAdd, onChangeRole, onRemove, onLeave }) {
-  const canManage = trip.isOwner || trip.role === "editor";
+  // Gérer les accès appartient au propriétaire seul. Un éditeur peut modifier le
+  // contenu du séjour, pas décider qui y entre : l'autoriser à inviter, changer
+  // un rôle ou retirer quelqu'un lui donnait la main sur le partage lui-même —
+  // il pouvait ouvrir le séjour à un tiers, ou évincer les autres collaborateurs.
+  // La base l'interdit désormais (migration 0009) ; l'interface s'aligne, pour
+  // ne pas afficher des commandes vouées à un refus.
+  const canManage = !!trip.isOwner;
   const [email, setEmail] = useState("");
   const [role, setRole] = useState("editor");
   const [err, setErr] = useState("");
@@ -3002,6 +3024,11 @@ function ShareModal({ trip, myEmail, onClose, onAdd, onChangeRole, onRemove, onL
               </div>
             );
           })}
+          {!canManage && members.length > 0 && (
+            <div style={{ color: C.inkSoft }} className="t11">
+              Seul le propriétaire du séjour peut modifier ces accès.
+            </div>
+          )}
         </div>
 
         {/* Formulaire d'invitation */}
