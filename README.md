@@ -46,6 +46,20 @@ restent ceux du parcours, de 1 à n, sans trou. Un hébergement présent d'un se
 côté de la journée — le soir de l'arrivée, le matin du départ — est bien une étape
 et garde son numéro.
 
+Un **point bleu** marque la position de l'utilisateur, suivie tant que la carte
+reste ouverte (`watchPosition`, coupée à la fermeture — sans quoi le GPS
+continuerait de tourner). Il est ancré en son centre, là où la goutte d'une étape
+désigne du bout, et n'est pas cliquable : il informe, il ne doit pas intercepter
+le toucher d'un repère qu'il recouvrirait.
+
+Ce point n'entre **jamais** dans le cadrage de la carte, qui reste celui de la
+journée : se trouver à 500 km de son séjour — la veille du départ, typiquement —
+dézoomerait sinon la carte jusqu'à la rendre illisible. Le revers assumé est
+qu'on est alors hors du cadre initial, et qu'il faut dézoomer à la main pour se
+voir. Une permission refusée, ou un appareil sans position, ne laisse simplement
+pas de point : c'est un repère de confort, pas une fonction dont l'écran dépend,
+et rien ne justifierait un message d'erreur.
+
 Toucher un repère ouvre la **fiche du lieu dans une bulle sur la carte**, sans
 quitter l'application : c'est la fiche de Google elle-même (photos, note, avis,
 horaires), rendue par le composant *Place Details* du **Places UI Kit**. Une seule

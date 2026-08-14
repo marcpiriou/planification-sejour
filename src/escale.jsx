@@ -1622,6 +1622,24 @@ const markerIcon = (maps, color, numero, nom) => {
   };
 };
 
+// Position de l'utilisateur : le point bleu cerclé de blanc, convention de
+// toutes les cartes. Dessiné en SVG comme les repères d'étape, pour ne dépendre
+// d'aucune image distante. Ancré en son centre : ici le point EST la position,
+// contrairement à la goutte d'une étape qui désigne du bout.
+const POSITION_COLOR = "#1A73E8";
+const positionIcon = (maps) => {
+  const C_ = 22; // côté de la boîte : laisse la place au cerne blanc
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${C_}" height="${C_}" viewBox="0 0 ${C_} ${C_}">`
+    + `<circle cx="11" cy="11" r="7" fill="${POSITION_COLOR}" stroke="#ffffff" stroke-width="3"/>`
+    + `</svg>`;
+  return {
+    url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
+    size: new maps.Size(C_, C_),
+    scaledSize: new maps.Size(C_, C_),
+    anchor: new maps.Point(11, 11),
+  };
+};
+
 /* --- Fiche d'une étape, dans une bulle sur la carte ----------------- */
 // Toucher un repère ouvre la fiche sur la carte, sans quitter l'application.
 // C'est la fiche de Google elle-même — photos, note, avis, horaires — rendue par
@@ -1704,6 +1722,7 @@ function DayMapSheet({ markers, dayLabel, onClose }) {
 
   useEffect(() => {
     let alive = true;
+    let veille = null;   // identifiant de la surveillance de position, à couper en sortant
     (async () => {
       // Tout est sous le même filet : une carte qui échoue le dit, elle ne laisse
       // pas un écran vide comme lorsqu'elle se construisait sur une API pas prête.
@@ -1752,11 +1771,47 @@ function DayMapSheet({ markers, dayLabel, onClose }) {
         });
         if (markers.length === 1) { carte.setCenter(bounds.getCenter()); carte.setZoom(15); }
         else carte.fitBounds(bounds, 48);
+
+        // Position de l'utilisateur, suivie tant que la carte reste ouverte.
+        //
+        // Délibérément posée APRÈS le cadrage, et jamais ajoutée à `bounds` :
+        // le cadre doit rester celui de la journée. Se trouver à 500 km de son
+        // séjour — la veille du départ, typiquement — dézoomerait sinon la carte
+        // jusqu'à la rendre illisible.
+        //
+        // Un refus de permission, ou un appareil sans position, ne laisse
+        // simplement pas de point : c'est un repère de confort, pas une fonction
+        // dont l'écran dépend, et rien ne justifierait un message d'erreur.
+        if (navigator.geolocation) {
+          let moi = null;
+          veille = navigator.geolocation.watchPosition(
+            (pos) => {
+              if (!alive) return;
+              const p = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+              // Le repère est déplacé, pas recréé : en recréer un à chaque relevé
+              // empilerait les marqueurs et ferait clignoter la carte.
+              if (moi) { moi.setPosition(p); return; }
+              moi = new maps.Marker({
+                position: p, map: carte, title: "Ma position",
+                icon: positionIcon(maps),
+                // Ni cliquable, ni au-dessus des étapes : il informe, il ne doit
+                // pas intercepter le toucher d'un repère qu'il recouvrirait.
+                clickable: false, zIndex: 0,
+              });
+            },
+            () => { /* refus ou position indisponible : pas de point, rien à dire */ },
+            { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 },
+          );
+        }
       } catch (e) {
         if (alive) setErreur(e.message || String(e));
       }
     })();
-    return () => { alive = false; };
+    return () => {
+      alive = false;
+      // Sans cela le GPS continuerait de tourner après la fermeture de la carte.
+      if (veille != null) navigator.geolocation?.clearWatch(veille);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
