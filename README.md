@@ -184,12 +184,26 @@ Ouvrir l'édition depuis un matin ne change que le départ de ce matin-là ; dep
 un soir, elle vise le départ du lendemain matin. Symétriquement, l'arrivée
 éditée depuis un soir ne change que ce soir-là, et depuis un matin vise
 l'arrivée de la veille au soir. Un créneau jamais réglé individuellement
-retombe sur le réglage par défaut du séjour (`start_time` / `arrive_time`) ;
-pour l'arrivée, un hébergement enregistré avant cette carte n'a pas ce réglage
-et garde donc son calcul par trajet depuis l'étape précédente (AUTO), inchangé
-tant qu'on n'édite pas son arrivée. Un nouvel hébergement, lui, part avec un
-départ à 9 h 00 et une arrivée à 18 h 00 — chacun ensuite ajustable jour par
-jour.
+retombe sur le réglage par défaut du séjour (`start_time` / `arrive_time`).
+
+Les deux heures ne fonctionnent pas de la même façon, et c'est voulu :
+
+- **Le départ du matin** est une heure fixe, 9 h 00 par défaut. On décide de
+  l'heure à laquelle on quitte les lieux ; rien ne permet de la déduire.
+- **L'arrivée du soir** est **« Auto » par défaut** : elle découle du trajet
+  depuis l'étape précédente, exactement comme l'heure d'une activité ordinaire.
+  C'est le comportement juste dans la plupart des cas — on arrive quand on
+  arrive. Un sélecteur *Auto / Heure fixe* permet de la figer soir par soir,
+  pour une arrivée contrainte (enregistrement qui ferme à 20 h, train). Basculer
+  en heure fixe pré-remplit le champ avec **l'heure réellement calculée** pour ce
+  soir-là, pas avec une valeur arbitraire ; `STAY_ARRIVE_TIME` (18 h 00) ne sert
+  que de repli quand aucun calcul n'est disponible.
+
+Le sélecteur revient à Auto à tout moment : `AUTO` est alors stocké tel quel dans
+`night_arrivals` pour ce soir précis, ce qui rend le calcul sans toucher aux
+autres soirs. Un hébergement enregistré avant cette carte n'a pas de réglage
+d'arrivée et calcule donc déjà — le défaut n'a fait que rejoindre ce
+comportement.
 
 Son champ **Lieu** ne porte que le **lien de réservation** (Airbnb, Booking, Google
 Maps) : l'adresse a son propre champ, et les coordonnées en découlent. Y afficher des

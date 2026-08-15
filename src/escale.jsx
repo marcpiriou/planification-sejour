@@ -98,9 +98,11 @@ const stayCheckout = (a) => toISO(addDays(parseDate(a.date), stayNights(a)));
 // La nuit qui suit <iso> est-elle passée dans cet hébergement ? Jamais pour le
 // point de départ : zéro nuit ne couvre rien, sa place vient des bornes du séjour.
 const stayCoversNight = (a, iso) => isStay(a) && !isBase(a) && iso >= a.date && iso < stayCheckout(a);
-// Heures par défaut d'un nouvel hébergement : départ le matin, arrivée le soir.
-// Un hébergement déjà enregistré avant l'arrivée réglable garde son calcul par
-// trajet (AUTO) tant que cette heure n'est pas éditée à la main.
+// Heure de départ le matin d'un nouvel hébergement. L'arrivée du soir, elle, est
+// « Auto » par défaut : elle découle du trajet depuis l'étape précédente, comme
+// pour une activité ordinaire. STAY_ARRIVE_TIME n'est donc pas une valeur
+// enregistrée mais l'heure PROPOSÉE quand on bascule en heure fixe et qu'aucune
+// heure calculée n'est disponible pour ce soir-là.
 const STAY_LEAVE_TIME = "09:00";
 const STAY_ARRIVE_TIME = "18:00";
 // Code couleur propre à l'hébergement, distinct des huit catégories.
@@ -2424,6 +2426,12 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
   const dayOrdered = scheduleForDay(dayList(allActs, draft.date, days[days.length - 1]));
   const isFirstOfDay = dayOrdered.length === 0 || dayOrdered[0].id === draft.id;
   const timeAuto = isAutoTime(draft.startTime) && !isFirstOfDay;
+  // Arrivée du soir d'un hébergement : « Auto » par défaut, comme une étape
+  // ordinaire — l'heure découle du trajet depuis l'étape précédente. Passer en
+  // heure fixe part de l'heure réellement calculée pour ce soir-là (renseignée à
+  // l'ouverture de l'éditeur), à défaut d'une valeur de départ raisonnable.
+  const arriveeAuto = isAutoTime(draft.arriveTime);
+  const arriveeSuggeree = draft.arriveeSuggeree || STAY_ARRIVE_TIME;
   const mine = dayOrdered.find((a) => a.id === draft.id);
   const suggestedTime = mine ? minToTime(mine._startMin)
     : (dayOrdered.length ? minToTime(dayOrdered[dayOrdered.length - 1]._endMin) : "09:00");
@@ -2611,8 +2619,22 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
               d'heure d'arrivée à régler. */}
           {stay && !base && (
             <Field label="Heure d'arrivée le soir">
-              <TimeFields value={draft.arriveTime} defaut={STAY_ARRIVE_TIME}
-                onChange={(v) => upd("arriveTime", v)} />
+              <div className="flex gap-2">
+                <button type="button" onClick={() => upd("arriveTime", AUTO)}
+                  style={{ background: arriveeAuto ? C.teal : "#fff", color: arriveeAuto ? "#fff" : C.ink, border: `1px solid ${arriveeAuto ? C.teal : C.line}` }}
+                  className="flex-1 rounded-xl py-2 text-sm active:scale-95 transition">Auto</button>
+                <button type="button" onClick={() => { if (arriveeAuto) upd("arriveTime", arriveeSuggeree); }}
+                  style={{ background: !arriveeAuto ? C.teal : "#fff", color: !arriveeAuto ? "#fff" : C.ink, border: `1px solid ${!arriveeAuto ? C.teal : C.line}` }}
+                  className="flex-1 rounded-xl py-2 text-sm active:scale-95 transition">Heure fixe</button>
+              </div>
+              {arriveeAuto ? (
+                <div style={{ color: C.inkSoft }} className="t11 mt-1.5">
+                  Calculée d'après la fin de l'étape précédente et le temps de trajet.
+                </div>
+              ) : (
+                <TimeFields value={draft.arriveTime} defaut={arriveeSuggeree}
+                  onChange={(v) => upd("arriveTime", v)} className="mt-2" />
+              )}
               <div style={{ color: C.inkSoft }} className="t11 mt-1">
                 {draft.editingEvening
                   ? `Ne change que l'arrivée du ${fmtShort(draft.editingEvening)} : les autres soirs du séjour restent tels quels.`
@@ -3354,7 +3376,7 @@ function SejourApp() {
   const newStay = () => {
     const day = curDay && days.includes(curDay) ? curDay : days[0];
     setEditor({ mode: "new", kind: "stay", id: uid(), date: day, name: "", category: "dormir",
-      startTime: STAY_LEAVE_TIME, arriveTime: STAY_ARRIVE_TIME, durationMin: 0, placeRaw: "", addressRaw: "", travelMode: MODE_AUTO,
+      startTime: STAY_LEAVE_TIME, arriveTime: AUTO, arriveeSuggeree: STAY_ARRIVE_TIME, durationMin: 0, placeRaw: "", addressRaw: "", travelMode: MODE_AUTO,
       travelMinutes: "", notes: "", nights: 1, editingMorning: null, editingEvening: null, nightTimes: {}, nightArrivals: {} });
   };
   const editActivity = (entry) => {
@@ -3374,18 +3396,24 @@ function SejourApp() {
       : null;
     // Valeur affichée pour l'arrivée : l'heure réellement utilisée ce soir-là,
     // calculée par trajet si elle n'a encore jamais été fixée pour cette date.
-    const arriveTime = (() => {
-      if (!isStay(a)) return null;
-      if (!editingEvening) return a.arriveTime || STAY_ARRIVE_TIME;
+    // Valeur STOCKÉE pour ce soir-là — AUTO tant que rien n'a été fixé, ce qui
+    // est le cas par défaut. Elle seule décide de l'état du sélecteur
+    // Auto / Heure fixe ; afficher l'heure calculée ferait croire à un réglage.
+    const arriveTime = !isStay(a) ? null
+      : ((editingEvening && a.nightArrivals && a.nightArrivals[editingEvening]) || a.arriveTime || AUTO);
+    // L'heure réellement calculée ce soir-là, à part : c'est le point de départ
+    // proposé si l'utilisateur bascule en heure fixe, plutôt qu'un 18:00 arbitraire.
+    const arriveeSuggeree = (() => {
+      if (!isStay(a) || !editingEvening) return STAY_ARRIVE_TIME;
       const seq = scheduleForDay(dayList(trip.activities, editingEvening, trip.endDate));
       const creneau = seq.find((x) => x.stayOf === a.id && x.staySlot === STAY_PM);
-      return creneau ? minToTime(creneau._startMin) : (a.arriveTime || STAY_ARRIVE_TIME);
+      return creneau ? minToTime(creneau._startMin) : STAY_ARRIVE_TIME;
     })();
     setEditor({
       mode: "edit", kind: isStay(a) ? "stay" : "act",
       id: a.id, date: a.date, name: a.name, category: a.category,
       startTime: editingMorning ? ((a.nightTimes && a.nightTimes[editingMorning]) || a.startTime || STAY_LEAVE_TIME) : a.startTime,
-      arriveTime,
+      arriveTime, arriveeSuggeree,
       durationMin: a.durationMin,
       editingMorning, editingEvening, nightTimes: a.nightTimes || {}, nightArrivals: a.nightArrivals || {},
       nights: isStay(a) ? stayNights(a) : null,
@@ -3502,7 +3530,7 @@ function SejourApp() {
         ? (d.editingMorning ? (prevAct.startTime || STAY_LEAVE_TIME) : (isAutoTime(d.startTime) ? STAY_LEAVE_TIME : d.startTime))
         : d.startTime,
       arriveTime: isStayDraft
-        ? (isBaseDraft ? (prevAct.arriveTime ?? null) : (d.editingEvening ? (prevAct.arriveTime ?? null) : (d.arriveTime || STAY_ARRIVE_TIME)))
+        ? (isBaseDraft ? (prevAct.arriveTime ?? null) : (d.editingEvening ? (prevAct.arriveTime ?? null) : (d.arriveTime || AUTO)))
         : null,
       durationMin: isStayDraft ? 0 : (Number(d.durationMin) || 0), place,
       travelMode: d.travelMode, travelMinutes: d.travelMinutes === "" ? null : Number(d.travelMinutes), notes: d.notes.trim(),
