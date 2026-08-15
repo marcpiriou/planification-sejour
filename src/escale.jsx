@@ -3289,6 +3289,33 @@ function SejourApp() {
   };
   const openTrip = (id) => { const t = trips.find((x) => x.id === id); if (t) enterTrip(t); };
 
+  // Bouton « retour » du téléphone. L'application tient sur une seule page :
+  // sans rien à dépiler, le navigateur remontait à ce qui précédait le site,
+  // c'est-à-dire qu'il quittait purement et simplement l'application depuis un
+  // séjour ouvert. On empile donc une entrée d'historique à l'ouverture d'un
+  // séjour, et le retour la dépile pour revenir à la liste.
+  //
+  // Le nettoyage retire lui-même cette entrée quand le séjour a été refermé
+  // AUTREMENT que par le retour — flèche de l'en-tête, suppression du séjour,
+  // départ d'un séjour partagé. Sans cela l'entrée resterait empilée et le
+  // prochain appui sur « retour » la dépilerait dans le vide : l'application se
+  // refermerait, précisément le défaut qu'on corrige. Tous les chemins de
+  // fermeture passent par ce même nettoyage, aucun n'a besoin d'y penser.
+  const retourNavigateur = useRef(false);
+  useEffect(() => {
+    if (!tripId) return;
+    retourNavigateur.current = false;
+    // Sans troisième argument l'URL reste inchangée : rien à voir pour
+    // l'utilisateur, et aucun chemin à servir côté GitHub Pages.
+    window.history.pushState({ periplo: "sejour" }, "");
+    const onPop = () => { retourNavigateur.current = true; setTripId(null); };
+    window.addEventListener("popstate", onPop);
+    return () => {
+      window.removeEventListener("popstate", onPop);
+      if (!retourNavigateur.current) window.history.back();
+    };
+  }, [tripId]);
+
   // Mémorise le jour affiché à chaque changement, pour ce séjour précisément, et
   // l'enregistre sur le compte. Best-effort : une panne de sauvegarde ne doit pas
   // empêcher de naviguer, elle prive seulement la prochaine ouverture de la reprise.

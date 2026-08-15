@@ -255,6 +255,26 @@ Chaque nouveau séjour créé reprend ses éléments (nouveaux identifiants, tou
 décochés), qui deviennent alors propres à ce séjour — cocher ou modifier l'un
 n'affecte plus jamais l'autre.
 
+### Bouton « retour » du téléphone
+Sur un séjour ouvert, il ramène à la **liste des séjours**. L'application tient
+sur une seule page : sans rien à dépiler, le navigateur remontait à ce qui
+précédait le site — autrement dit il quittait l'application. Une entrée
+d'historique est donc empilée à l'ouverture d'un séjour (`pushState` sans
+troisième argument : l'URL ne change pas, rien à servir côté GitHub Pages), et
+le retour la dépile.
+
+Le nettoyage de l'effet retire lui-même cette entrée quand le séjour a été
+refermé **autrement** que par le retour — flèche de l'en-tête, suppression du
+séjour, départ d'un séjour partagé. Sans cela l'entrée resterait empilée et le
+prochain appui sur « retour » la dépilerait dans le vide, refermant
+l'application : précisément le défaut corrigé. Tous les chemins de fermeture
+passent par ce même nettoyage, aucun n'a besoin d'y penser.
+
+Depuis la liste des séjours, le retour quitte l'application — c'est le
+comportement attendu d'un écran d'accueil. Depuis un écran interne à un séjour
+(checklist, carte, éditeur), il ramène directement à la liste : ces écrans ne
+posent pas leur propre entrée d'historique.
+
 ### Jour affiché à l'ouverture d'un séjour
 Deux règles, dans cet ordre :
 
