@@ -3271,8 +3271,18 @@ function SejourApp() {
   // (elles ont pu être raccourcies depuis), sinon retombe sur le premier jour.
   const enterTrip = (t) => {
     const days = daysInRange(t.startDate, t.endDate);
+    // Séjour en cours — aujourd'hui tombe dans ses dates — : on ouvre sur
+    // aujourd'hui. Pendant le voyage c'est la journée qu'on veut voir, celle
+    // qu'on est en train de vivre, plutôt que la dernière consultée qui n'était
+    // souvent qu'un coup d'œil en avant sur la suite du programme.
+    //
+    // Hors séjour, avant le départ comme après le retour, la reprise du dernier
+    // jour consulté garde tout son sens : on prépare, ou on relit, là où on
+    // s'était arrêté.
+    const aujourdhui = toISO(new Date());
     const dernier = lastDayByTrip[t.id];
-    const day = dernier && days.includes(dernier) ? dernier : days[0];
+    const day = days.includes(aujourdhui) ? aujourdhui
+      : (dernier && days.includes(dernier) ? dernier : days[0]);
     setTripId(t.id); setCurDay(day);
     // Un lien attend d'être placé (reçu par partage) : le formulaire s'ouvre dessus.
     if (sharedLink) { openNewActivity(t, day, sharedLink); setSharedLink(null); }

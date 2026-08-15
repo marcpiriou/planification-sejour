@@ -255,8 +255,18 @@ Chaque nouveau séjour créé reprend ses éléments (nouveaux identifiants, tou
 décochés), qui deviennent alors propres à ce séjour — cocher ou modifier l'un
 n'affecte plus jamais l'autre.
 
-### Reprise du dernier jour consulté
-Rouvrir un séjour affiche le dernier jour qu'on y a consulté, plutôt que toujours le
+### Jour affiché à l'ouverture d'un séjour
+Deux règles, dans cet ordre :
+
+1. **Séjour en cours** — aujourd'hui tombe entre ses dates : on ouvre sur
+   **aujourd'hui**. Pendant le voyage, c'est la journée qu'on veut voir, celle
+   qu'on est en train de vivre, plutôt que la dernière consultée qui n'était
+   souvent qu'un coup d'œil en avant sur la suite du programme.
+2. **Sinon** — avant le départ, après le retour — on reprend le **dernier jour
+   consulté**, à défaut le premier jour du séjour. On prépare, ou on relit, là
+   où on s'était arrêté.
+
+Rouvrir un séjour affiche donc le dernier jour qu'on y a consulté, plutôt que toujours le
 premier. C'est rangé dans les métadonnées du compte (`last_day_by_trip`), comme le
 lieu de départ ou l'application d'itinéraire préférée : la reprise vaut donc aussi
 après fermeture de l'application et sur un autre appareil. Propre à l'utilisateur,
