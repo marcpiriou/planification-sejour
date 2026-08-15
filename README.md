@@ -256,24 +256,31 @@ décochés), qui deviennent alors propres à ce séjour — cocher ou modifier l
 n'affecte plus jamais l'autre.
 
 ### Bouton « retour » du téléphone
-Sur un séjour ouvert, il ramène à la **liste des séjours**. L'application tient
-sur une seule page : sans rien à dépiler, le navigateur remontait à ce qui
-précédait le site — autrement dit il quittait l'application. Une entrée
-d'historique est donc empilée à l'ouverture d'un séjour (`pushState` sans
-troisième argument : l'URL ne change pas, rien à servir côté GitHub Pages), et
-le retour la dépile.
+Il referme l'écran le plus haut : un écran interne d'abord (checklist, carte,
+éditeur, modale de partage), puis le séjour — qui ramène à la **liste** —, et
+seulement ensuite il quitte l'application. Depuis la liste, il en sort : c'est
+le comportement attendu d'un écran d'accueil.
 
-Le nettoyage de l'effet retire lui-même cette entrée quand le séjour a été
-refermé **autrement** que par le retour — flèche de l'en-tête, suppression du
-séjour, départ d'un séjour partagé. Sans cela l'entrée resterait empilée et le
-prochain appui sur « retour » la dépilerait dans le vide, refermant
-l'application : précisément le défaut corrigé. Tous les chemins de fermeture
-passent par ce même nettoyage, aucun n'a besoin d'y penser.
+L'application tient sur une seule page : sans rien à dépiler, le retour
+remontait à ce qui précédait le site, autrement dit il la quittait depuis
+n'importe quel écran. Chaque couche empile donc son entrée d'historique
+(`pushState` sans troisième argument : l'URL ne change pas, rien à servir de
+plus côté GitHub Pages).
 
-Depuis la liste des séjours, le retour quitte l'application — c'est le
-comportement attendu d'un écran d'accueil. Depuis un écran interne à un séjour
-(checklist, carte, éditeur), il ramène directement à la liste : ces écrans ne
-posent pas leur propre entrée d'historique.
+Trois pièges, et ce qui les évite :
+
+- **`popstate` prévient tous les écouteurs à la fois.** Un écouteur par écran
+  aurait refermé toute la pile d'un seul appui. Il n'y en a donc qu'**un**, qui
+  ne dépile que le sommet.
+- **Un écran refermé par l'interface** (croix, flèche, suppression du séjour)
+  laisserait son entrée empilée, et le retour suivant la dépilerait dans le
+  vide — en refermant l'application. Le nettoyage de l'effet retire donc
+  lui-même cette entrée, sans que les chemins de fermeture aient à y penser.
+- **Ce retrait provoque lui-même un `popstate`**, qui serait pris pour un appui
+  de l'utilisateur et refermerait la couche du dessous. Fermer la checklist à la
+  main renvoyait ainsi à la liste au lieu de la timeline. Un marqueur signale
+  le saut programmé, et l'écouteur l'ignore. Les fermetures simultanées sont
+  regroupées en un seul `go(-n)` — un `back()` par couche risquait d'être fusionné.
 
 ### Jour affiché à l'ouverture d'un séjour
 Deux règles, dans cet ordre :

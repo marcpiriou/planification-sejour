@@ -924,6 +924,73 @@ function useSwipeDay(days, current, onSelect, desactive) {
   };
 }
 
+/* --- Bouton « retour » du téléphone -------------------------------- */
+// L'application tient sur une seule page : sans rien à dépiler, le retour
+// remontait à ce qui précédait le site, autrement dit il la quittait. Chaque
+// écran superposé — séjour ouvert, checklist, carte, éditeur, modale — empile
+// donc son entrée d'historique, et le retour referme le plus haut d'abord.
+//
+// UN SEUL écouteur pour toutes les couches, et non un par écran : `popstate`
+// prévient tous les écouteurs à la fois, si bien qu'un seul appui les
+// refermerait tous en cascade. Ici l'écouteur unique ne dépile que le sommet.
+const couchesRetour = [];
+let ecouteInstallee = false;
+
+// Un saut d'historique que NOUS avons provoqué (voir plus bas) déclenche lui
+// aussi un `popstate`, qu'il ne faut surtout pas prendre pour un appui de
+// l'utilisateur : sans ce marqueur, refermer un écran à la main refermait dans
+// la foulée celui d'en dessous.
+let sautProgramme = false;
+
+function installeEcouteRetour() {
+  if (ecouteInstallee || typeof window === "undefined") return;
+  ecouteInstallee = true;
+  window.addEventListener("popstate", () => {
+    if (sautProgramme) { sautProgramme = false; return; }
+    const couche = couchesRetour.pop();
+    if (couche) couche.fermer();
+  });
+}
+
+// Entrées à retirer quand un écran est refermé par l'interface plutôt que par le
+// retour. Elles sont regroupées en un seul saut : deux fermetures simultanées —
+// supprimer un séjour referme la modale ET le séjour — doivent remonter de deux
+// crans d'un coup. Un `go(-n)` ne déclenche qu'un seul `popstate`, d'où le
+// marqueur unique plutôt qu'un décompte.
+let dettesRetour = 0;
+function retireEntreeHistorique() {
+  dettesRetour += 1;
+  if (dettesRetour > 1) return;
+  queueMicrotask(() => {
+    const n = dettesRetour;
+    dettesRetour = 0;
+    if (n <= 0) return;
+    sautProgramme = true;
+    window.history.go(-n);
+  });
+}
+
+function useRetour(actif, fermer) {
+  const fermerRef = useRef(fermer);
+  fermerRef.current = fermer;
+  useEffect(() => {
+    if (!actif) return;
+    installeEcouteRetour();
+    const couche = { fermer: () => fermerRef.current() };
+    couchesRetour.push(couche);
+    // Sans troisième argument l'URL reste inchangée : rien à voir pour
+    // l'utilisateur, et aucun chemin supplémentaire à servir.
+    window.history.pushState({ periplo: true }, "");
+    return () => {
+      const i = couchesRetour.indexOf(couche);
+      // Encore dans la pile : l'écran a été refermé par l'interface, pas par le
+      // retour — c'est donc à nous de retirer l'entrée que nous avions empilée.
+      // Dépilée par l'écouteur : il n'y a rien à faire, l'entrée est consommée.
+      if (i >= 0) { couchesRetour.splice(i, 1); retireEntreeHistorique(); }
+    };
+  }, [actif]);
+}
+
 function TopBar({ left, title, subtitle, right }) {
   return (
     <div style={{ background: C.card, borderBottom: `1px solid ${C.line}` }} className="sticky top-0 z-20">
@@ -977,6 +1044,8 @@ function AccountPanel({ userEmail, home, onSaveHome, navApp, onSaveNavApp, defau
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [checklistOpen, setChecklistOpen] = useState(false);
+  // Même traitement que les écrans d'un séjour : le retour referme la feuille.
+  useRetour(checklistOpen, () => setChecklistOpen(false));
   useEffect(() => { setLabel(home?.label || "Maison"); setAddress(home?.address || ""); }, [home]);
   const save = async () => {
     setSaving(true); setSaved(false);
@@ -2120,6 +2189,9 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onE
   const markers = useMemo(() => dayMarkers(acts), [acts]);
   const [mapOpen, setMapOpen] = useState(false);
   const [checklistOpen, setChecklistOpen] = useState(false);
+  // Écrans internes au séjour : le retour les referme avant de quitter le séjour.
+  useRetour(mapOpen, () => setMapOpen(false));
+  useRetour(checklistOpen, () => setChecklistOpen(false));
 
   const totalTravel = useMemo(() => {
     let t = 0;
@@ -3289,32 +3361,16 @@ function SejourApp() {
   };
   const openTrip = (id) => { const t = trips.find((x) => x.id === id); if (t) enterTrip(t); };
 
-  // Bouton « retour » du téléphone. L'application tient sur une seule page :
-  // sans rien à dépiler, le navigateur remontait à ce qui précédait le site,
-  // c'est-à-dire qu'il quittait purement et simplement l'application depuis un
-  // séjour ouvert. On empile donc une entrée d'historique à l'ouverture d'un
-  // séjour, et le retour la dépile pour revenir à la liste.
-  //
-  // Le nettoyage retire lui-même cette entrée quand le séjour a été refermé
-  // AUTREMENT que par le retour — flèche de l'en-tête, suppression du séjour,
-  // départ d'un séjour partagé. Sans cela l'entrée resterait empilée et le
-  // prochain appui sur « retour » la dépilerait dans le vide : l'application se
-  // refermerait, précisément le défaut qu'on corrige. Tous les chemins de
-  // fermeture passent par ce même nettoyage, aucun n'a besoin d'y penser.
-  const retourNavigateur = useRef(false);
-  useEffect(() => {
-    if (!tripId) return;
-    retourNavigateur.current = false;
-    // Sans troisième argument l'URL reste inchangée : rien à voir pour
-    // l'utilisateur, et aucun chemin à servir côté GitHub Pages.
-    window.history.pushState({ periplo: "sejour" }, "");
-    const onPop = () => { retourNavigateur.current = true; setTripId(null); };
-    window.addEventListener("popstate", onPop);
-    return () => {
-      window.removeEventListener("popstate", onPop);
-      if (!retourNavigateur.current) window.history.back();
-    };
-  }, [tripId]);
+  // Le séjour ouvert est la couche la plus basse : le retour y ramène à la
+  // liste. Déclarée AVANT les écrans qu'un séjour peut ouvrir, pour que ceux-ci
+  // s'empilent au-dessus quand ils apparaissent dans le même rendu — l'ouverture
+  // d'un séjour depuis un lien partagé ouvre l'éditeur dans la foulée.
+  useRetour(!!tripId, () => setTripId(null));
+  useRetour(!!editor, () => setEditor(null));
+  useRetour(!!tripModal, () => setTripModal(null));
+  useRetour(!!shareTripId, () => setShareTripId(null));
+  useRetour(!!durEdit, () => setDurEdit(null));
+  useRetour(!!travelEdit, () => setTravelEdit(null));
 
   // Mémorise le jour affiché à chaque changement, pour ce séjour précisément, et
   // l'enregistre sur le compte. Best-effort : une panne de sauvegarde ne doit pas
