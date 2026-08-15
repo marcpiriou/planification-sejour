@@ -1172,6 +1172,11 @@ function Home({ trips, onOpen, onNew, onExample, userEmail, onSignOut, home, onS
 function DateStrip({ days, current, onSelect, counts }) {
   const barreRef = useRef(null);
   const actifRef = useRef(null);
+  // Date du jour, en ISO local : les dates du séjour le sont aussi, la
+  // comparaison de chaînes suffit donc à les ordonner. Calculée au rendu — un
+  // séjour resté ouvert d'un jour sur l'autre se remet à jour au prochain
+  // affichage, ce qui est bien assez pour un repère visuel.
+  const aujourdhui = toISO(new Date());
   // À l'ouverture d'un séjour, place le jour repris (dernier consulté, ou premier
   // jour) au bord gauche de la bande, plutôt que de laisser le défilement à zéro
   // pendant que le jour actif est mis en évidence hors champ. DateStrip est
@@ -1193,9 +1198,20 @@ function DateStrip({ days, current, onSelect, counts }) {
       <div ref={barreRef} className="mx-auto max-w-md px-2 py-2 flex gap-2 overflow-x-auto noscrollbar">
         {days.map((d) => {
           const active = d === current;
+          // Jour révolu : grisé, pour que le regard tombe d'abord sur ce qui
+          // reste à venir. Il demeure lisible et consultable — on revient
+          // volontiers sur la veille — mais passe visuellement au second plan.
+          // Le jour sélectionné garde son fond plein même s'il est passé, sinon
+          // on ne saurait plus où l'on se trouve dans la bande.
+          const passe = !active && d < aujourdhui;
           return (
             <button key={d} ref={active ? actifRef : undefined} onClick={() => onSelect(d)}
-              style={{ background: active ? C.teal : C.paper, color: active ? "#fff" : C.ink, border: `1px solid ${active ? C.teal : C.line}` }}
+              style={{
+                background: active ? C.teal : C.paper,
+                color: active ? "#fff" : (passe ? C.inkSoft : C.ink),
+                border: `1px solid ${active ? C.teal : C.line}`,
+                opacity: passe ? 0.55 : 1,
+              }}
               className="shrink-0 rounded-xl px-3 py-2 text-center minw62 active:scale-95 transition">
               {/* Le jour de la semaine et la date suffisent : le rang dans le
                   séjour (« J1 ») ne disait rien de plus. */}

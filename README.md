@@ -270,6 +270,15 @@ Sur l'écran d'un jour, la barre du haut et la bande des dates restent collées 
 haut de l'écran (`sticky top-0`) : elles ne défilent plus avec la timeline, donc
 toujours visibles même tout en bas d'une longue journée.
 
+Les **jours révolus sont grisés** dans la bande, pour que le regard tombe
+d'abord sur ce qui reste à venir. Ils restent lisibles et consultables — on
+revient volontiers sur la veille : ce n'est pas un grisé « désactivé », le
+bouton répond normalement. Le jour **sélectionné** garde toujours son fond
+plein, même passé, sans quoi on ne saurait plus où l'on se trouve dans la
+bande. La comparaison se fait sur la date du jour en ISO local, calculée au
+rendu : un séjour resté ouvert d'un jour sur l'autre se remet à jour au
+prochain affichage, ce qui suffit pour un repère visuel.
+
 Rester appuyé sur la timeline puis glisser horizontalement change le jour affiché :
 vers la droite ouvre le jour suivant, vers la gauche le précédent — sans effet au
 delà du premier ou du dernier jour. Le geste (hook `useSwipeDay`) est capté en
