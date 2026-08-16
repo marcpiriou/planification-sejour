@@ -255,6 +255,23 @@ Chaque nouveau séjour créé reprend ses éléments (nouveaux identifiants, tou
 décochés), qui deviennent alors propres à ce séjour — cocher ou modifier l'un
 n'affecte plus jamais l'autre.
 
+### Bouton « + » d'ajout
+Un seul bouton flottant en bas à droite. Le toucher déploie les deux ajouts,
+empilés au-dessus de lui : **Activité en bas**, au plus près du pouce puisque
+c'est de loin le plus fréquent, **Hébergement** au-dessus. Côte à côte en
+permanence, les deux boutons occupaient tout le bas de l'écran et recouvraient
+la fin de la journée.
+
+La croix n'est que le « + » pivoté de 45° : même dessin, l'état se lit d'un coup
+d'œil sans changer d'icône. Trois façons de refermer — le « + » lui-même, un
+toucher à côté (voile), ou le bouton retour du téléphone.
+
+Ce menu est une couche d'historique comme les autres, avec une nuance : choisir
+un ajout ne lance l'action qu'**après** la fermeture. Le menu retire son entrée
+en se refermant et l'éditeur pose la sienne ; enchaînés dans le même rendu, le
+retrait aurait emporté l'entrée de l'éditeur au lieu de celle du menu. La
+fermeture passe donc par l'historique, et l'action attend le rappel.
+
 ### Bouton « retour » du téléphone
 Il referme l'écran le plus haut : un écran interne d'abord (checklist, carte,
 éditeur, modale de partage), puis le séjour — qui ramène à la **liste** —, et

@@ -2193,6 +2193,25 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onE
   useRetour(mapOpen, () => setMapOpen(false));
   useRetour(checklistOpen, () => setChecklistOpen(false));
 
+  /* --- Menu d'ajout (bouton « + » flottant) ------------------------- */
+  const [ajoutOuvert, setAjoutOuvert] = useState(false);
+  // L'action choisie n'est lancée qu'APRÈS la fermeture du menu. Le menu retire
+  // son entrée d'historique en se refermant, et l'écran qu'il ouvre pose la
+  // sienne : lancer les deux dans le même rendu ferait retirer l'entrée du
+  // nouvel écran au lieu de celle du menu.
+  const ajoutChoisi = useRef(null);
+  useRetour(ajoutOuvert, () => {
+    setAjoutOuvert(false);
+    const action = ajoutChoisi.current;
+    ajoutChoisi.current = null;
+    if (action) action();
+  });
+  // Toute fermeture passe par l'historique : c'est lui qui porte l'entrée du
+  // menu, et le rappel ci-dessus fait le reste. Le menu étant toujours la couche
+  // du dessus quand il est ouvert, ce retour ne peut refermer que lui.
+  const fermeAjout = () => window.history.back();
+  const choisitAjout = (action) => { ajoutChoisi.current = action; window.history.back(); };
+
   const totalTravel = useMemo(() => {
     let t = 0;
     for (let i = 0; i < acts.length - 1; i++) { const l = legBetween(acts[i], acts[i + 1]); if (l.min != null) t += l.min; }
@@ -2363,22 +2382,45 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onE
         <ChecklistSheet trip={trip} onUpdate={onUpdateChecklist} onClose={() => setChecklistOpen(false)} canEdit={canEdit} />
       )}
 
-      {/* bouton flottant ajouter (masqué en lecture seule) */}
+      {/* Bouton « + » flottant, masqué en lecture seule. Les deux ajouts ne
+          s'affichent qu'à la demande : côte à côte, ils occupaient en permanence
+          le bas de l'écran et recouvraient la fin de la journée. */}
       {canEdit && (
-        <div className="fixed bottom-0 inset-x-0 z-20 pointer-events-none">
-          <div className="mx-auto max-w-md px-4 pb-5 pt-2 flex justify-end gap-2"
-            style={{ background: "linear-gradient(to top, rgba(244,246,247,0.95), rgba(244,246,247,0))" }}>
-            {/* Deux ajouts distincts : une étape ordinaire, ou l'hébergement de la nuit. */}
-            <button onClick={onAddStay} style={{ background: STAY_COLOR }}
-              className="pointer-events-auto text-white rounded-full pl-4 pr-5 py-3.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
-              <Plus size={20} /> Hébergement
-            </button>
-            <button onClick={onAddAct} style={{ background: C.teal }}
-              className="pointer-events-auto text-white rounded-full pl-4 pr-5 py-3.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
-              <Plus size={20} /> Activité
-            </button>
+        <>
+          {/* Voile : toucher à côté referme le menu sans rien ajouter. */}
+          {ajoutOuvert && (
+            <button type="button" onClick={fermeAjout} aria-label="Fermer le menu d'ajout"
+              className="fixed inset-0 z-20" style={{ background: "rgba(15,23,42,0.20)" }} />
+          )}
+          <div className="fixed bottom-0 inset-x-0 z-30 pointer-events-none">
+            <div className="mx-auto max-w-md px-4 pb-5 pt-2 flex flex-col items-end gap-2"
+              style={{ background: ajoutOuvert ? "transparent" : "linear-gradient(to top, rgba(244,246,247,0.95), rgba(244,246,247,0))" }}>
+              {/* L'ordre du DOM est celui de haut en bas : l'activité, de loin le
+                  plus fréquent, reste au plus près du pouce, juste au-dessus du « + ». */}
+              {ajoutOuvert && (
+                <>
+                  <button onClick={() => choisitAjout(onAddStay)} style={{ background: STAY_COLOR }}
+                    className="pointer-events-auto text-white rounded-full pl-4 pr-5 py-3.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
+                    <Plus size={20} /> Hébergement
+                  </button>
+                  <button onClick={() => choisitAjout(onAddAct)} style={{ background: C.teal }}
+                    className="pointer-events-auto text-white rounded-full pl-4 pr-5 py-3.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
+                    <Plus size={20} /> Activité
+                  </button>
+                </>
+              )}
+              <button onClick={() => (ajoutOuvert ? fermeAjout() : setAjoutOuvert(true))}
+                aria-expanded={ajoutOuvert}
+                aria-label={ajoutOuvert ? "Fermer le menu d'ajout" : "Ajouter une étape"}
+                style={{ background: C.teal }}
+                className="pointer-events-auto h-14 w-14 rounded-full text-white shadow-lg flex items-center justify-center active:scale-95 transition">
+                {/* La croix n'est que le « + » pivoté : même dessin, l'état se lit
+                    d'un coup d'œil sans changer d'icône. */}
+                <Plus size={26} style={{ transform: ajoutOuvert ? "rotate(45deg)" : "none", transition: "transform .18s" }} />
+              </button>
+            </div>
           </div>
-        </div>
+        </>
       )}
     </div>
   );
