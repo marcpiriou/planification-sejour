@@ -214,11 +214,35 @@ Biarritz » chez Google).
 
 Configuration : la clé vit dans le secret Supabase **`GEMINI_API_KEY`**, jamais
 dans le dépôt ni dans le bundle. Sans elle, la fonction répond en clair
-« aucune clé Gemini configurée » plutôt que d'échouer sans explication. Le
-secret facultatif `GEMINI_MODEL` remplace le modèle par défaut
-(`gemini-2.0-flash`) : les noms de modèles changent plus vite qu'on ne
-redéploie une fonction. Garde-fous : demande tronquée à 500 caractères, six
-propositions au plus — chacune coûtant ensuite une recherche Google.
+« aucune clé Gemini configurée » plutôt que d'échouer sans explication.
+Garde-fous : demande tronquée à 500 caractères, six propositions au plus —
+chacune coûtant ensuite une recherche Google.
+
+Depuis 2026, une clé Gemini est une **« auth key »**, liée à un compte de
+service que Google crée pour vous : c'est toujours une simple chaîne envoyée
+dans `x-goog-api-key`, sans échange de jeton OAuth, mais les anciennes clés
+« standard » ne sont plus acceptées. Le plus court pour en obtenir une reste
+[AI Studio](https://aistudio.google.com/api-keys), qui fait la liaison seul —
+la console Cloud impose sinon un `gcloud beta services api-keys create
+--service-account=…`. À ne pas confondre avec une **clé de compte de service**
+(le fichier JSON sous IAM), qui est un autre objet, souvent interdit par une
+règle d'organisation, et dont on n'a pas besoin ici.
+
+### Le modèle, et pourquoi il y en a deux
+`gemini-3.5-flash`, avec `gemini-2.5-flash` en repli. Google retire ses modèles
+vite et sans préavis utile : `gemini-2.0-flash`, premier défaut de cette
+fonction, répondait déjà `404 no longer available` le jour de sa mise en
+service. Un second nom transforme cette coupure en simple perte de qualité au
+lieu d'une panne.
+
+Le repli ne joue **que sur un 404**. Un quota dépassé ou une clé refusée le
+seraient tout autant sur le modèle suivant : insister ne ferait que doubler la
+latence d'un échec certain. Le secret facultatif `GEMINI_MODEL` impose un
+modèle unique — c'est un choix explicite, on ne lui cherche pas de remplaçant.
+
+L'appel passe par `:generateContent`, que Google qualifie désormais de
+« legacy » au profit de l'*Interactions API*, mais qu'il déclare pleinement
+supporté et sans date de fin. Rien à migrer tant que c'est vrai.
 
 ## Activités « Hébergement »
 Un hébergement est enregistré **une seule fois**, à sa date d'arrivée, avec son nombre

@@ -23,9 +23,14 @@ function json(obj: unknown, status = 200): Response {
   });
 }
 
-// Modèle par défaut, surchargeable par un secret : les noms de modèles Gemini
-// changent plus vite qu'on ne redéploie une fonction.
-const MODELE_DEFAUT = "gemini-2.0-flash";
+// Modèles essayés dans l'ordre, surchargeables par un secret : les noms de
+// modèles Gemini changent plus vite qu'on ne redéploie une fonction, et Google
+// coupe les anciens sans préavis utile — `gemini-2.0-flash`, le premier défaut
+// de cette fonction, répondait déjà « no longer available » le jour de sa mise
+// en service. Un second nom en repli transforme cette coupure en simple perte
+// de qualité au lieu d'une panne. Le secret GEMINI_MODEL, lui, est un choix
+// explicite : on ne lui cherche pas de remplaçant.
+const MODELES_DEFAUT = ["gemini-3.5-flash", "gemini-2.5-flash"];
 // Garde-fous : une demande n'est qu'une phrase, et six propositions suffisent à
 // remplir un écran. Chaque suggestion coûte ensuite une recherche Google (photo
 // et coordonnées) : en produire trente reviendrait cher pour rien.
@@ -67,39 +72,55 @@ Deno.serve(async (req: Request) => {
 
   const KEY = Deno.env.get("GEMINI_API_KEY");
   if (!KEY) return json({ error: "aucune clé Gemini configurée (secret GEMINI_API_KEY)" }, 500);
-  const modele = Deno.env.get("GEMINI_MODEL") || MODELE_DEFAUT;
+  const choisi = Deno.env.get("GEMINI_MODEL");
+  const modeles = choisi ? [choisi] : MODELES_DEFAUT;
 
   try {
     const payload = await req.json().catch(() => ({}));
     const prompt = (typeof payload?.prompt === "string" ? payload.prompt : "").trim().slice(0, PROMPT_MAX);
     if (!prompt) return json({ error: "demande vide" }, 400);
 
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modele)}:generateContent`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-goog-api-key": KEY },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: CONSIGNE }] },
-          contents: [{ role: "user", parts: [{ text: prompt }] }],
-          generationConfig: {
-            // Sortie JSON contrainte par un schéma : rien à analyser à la main,
-            // et pas de texte d'accompagnement à retirer.
-            responseMimeType: "application/json",
-            responseSchema: SCHEMA,
-            temperature: 0.7,
-          },
-        }),
+    const corps = JSON.stringify({
+      systemInstruction: { parts: [{ text: CONSIGNE }] },
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      generationConfig: {
+        // Sortie JSON contrainte par un schéma : rien à analyser à la main,
+        // et pas de texte d'accompagnement à retirer.
+        responseMimeType: "application/json",
+        responseSchema: SCHEMA,
+        temperature: 0.7,
       },
-    );
+    });
 
-    if (!res.ok) {
-      const detail = (await res.text()).slice(0, 300);
+    // Un modèle retiré répond 404. C'est le SEUL cas qui vaille un second essai :
+    // un quota dépassé ou une clé refusée le seraient tout autant sur le modèle
+    // suivant, et insister ne ferait que doubler la latence d'un échec certain.
+    let res: Response | null = null;
+    let echec: { status: number; detail: string } | null = null;
+    for (const modele of modeles) {
+      const r = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modele)}:generateContent`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-goog-api-key": KEY },
+          body: corps,
+        },
+      );
+      if (r.ok) { res = r; break; }
+      const detail = (await r.text()).slice(0, 300);
       // Journalisé : le corps part au client, mais une trace côté serveur évite
       // d'avoir à reproduire l'erreur pour la lire — un modèle renommé ou une
       // clé mal restreinte se diagnostique ainsi d'un coup d'œil.
-      console.error(`suggestions: Gemini ${res.status} — ${detail}`);
-      return json({ error: "Gemini a refusé la demande", status: res.status, detail }, 200);
+      console.error(`suggestions: Gemini ${r.status} sur ${modele} — ${detail}`);
+      echec = { status: r.status, detail };
+      if (r.status !== 404) break;
+    }
+    if (!res) {
+      return json({
+        error: "Gemini a refusé la demande",
+        status: echec?.status ?? 0,
+        detail: echec?.detail ?? "aucun modèle disponible",
+      }, 200);
     }
 
     const data = await res.json();
