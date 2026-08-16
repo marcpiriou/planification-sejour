@@ -2571,7 +2571,11 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
     try { await onSave(); } catch { setSaving(false); }
   };
 
-  const durChips = [30, 45, 60, 90, 120, 150, 180];
+  // Onze durées proposées, plus le bouton « … » : douze pastilles, soit deux
+  // rangées pleines de six. Le zéro sert aux étapes qui ne durent pas — un
+  // passage, un rendez-vous à heure dite — et le quart d'heure manquait pour
+  // tout ce qui est bref.
+  const durChips = [0, 15, 30, 45, 60, 90, 120, 150, 180, 210, 240];
   const isPreset = durChips.includes(draft.durationMin);
   const openCustom = () => { setCh(Math.floor((draft.durationMin || 0) / 60)); setCm((draft.durationMin || 0) % 60); setCustomOpen(true); };
   const applyCustom = () => { const total = Math.max(0, (Number(ch) || 0) * 60 + (Number(cm) || 0)); upd("durationMin", total); setCustomOpen(false); };
@@ -2676,18 +2680,23 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
           {/* durée */}
           {!stay && (
           <Field label="Durée">
-            <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
+            {/* Six colonnes, deux rangées : les douze pastilles tiennent
+                exactement, sans défilement horizontal qui cachait les durées
+                longues. Grille plutôt qu'un retour à la ligne libre, qui aurait
+                donné neuf pastilles sur la première rangée et trois sur la
+                seconde. */}
+            <div className="grid grid-cols-6 gap-1.5">
               {durChips.map((d) => {
                 const active = draft.durationMin === d;
                 return (
                   <button key={d} onClick={() => upd("durationMin", d)}
                     style={{ background: active ? C.ink : "#fff", color: active ? "#fff" : C.ink, border: `1px solid ${active ? C.ink : C.line}`, fontFamily: MONO }}
-                    className="shrink-0 rounded-full px-2.5 py-1 text-xs active:scale-95 transition">{compactDur(d)}</button>
+                    className="rounded-full px-1 py-1 text-xs active:scale-95 transition">{compactDur(d)}</button>
                 );
               })}
               <button onClick={openCustom}
                 style={{ background: !isPreset ? C.ink : "#fff", color: !isPreset ? "#fff" : C.ink, border: `1px solid ${!isPreset ? C.ink : C.line}`, fontFamily: MONO }}
-                className="shrink-0 rounded-full px-2.5 py-1 text-xs active:scale-95 transition">{!isPreset ? compactDur(draft.durationMin) : "…"}</button>
+                className="rounded-full px-1 py-1 text-xs active:scale-95 transition">{!isPreset ? compactDur(draft.durationMin) : "…"}</button>
             </div>
           </Field>
           )}

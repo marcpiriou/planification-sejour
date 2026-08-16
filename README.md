@@ -255,6 +255,16 @@ Chaque nouveau séjour créé reprend ses éléments (nouveaux identifiants, tou
 décochés), qui deviennent alors propres à ce séjour — cocher ou modifier l'un
 n'affecte plus jamais l'autre.
 
+### Durées proposées
+Onze pastilles — `0, 15, 30, 45, 1h, 1h30, 2h, 2h30, 3h, 3h30, 4h` — plus le
+bouton `…` de saisie libre, soit douze, disposées en **grille de six colonnes
+sur deux rangées**. Une grille plutôt qu'un simple retour à la ligne : celui-ci
+aurait laissé neuf pastilles sur la première rangée et trois sur la seconde.
+
+Le défilement horizontal qui précédait cachait les durées longues, qu'il fallait
+deviner. Le `0` sert aux étapes qui ne durent pas — un passage, un rendez-vous à
+heure dite — et le quart d'heure manquait pour tout ce qui est bref.
+
 ### Bouton « + » d'ajout
 Un seul bouton flottant en bas à droite. Le toucher déploie les deux ajouts,
 empilés au-dessus de lui : **Activité en bas**, au plus près du pouce puisque
