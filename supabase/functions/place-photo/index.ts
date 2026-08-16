@@ -161,11 +161,21 @@ Deno.serve(async (req: Request) => {
     }
 
     // Le lieu est identifié : son placeId part dans tous les cas, la fiche Google
-    // ne dépend pas de l'existence d'une photo.
+    // ne dépend pas de l'existence d'une photo. Ses coordonnées et son nom
+    // partent avec — l'écran Suggestions doit situer l'étape sur la carte, et
+    // searchText vient de les renvoyer : les redemander ailleurs serait une
+    // seconde recherche facturée pour rien.
     const placeId = (place?.id || "").toString() || undefined;
+    const situe = {
+      placeId,
+      nom: displayName || undefined,
+      adresse: address || undefined,
+      ...(typeof loc?.latitude === "number" && typeof loc?.longitude === "number"
+        ? { lat: loc.latitude, lng: loc.longitude } : {}),
+    };
 
     const photoName = place?.photos?.[0]?.name;
-    if (!photoName) return json({ placeId, reason: "lieu sans photo", found: displayName });
+    if (!photoName) return json({ ...situe, reason: "lieu sans photo", found: displayName });
 
     // 3) Récupération de l'URL de la photo (Place Photo New), sans redirection binaire.
     const mediaUrl = `https://places.googleapis.com/v1/${photoName}/media?maxHeightPx=800&maxWidthPx=800&skipHttpRedirect=true`;
@@ -173,11 +183,11 @@ Deno.serve(async (req: Request) => {
     if (!photoRes.ok) {
       const t = await photoRes.text();
       console.error(`place-photo: media ${photoRes.status} — ${t.slice(0, 300)}`);
-      return json({ placeId, error: "media a échoué", status: photoRes.status, detail: t.slice(0, 300) }, 200);
+      return json({ ...situe, error: "media a échoué", status: photoRes.status, detail: t.slice(0, 300) }, 200);
     }
     const photoData = await photoRes.json();
-    if (photoData?.photoUri) return json({ placeId, photoUri: photoData.photoUri });
-    return json({ placeId, reason: "média indisponible" });
+    if (photoData?.photoUri) return json({ ...situe, photoUri: photoData.photoUri });
+    return json({ ...situe, reason: "média indisponible" });
   } catch (e) {
     return json({ error: String(e) }, 500);
   }

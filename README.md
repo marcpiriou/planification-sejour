@@ -112,14 +112,19 @@ borne son usage.
 serveur — non restreignable — partait dans le navigateur. Mieux vaut une carte en
 erreur, visible, qu'un secret exposé en silence.
 
+Un troisième secret, sans rapport avec Google Maps, complète la liste :
+**`GEMINI_API_KEY`** pour l'écran Suggestions (voir plus bas), avec
+`GEMINI_MODEL` en option.
+
 ### Accès aux Edge Functions
-Les quatre fonctions (`maps-key`, `resolve-place`, `travel-time`, `place-photo`)
-consomment le quota Google du projet : elles vérifient donc chacune, en première
-instruction, que l'appel vient d'une **session utilisateur** (`_shared/auth.ts`).
+Les cinq fonctions (`maps-key`, `resolve-place`, `travel-time`, `place-photo`,
+`suggestions`) consomment un quota facturé — Google pour les quatre premières,
+Gemini pour la dernière : elles vérifient donc chacune, en première instruction,
+que l'appel vient d'une **session utilisateur** (`_shared/auth.ts`).
 
 `verify_jwt` ne suffisait pas : la passerelle Supabase accepte aussi la clé
-publiable comme jeton, et cette clé est dans le bundle public — les quatre
-fonctions étaient donc appelables par n'importe qui, sans compte. La
+publiable comme jeton, et cette clé est dans le bundle public — les fonctions
+étaient donc appelables par n'importe qui, sans compte. La
 vérification s'appuie sur ce que la passerelle garantit déjà (la **signature**
 du jeton, un JWT forgé étant refusé avant d'atteindre la fonction) et n'a donc
 qu'à distinguer une session d'une clé d'API : lecture des revendications, sans
@@ -158,6 +163,62 @@ barrière — la RLS l'est.
 Ce qui ne change pas : un éditeur modifie toujours librement le séjour et ses
 activités, voit la liste des accès (l'écran de partage en a besoin), et peut se
 retirer lui-même — d'où la clause sur son propre email dans `members_delete`.
+
+## Suggestions (Gemini)
+Le choix **Suggestions** du bouton « + » ouvre un écran de recherche en langage
+courant — « Recherche les activités à Biarritz ». Le champ tient sur **deux
+lignes** : une demande dépasse souvent une ligne, et on veut la relire en entier
+avant de lancer une recherche facturée. Le bouton **Rechercher** reste inactif
+tant que rien n'est écrit, et se change en indicateur d'attente pendant l'appel.
+
+Deux services enchaînés, et non un seul :
+
+1. **Gemini** écrit les propositions (Edge Function `suggestions`). La sortie est
+   contrainte par un `responseSchema` — `{ nom, description, lieu }` — plutôt
+   qu'analysée à la main : il n'y a ni texte d'accompagnement à retirer ni JSON
+   approximatif à réparer. La consigne réclame le **nom usuel exact** du lieu,
+   une description factuelle d'une à deux phrases, et un `lieu` de la forme
+   « Nom, Ville, Pays » qui suffise à le situer sans ambiguïté.
+2. **Google Places** situe chaque proposition (Edge Function `place-photo`, déjà
+   en place pour les vignettes de la timeline) : photo, coordonnées, adresse et
+   `placeId`. Cette seconde étape part **proposition par proposition, en
+   parallèle**, après l'affichage de la liste — les vignettes se posent une à une
+   sur des cartes déjà lisibles, plutôt que de retarder l'écran entier.
+
+Un modèle qui écrit des noms de lieux peut en inventer, et la vérification de
+`place-photo` est la même que pour la timeline (mots entiers, distance au point
+épinglé) : une proposition que Google ne reconnaît pas garde **l'icône de
+bâtiment générique** et n'emporte aucune coordonnée — mieux vaut une étape sans
+point sur la carte qu'une étape posée au mauvais endroit. La mention sous la
+liste le dit à l'utilisateur : ce sont des propositions, à vérifier.
+
+Le « + » d'une carte ajoute l'étape **directement à la journée affichée**, sans
+passer par le formulaire : catégorie « visite », 60 minutes, le descriptif en
+note, et l'heure suivant la règle habituelle (fixe à 09:00 pour la première du
+jour, « auto » ensuite). La carte ne disparaît pas — elle échange son « + »
+contre une coche : on parcourt la liste en en prenant plusieurs, il faut voir où
+l'on en est. L'écran reste ouvert d'autant, et tout se corrige ensuite depuis la
+timeline.
+
+Deux économies de requêtes, l'API Places étant facturée à l'appel :
+`place-photo` renvoie désormais coordonnées, nom et adresse **avec** la photo —
+`searchText` vient de les lire, les redemander ailleurs serait une seconde
+recherche pour rien — et le cache des vignettes est **amorcé** au moment de
+l'ajout, si bien que la timeline n'interroge pas Google pour un lieu qui en
+revient à l'instant.
+
+Le nom affiché reste celui de Gemini, mais c'est celui de **Google** qui est
+enregistré dans `place.mapsName` : c'est lui qui retrouvera la photo une fois
+l'étape sur la timeline (« Musée de la Mer » chez Gemini, « Aquarium de
+Biarritz » chez Google).
+
+Configuration : la clé vit dans le secret Supabase **`GEMINI_API_KEY`**, jamais
+dans le dépôt ni dans le bundle. Sans elle, la fonction répond en clair
+« aucune clé Gemini configurée » plutôt que d'échouer sans explication. Le
+secret facultatif `GEMINI_MODEL` remplace le modèle par défaut
+(`gemini-2.0-flash`) : les noms de modèles changent plus vite qu'on ne
+redéploie une fonction. Garde-fous : demande tronquée à 500 caractères, six
+propositions au plus — chacune coûtant ensuite une recherche Google.
 
 ## Activités « Hébergement »
 Un hébergement est enregistré **une seule fois**, à sa date d'arrivée, avec son nombre
@@ -266,11 +327,11 @@ deviner. Le `0` sert aux étapes qui ne durent pas — un passage, un rendez-vou
 heure dite — et le quart d'heure manquait pour tout ce qui est bref.
 
 ### Bouton « + » d'ajout
-Un seul bouton flottant en bas à droite. Le toucher déploie les deux ajouts,
+Un seul bouton flottant en bas à droite. Le toucher déploie les trois ajouts,
 empilés au-dessus de lui : **Activité en bas**, au plus près du pouce puisque
-c'est de loin le plus fréquent, **Hébergement** au-dessus. Côte à côte en
-permanence, les deux boutons occupaient tout le bas de l'écran et recouvraient
-la fin de la journée.
+c'est de loin le plus fréquent, **Hébergement** au-dessus, **Suggestions** en
+haut. Côte à côte en permanence, ces boutons occupaient tout le bas de l'écran
+et recouvraient la fin de la journée.
 
 La croix n'est que le « + » pivoté de 45° : même dessin, l'état se lit d'un coup
 d'œil sans changer d'icône. Trois façons de refermer — le « + » lui-même, un

@@ -5,7 +5,7 @@ import {
   ChevronLeft, Trash2, Pencil, Navigation, Calendar, X, AlertTriangle,
   Check, ExternalLink, MoreVertical, Route, Mail, LogOut,
   Users, Share2, UserPlus, User, Home as HomeIcon, Building2, ClipboardPaste, Copy,
-  ListChecks, ChevronRight,
+  ListChecks, ChevronRight, Search, Loader2,
   // Alias obligatoire : « Map » masquerait le constructeur Map de JavaScript,
   // dont se servent les caches de trajets et de photos.
   Map as MapIcon
@@ -714,6 +714,59 @@ function fetchPlaceInfo(place) {
 }
 const fetchPlacePhoto = (place) => fetchPlaceInfo(place).then((i) => (i && i.photoUri) || null);
 const fetchPlaceId = (place) => fetchPlaceInfo(place).then((i) => (i && i.placeId) || null);
+
+// Amorce ce cache pour un lieu déjà identifié ailleurs — l'écran Suggestions
+// interroge Google pour ses vignettes, et l'activité ajoutée porte le même nom
+// et les mêmes coordonnées. Sans cela, la timeline redemanderait aussitôt à
+// Google ce qui vient d'en revenir : une recherche facturée pour rien.
+function amorcePlaceInfo(place, info) {
+  const q = place && place.mapsName ? place.mapsName.trim() : "";
+  if (!q || !info) return;
+  const key = `${q}|${place.lat ?? ""},${place.lng ?? ""}`;
+  if (photoCache.has(key)) return;
+  photoCache.set(key, Promise.resolve({ photoUri: info.photoUri || null, placeId: info.placeId || null }));
+}
+
+/* --- Suggestions (Gemini) ------------------------------------------- */
+// Propositions d'activités pour une demande en langage courant. La clé Gemini
+// vit dans l'Edge Function, jamais ici.
+async function fetchSuggestions(prompt) {
+  try {
+    const { data, error } = await supabase.functions.invoke("suggestions", { body: { prompt } });
+    if (error) return { erreur: (await messageFonction(error)) || "recherche impossible" };
+    if (!data) return { erreur: "recherche impossible" };
+    if (data.error) return { erreur: data.detail ? `${data.error} (${data.detail})` : data.error };
+    return { suggestions: Array.isArray(data.suggestions) ? data.suggestions : [] };
+  } catch (e) {
+    return { erreur: e?.message || String(e) };
+  }
+}
+
+// Situe un lieu décrit en texte : photo, coordonnées, nom et adresse retenus par
+// Google. Un seul appel sert les quatre — c'est pourquoi place-photo renvoie
+// aussi la position, plutôt que de payer une seconde recherche pour l'obtenir.
+const lieuCache = new Map();
+function fetchLieu(requete) {
+  const q = (requete || "").trim();
+  if (!q) return Promise.resolve(null);
+  if (lieuCache.has(q)) return lieuCache.get(q);
+  const p = (async () => {
+    try {
+      const { data, error } = await supabase.functions.invoke("place-photo", { body: { query: q } });
+      if (error || !data) return null;
+      return {
+        photoUri: data.photoUri || null,
+        placeId: data.placeId || null,
+        nom: data.nom || null,
+        adresse: data.adresse || null,
+        lat: typeof data.lat === "number" ? data.lat : null,
+        lng: typeof data.lng === "number" ? data.lng : null,
+      };
+    } catch { return null; }
+  })();
+  lieuCache.set(q, p);
+  return p;
+}
 
 // Identifiants tirés du générateur cryptographique du navigateur. L'ancienne
 // forme, horodatage + Math.random(), était devinable : Math.random() n'est pas
@@ -2148,8 +2201,164 @@ function ChecklistSheet({ trip, onUpdate, onClose, canEdit, title = "Checklist a
   );
 }
 
+/* --- Suggestions d'activités (feuille) ----------------------------- */
+// Une demande en langage courant — « Recherche les activités à Biarritz » —
+// donne des propositions que l'on ajoute d'un toucher à la journée affichée.
+//
+// Deux services enchaînés : Gemini écrit les propositions (nom, description,
+// lieu), puis chacune est située chez Google pour sa photo et ses coordonnées.
+// Cette seconde étape se fait proposition par proposition, en parallèle : la
+// liste s'affiche dès le retour de Gemini, les photos arrivent ensuite.
+function SuggestionCard({ s, ajoutee, onAdd, canEdit }) {
+  return (
+    <div style={{ background: C.card, border: `1px solid ${C.line}` }}
+      className="rounded-2xl overflow-hidden flex items-stretch mb-3">
+      {/* Vignette : la photo Google si le lieu a été reconnu, sinon un bâtiment
+          générique — même règle que sur la timeline, pas de photo douteuse. */}
+      <div className="shrink-0 w-24 self-stretch flex items-center justify-center"
+        style={{
+          background: s.photoUri ? undefined : C.paper,
+          borderRight: `1px solid ${C.line}`,
+          ...(s.photoUri ? { backgroundImage: `url("${s.photoUri}")`, backgroundSize: "cover", backgroundPosition: "center" } : {}),
+        }}
+        role="img" aria-label={s.photoUri ? `Photo de ${s.nom}` : `Aucune photo pour ${s.nom}`}>
+        {!s.photoUri && <Building2 size={22} style={{ color: C.inkSoft, opacity: 0.45 }} />}
+      </div>
+      <div className="flex-1 min-w-0 p-3">
+        <div style={{ color: C.ink }} className="font-semibold leading-tight">{s.nom}</div>
+        {s.description && (
+          <div style={{ color: C.inkSoft }} className="text-xs mt-1 clamp3">{s.description}</div>
+        )}
+        {s.adresse && (
+          <div style={{ color: C.inkSoft }} className="t11 mt-1 truncate">{s.adresse}</div>
+        )}
+      </div>
+      {canEdit && (
+        <div className="shrink-0 self-center pr-3">
+          {ajoutee ? (
+            // Ajoutée : le repère reste, plutôt que de faire disparaître la carte —
+            // on parcourt la liste en en prenant plusieurs, il faut voir où on en est.
+            <div style={{ background: C.tealSoft, color: C.teal }}
+              className="h-10 w-10 rounded-full flex items-center justify-center" title="Ajoutée à la journée">
+              <Check size={20} />
+            </div>
+          ) : (
+            <button onClick={onAdd} aria-label={`Ajouter ${s.nom} à la journée`}
+              style={{ background: C.teal }}
+              className="h-10 w-10 rounded-full text-white flex items-center justify-center shadow active:scale-95 transition">
+              <Plus size={20} />
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SuggestionsSheet({ trip, jour, onAdd, onClose, canEdit }) {
+  const [prompt, setPrompt] = useState("");
+  const [chargement, setChargement] = useState(false);
+  const [erreur, setErreur] = useState("");
+  const [resultats, setResultats] = useState(null);   // null = pas encore cherché
+  const [ajoutees, setAjoutees] = useState({});
+  // Une recherche chassant la précédente, les photos de l'ancienne ne doivent
+  // pas venir se poser sur la nouvelle liste.
+  const course = useRef(0);
+
+  const cherche = async () => {
+    const q = prompt.trim();
+    if (!q || chargement) return;
+    const moi = ++course.current;
+    setChargement(true); setErreur(""); setResultats(null); setAjoutees({});
+    const r = await fetchSuggestions(q);
+    if (course.current !== moi) return;
+    setChargement(false);
+    if (r.erreur) { setErreur(r.erreur); return; }
+    const liste = r.suggestions.map((s, i) => ({ ...s, cle: `${moi}-${i}` }));
+    setResultats(liste);
+    // Photos et coordonnées, une requête par proposition, en parallèle : la
+    // liste est déjà lisible, chaque vignette se pose quand elle arrive.
+    liste.forEach((s) => {
+      fetchLieu(s.lieu || s.nom).then((info) => {
+        if (!info || course.current !== moi) return;
+        // Le nom affiché reste celui de Gemini ; celui de Google est conservé à
+        // part (nomGoogle), car c'est lui qui retrouvera la photo une fois
+        // l'activité posée sur la timeline.
+        setResultats((prev) => (prev || []).map((x) => (
+          x.cle === s.cle ? { ...x, ...info, nom: x.nom, nomGoogle: info.nom || null } : x
+        )));
+      });
+    });
+  };
+
+  const ajoute = (s) => {
+    onAdd(s);
+    setAjoutees((prev) => ({ ...prev, [s.cle]: true }));
+  };
+
+  return (
+    <div className="fixed inset-0 z-40 flex flex-col" style={{ background: C.paper }}>
+      <TopBar
+        left={<IconBtn onClick={onClose} label="Retour"><ChevronLeft size={22} /></IconBtn>}
+        title="Suggestions"
+        subtitle={jour ? fmtLong(jour) : trip.name}
+      />
+      <div className="flex-1 overflow-y-auto">
+        <div className="mx-auto max-w-md px-4 py-4">
+          {/* Deux lignes : la demande tient rarement sur une, et on veut la
+              relire en entier avant de lancer une recherche facturée. */}
+          <textarea
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            rows={2}
+            placeholder="Recherche les activités à Biarritz"
+            style={inputStyle}
+            className="w-full rounded-xl px-3 py-2.5 outline-none resize-none"
+          />
+          <button onClick={cherche} disabled={!prompt.trim() || chargement}
+            style={{ background: (!prompt.trim() || chargement) ? C.inkSoft : C.teal, opacity: (!prompt.trim() || chargement) ? 0.6 : 1 }}
+            className="mt-2 w-full text-white rounded-xl py-3 font-medium inline-flex items-center justify-center gap-2 active:scale-95 transition">
+            {chargement
+              ? <><Loader2 size={18} className="animate-spin" /> Recherche…</>
+              : <><Search size={18} /> Rechercher</>}
+          </button>
+
+          {erreur && (
+            <div style={{ background: C.warnSoft, color: C.warn }} className="mt-3 rounded-xl p-3 text-xs flex items-start gap-2">
+              <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+              <span style={{ wordBreak: "break-word" }}>{erreur}</span>
+            </div>
+          )}
+
+          {resultats && resultats.length === 0 && !erreur && (
+            <div style={{ background: C.card, border: `1px dashed ${C.line}` }} className="mt-4 rounded-2xl p-6 text-center">
+              <div style={{ color: C.inkSoft }} className="text-sm">Aucune suggestion pour cette demande.</div>
+            </div>
+          )}
+
+          {resultats && resultats.length > 0 && (
+            <div className="mt-4">
+              <div style={{ color: C.inkSoft }} className="text-xs font-medium uppercase tracking-wide mb-2">
+                À ajouter au {jour ? fmtLong(jour) : "séjour"}
+              </div>
+              {resultats.map((s) => (
+                <SuggestionCard key={s.cle} s={s} canEdit={canEdit}
+                  ajoutee={!!ajoutees[s.cle]} onAdd={() => ajoute(s)} />
+              ))}
+              <div style={{ color: C.inkSoft }} className="t11 mt-1">
+                Propositions écrites par Gemini : à vérifier avant de s'y fier.
+                Chaque ajout rejoint la journée affichée, où il reste modifiable.
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* --- Vue d'un séjour ---------------------------------------------- */
-function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onEditAct, onEditTrip, onUpdateChecklist, onEditDuration, onEditTravel, onReorder, canEdit = true, canShare = false, onShare }) {
+function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onAddSuggestion, onEditAct, onEditTrip, onUpdateChecklist, onEditDuration, onEditTravel, onReorder, canEdit = true, canShare = false, onShare }) {
   const days = daysInRange(trip.startDate, trip.endDate);
   const safeCurrent = current && days.includes(current) ? current : days[0];
   // Changer de jour (bande des dates ou balayage) repart du haut de la
@@ -2192,6 +2401,8 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onE
   // Écrans internes au séjour : le retour les referme avant de quitter le séjour.
   useRetour(mapOpen, () => setMapOpen(false));
   useRetour(checklistOpen, () => setChecklistOpen(false));
+  const [suggestionsOuvert, setSuggestionsOuvert] = useState(false);
+  useRetour(suggestionsOuvert, () => setSuggestionsOuvert(false));
 
   /* --- Menu d'ajout (bouton « + » flottant) ------------------------- */
   const [ajoutOuvert, setAjoutOuvert] = useState(false);
@@ -2382,6 +2593,12 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onE
         <ChecklistSheet trip={trip} onUpdate={onUpdateChecklist} onClose={() => setChecklistOpen(false)} canEdit={canEdit} />
       )}
 
+      {suggestionsOuvert && (
+        <SuggestionsSheet trip={trip} jour={safeCurrent} canEdit={canEdit}
+          onAdd={(s) => onAddSuggestion(s, safeCurrent)}
+          onClose={() => setSuggestionsOuvert(false)} />
+      )}
+
       {/* Bouton « + » flottant, masqué en lecture seule. Les deux ajouts ne
           s'affichent qu'à la demande : côte à côte, ils occupaient en permanence
           le bas de l'écran et recouvraient la fin de la journée. */}
@@ -2399,6 +2616,10 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onE
                   plus fréquent, reste au plus près du pouce, juste au-dessus du « + ». */}
               {ajoutOuvert && (
                 <>
+                  <button onClick={() => choisitAjout(() => setSuggestionsOuvert(true))} style={{ background: C.ink }}
+                    className="pointer-events-auto text-white rounded-full pl-4 pr-5 py-3.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
+                    <Sparkles size={20} /> Suggestions
+                  </button>
                   <button onClick={() => choisitAjout(onAddStay)} style={{ background: STAY_COLOR }}
                     className="pointer-events-auto text-white rounded-full pl-4 pr-5 py-3.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
                     <Plus size={20} /> Hébergement
@@ -3539,6 +3760,40 @@ function SejourApp() {
       startTime: STAY_LEAVE_TIME, arriveTime: AUTO, arriveeSuggeree: STAY_ARRIVE_TIME, durationMin: 0, placeRaw: "", addressRaw: "", travelMode: MODE_AUTO,
       travelMinutes: "", notes: "", nights: 1, editingMorning: null, editingEvening: null, nightTimes: {}, nightArrivals: {} });
   };
+  // Proposition retenue dans l'écran Suggestions : elle rejoint directement la
+  // journée affichée, sans passer par le formulaire. L'écran reste ouvert pour
+  // en prendre plusieurs ; tout se corrige ensuite depuis la timeline.
+  // Le lieu est déjà situé (Google l'a reconnu pour la photo) : on reprend ses
+  // coordonnées telles quelles, il n'y a rien à géocoder.
+  const addSuggestion = (s, day) => {
+    if (!trip || !s) return;
+    const jour = day && days.includes(day) ? day : days[0];
+    if (!jour) return;
+    const nom = (s.nom || "").trim();
+    if (!nom) return;
+    // Même règle que pour une activité saisie à la main : la première du jour
+    // porte une heure fixe, les suivantes s'enchaînent en « auto ».
+    const startTime = dayList(trip.activities, jour, trip.endDate).length ? AUTO : "09:00";
+    const place = {
+      name: nom,
+      // mapsName : c'est ce nom-là qui sert à retrouver la photo du lieu, et il
+      // vient de Google (searchText), pas de la formulation de Gemini.
+      mapsName: s.nomGoogle || nom,
+      address: s.adresse || null,
+      lat: typeof s.lat === "number" ? s.lat : null,
+      lng: typeof s.lng === "number" ? s.lng : null,
+      url: null,
+    };
+    const act = {
+      id: uid(), date: jour, name: nom, category: "visite",
+      startTime, arriveTime: null, durationMin: 60, place,
+      travelMode: MODE_AUTO, travelMinutes: null,
+      notes: (s.description || "").trim(),
+      nights: null, nightTimes: {}, nightArrivals: {},
+    };
+    amorcePlaceInfo(place, { photoUri: s.photoUri, placeId: s.placeId });
+    commit(trips.map((t) => (t.id === trip.id ? { ...t, activities: [...t.activities, act] } : t)));
+  };
   const editActivity = (entry) => {
     // Les entrées d'hébergement affichées sont dérivées : on modifie la
     // réservation enregistrée, avec sa date d'arrivée et son nombre de nuits.
@@ -3801,7 +4056,7 @@ function SejourApp() {
       ) : (
         <TripView
           trip={trip} current={curDay} onSelectDay={setCurDay}
-          onBack={() => setTripId(null)} onAddAct={newActivity} onAddStay={newStay} onEditAct={editActivity} onEditTrip={editTrip}
+          onBack={() => setTripId(null)} onAddAct={newActivity} onAddStay={newStay} onAddSuggestion={addSuggestion} onEditAct={editActivity} onEditTrip={editTrip}
           onUpdateChecklist={updateChecklist} onReorder={reorderActivities}
           onEditDuration={(a) => setDurEdit({ id: a.id, durationMin: a.durationMin })}
           onEditTravel={(from, to) => setTravelEdit({ date: from.date, fromId: from.id, toId: to.id })}
