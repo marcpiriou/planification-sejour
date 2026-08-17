@@ -113,7 +113,7 @@ serveur — non restreignable — partait dans le navigateur. Mieux vaut une car
 erreur, visible, qu'un secret exposé en silence.
 
 Un troisième secret, sans rapport avec Google Maps, complète la liste :
-**`GEMINI_API_KEY`** pour l'écran Suggestions (voir plus bas), avec
+**`GEMINI_API_KEY`** pour l'écran Suggestions IA (voir plus bas), avec
 `GEMINI_MODEL` en option. `place-reviews` est la seule fonction à se servir des
 deux : `GOOGLE_PLACES_KEY` pour lire les avis, `GEMINI_API_KEY` pour les résumer.
 
@@ -165,14 +165,46 @@ Ce qui ne change pas : un éditeur modifie toujours librement le séjour et ses
 activités, voit la liste des accès (l'écran de partage en a besoin), et peut se
 retirer lui-même — d'où la clause sur son propre email dans `members_delete`.
 
-## Suggestions (Gemini)
-Le choix **Suggestions** du bouton « + » ouvre un écran de recherche en langage
-courant — « Recherche les activités à Biarritz ». Le champ tient sur **deux
-lignes** : une demande dépasse souvent une ligne, et on veut la relire en entier
-avant de lancer une recherche facturée. Le champ **grandit ensuite avec son
-contenu** — une demande de cinq lignes ne se relit pas par une fenêtre de deux —
-jusqu'à 200 px, au-delà de quoi il défile : sans cette borne, un collage un peu
-long repousserait le bouton de recherche hors de l'écran. Le bouton
+## Suggestions IA (Gemini)
+Le choix **Suggestions IA** du bouton « + » ouvre un écran de recherche de lieux.
+Deux façons d'y chercher, choisies par un sélecteur à deux boutons — le même
+qu'« Auto / Heure fixe » dans le formulaire d'activité.
+
+### Automatique, le mode d'arrivée
+Un **nuage de pastilles** — *activités*, *parking gratuit*, *parking*, *glacier*,
+*restaurant*, *toilettes publiques* — et **un seul toucher lance la recherche** :
+la demande est écrite pour vous à partir du lieu de référence. C'est le geste que
+l'on fait neuf fois sur dix en cours de route, où l'on cherche un parking ou des
+toilettes, pas une formulation.
+
+Chaque pastille porte deux libellés : celui qu'on lit, court, et celui qui part
+chez Gemini, au pluriel et parfois précisé. « **glacier** » devient ainsi « les
+glaciers, c'est-à-dire les marchands de glaces » : seul, le mot se comprend aussi
+comme une étendue de glace, et un modèle de langue n'a aucune raison de trancher
+dans le bon sens.
+
+Pendant la recherche, **toutes** les pastilles sont neutralisées et seule celle
+touchée porte l'indicateur d'attente. Un second toucher ne relance donc rien :
+chaque appel est facturé, et deux recherches concurrentes n'en afficheraient
+qu'une.
+
+Sans lieu de référence — journée encore vide, étape sans adresse ni lien — le
+mode automatique **ne propose aucune pastille** et le dit, avec un raccourci vers
+le mode manuel. « Les parkings autour de : » ne veut rien dire, et lancer la
+recherche quand même dépenserait un appel pour rendre n'importe quoi. Quand
+l'adresse est en cours de résolution, l'écran annonce l'attente plutôt que
+d'affirmer qu'il n'y a pas de repère.
+
+La demande composée **rejoint le champ du mode manuel** : passer en manuel après
+une recherche automatique permet de l'affiner sans la retaper.
+
+### Manuel
+Une demande en langage courant — « Recherche les activités à Biarritz ». Le champ
+tient sur **deux lignes** : une demande dépasse souvent une ligne, et on veut la
+relire en entier avant de lancer une recherche facturée. Le champ **grandit
+ensuite avec son contenu** — une demande de cinq lignes ne se relit pas par une
+fenêtre de deux — jusqu'à 200 px, au-delà de quoi il défile : sans cette borne, un
+collage un peu long repousserait le bouton de recherche hors de l'écran. Le bouton
 **Rechercher** reste inactif tant que rien n'est écrit, et se change en
 indicateur d'attente pendant l'appel.
 
@@ -226,10 +258,47 @@ Deux services enchaînés, et non un seul :
    une description factuelle d'une à deux phrases, et un `lieu` de la forme
    « Nom, Ville, Pays » qui suffise à le situer sans ambiguïté.
 2. **Google Places** situe chaque proposition (Edge Function `place-photo`, déjà
-   en place pour les vignettes de la timeline) : photo, coordonnées, adresse et
-   `placeId`. Cette seconde étape part **proposition par proposition, en
-   parallèle**, après l'affichage de la liste — les vignettes se posent une à une
-   sur des cartes déjà lisibles, plutôt que de retarder l'écran entier.
+   en place pour les vignettes de la timeline) : photo, coordonnées, adresse,
+   note et `placeId`. Cette seconde étape part **proposition par proposition, en
+   parallèle**, et l'écran **attend qu'elle soit revenue** avant d'afficher la
+   liste — le classement par distance suppose de connaître les distances, et une
+   liste qui se réordonne sous le doigt pendant qu'on la lit serait pire qu'une
+   seconde d'attente. Une mention dit ce qui se passe pendant ce second temps,
+   pour qu'il ne passe pas pour un écran figé.
+
+### Classées par distance, note affichée
+Quel que soit le mode, les propositions sont rangées **du plus proche au plus
+lointain** du lieu de référence, et chaque carte porte en haut à droite, en
+petit : la **distance** et la **note Google** (`3,2 km · 4,6 ★`).
+
+- L'ordre de pertinence de Gemini est refait : sur la route, ce qui décide n'est
+  pas ce qu'un modèle juge remarquable mais ce qui est à cinq minutes.
+- Une proposition que Google n'a pas reconnue n'a ni position ni note : elle passe
+  **en fin de liste**, sans chiffre inventé. Un lieu sans avis n'affiche pas
+  d'étoile plutôt qu'un « 0/5 » mensonger.
+- Les distances sont **à vol d'oiseau** (haversine côté client, aucune requête) et
+  l'écran le dit. Un temps de trajet réel coûterait un appel Directions par
+  proposition, pour un chiffre qui ne sert qu'à comparer.
+- Sous le kilomètre, l'affichage passe en mètres arrondis à la dizaine ; une
+  proposition qui est le lieu de référence lui-même indique « sur place ».
+
+Les deux chiffres sont sur **leur propre ligne**, au-dessus du nom, et non à côté :
+la carte est étroite — vignette à gauche, bouton d'ajout à droite — et deux
+chiffres posés en bout de titre réduisaient « Jardim de Santa Bárbara » à une
+colonne d'un mot par ligne.
+
+D'où vient le point de mesure : les **coordonnées du lieu de référence** quand
+elles sont connues (cas courant, et gratuit) ; sinon celles de l'étape d'avant, en
+remontant la journée ; sinon une recherche Google sur son adresse, faite **au
+moment de la recherche** et pas à l'ouverture de l'écran — inutile de payer une
+requête pour un écran qu'on refermerait sans rien chercher.
+
+La note vient du même `searchText` que la photo, via un drapeau `avecNote`. Les
+champs `rating` et `userRatingCount` font passer la requête du palier **Pro** au
+palier **Enterprise** chez Google (~32 → ~35 $ / 1000 au-delà du quota gratuit) :
+c'est pourquoi seul l'écran Suggestions IA les demande, les vignettes de la
+timeline restant au palier Pro. L'alternative — une fiche détaillée par
+proposition — serait une **seconde requête** facturée à chaque fois.
 
 Un modèle qui écrit des noms de lieux peut en inventer, et la vérification de
 `place-photo` est la même que pour la timeline (mots entiers, distance au point
@@ -466,7 +535,7 @@ Un seul bouton flottant en bas à droite, **blanc cerclé au « + » teal** comm
 les pastilles de la timeline — c'est son ombre portée, plus marquée qu'ailleurs,
 qui le décolle du fond, pas un aplat de couleur. Le toucher déploie les trois ajouts,
 empilés au-dessus de lui : **Activité en bas**, au plus près du pouce puisque
-c'est de loin le plus fréquent, **Hébergement** au-dessus, **Suggestions** en
+c'est de loin le plus fréquent, **Hébergement** au-dessus, **Suggestions IA** en
 haut. Côte à côte en permanence, ces boutons occupaient tout le bas de l'écran
 et recouvraient la fin de la journée.
 
@@ -499,7 +568,7 @@ d'ouvrir au lieu de rester en face du trajet.
 Le menu s'ouvre **au niveau du trajet touché**, dans le flux plutôt qu'en
 surimpression : une position absolue se ferait rogner par le défilement de la
 liste. Ses deux boutons se rangent dans la colonne de contenu, alignés sur la
-pastille de trajet. Deux choix seulement, **Activité** et **Suggestions** — un
+pastille de trajet. Deux choix seulement, **Activité** et **Suggestions IA** — un
 hébergement ne s'insère pas au milieu d'une journée, sa place y est déduite de
 ses nuits. Le menu réutilise la mécanique de couche d'historique du bouton
 flottant, ce qui lui donne les mêmes trois façons de refermer.
@@ -517,7 +586,7 @@ dérivées et ne s'enregistrent pas : elles sont retirées après le recalcul.
 
 Deux détails qui se voient à l'usage :
 
-- Depuis l'écran Suggestions ouvert par un trajet, l'ancre **avance** à chaque
+- Depuis l'écran Suggestions IA ouvert par un trajet, l'ancre **avance** à chaque
   ajout. Sans cela la deuxième proposition retenue se glisserait avant la
   première, et la liste sortirait dans l'ordre inverse de celui où on l'a composée.
 - Si la date est changée dans le formulaire, l'ancre est **abandonnée** :
