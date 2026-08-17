@@ -5,7 +5,7 @@ import {
   ChevronLeft, Trash2, Pencil, Navigation, Calendar, X, AlertTriangle,
   Check, ExternalLink, MoreVertical, Route, Mail, LogOut,
   Users, Share2, UserPlus, User, Home as HomeIcon, Building2, ClipboardPaste, Copy,
-  ListChecks, ChevronRight, ChevronDown, Search, Loader2,
+  ListChecks, ChevronRight, ChevronDown, Search, Loader2, Archive, ArchiveRestore,
   // Alias obligatoire : « Map » masquerait le constructeur Map de JavaScript,
   // dont se servent les caches de trajets et de photos.
   Map as MapIcon
@@ -1263,78 +1263,113 @@ function AccountPanel({ userEmail, home, onSaveHome, navApp, onSaveNavApp, defau
   );
 }
 
-// Range les séjours en trois groupes, dans l'ordre où ils s'affichent : ceux en
-// cours d'abord, puis ceux à venir (le plus proche en tête), enfin les passés
-// (le plus récent en tête). Les dates d'un séjour sont en ISO local, comme la
-// date du jour : la comparaison de chaînes suffit à les situer. Calculée au
-// rendu — une liste laissée ouverte d'un jour sur l'autre se remet à jour au
-// prochain affichage, ce qui suffit ici. Les groupes vides disparaissent, barre
-// de séparation comprise.
-function groupesDeSejours(trips) {
+// Range les séjours en groupes, dans l'ordre où ils s'affichent : ceux en cours
+// d'abord, puis ceux à venir (le plus proche en tête), puis les passés (le plus
+// récent en tête), et enfin les archivés, quelles que soient leurs dates. Les
+// dates d'un séjour sont en ISO local, comme la date du jour : la comparaison de
+// chaînes suffit à les situer. Calculée au rendu — une liste laissée ouverte
+// d'un jour sur l'autre se remet à jour au prochain affichage, ce qui suffit
+// ici. Les groupes vides disparaissent, barre de séparation comprise.
+function groupesDeSejours(trips, archives) {
   const aujourdhui = toISO(new Date());
-  const enCours = [], aVenir = [], passes = [];
+  const enCours = [], aVenir = [], passes = [], archives_ = [];
   for (const t of trips) {
-    if (t.endDate < aujourdhui) passes.push(t);
+    if (archives.has(t.id)) archives_.push(t);
+    else if (t.endDate < aujourdhui) passes.push(t);
     else if (t.startDate > aujourdhui) aVenir.push(t);
     else enCours.push(t);
   }
   const parDebut = (a, b) => a.startDate.localeCompare(b.startDate);
+  const parFinDescendante = (a, b) => b.endDate.localeCompare(a.endDate);
   enCours.sort(parDebut);
   aVenir.sort(parDebut);
-  passes.sort((a, b) => b.endDate.localeCompare(a.endDate));
+  passes.sort(parFinDescendante);
+  archives_.sort(parFinDescendante);
   return [
     { key: "en-cours", label: "En cours", trips: enCours },
     { key: "planifies", label: "Planifiés", trips: aVenir },
     { key: "termines", label: "Terminés", trips: passes, passe: true },
+    // Replié par défaut : on archive précisément pour ne plus les avoir sous les
+    // yeux. Le compte sur la barre garde la trace de ce qui est rangé là.
+    { key: "archives", label: "Archivés", trips: archives_, passe: true, repliable: true },
   ].filter((g) => g.trips.length > 0);
 }
 
 // Barre de séparation en tête d'un groupe : le libellé, puis un filet qui court
-// jusqu'au bord de la liste.
-function SeparateurGroupe({ label }) {
-  return (
-    <div className="flex items-center gap-3 pt-2">
-      <div style={{ color: C.inkSoft, fontFamily: MONO }} className="t11 uppercase tracking-wide font-semibold shrink-0">{label}</div>
+// jusqu'au bord de la liste. Un groupe repliable ajoute son compte et un chevron,
+// et toute la barre devient le bouton qui l'ouvre et le referme.
+function SeparateurGroupe({ label, count, ouvert, onToggle }) {
+  const contenu = (
+    <>
+      <div style={{ color: C.inkSoft, fontFamily: MONO }} className="t11 uppercase tracking-wide font-semibold shrink-0">
+        {label}{onToggle ? ` · ${count}` : ""}
+      </div>
       <div style={{ background: C.line }} className="h-px flex-1" />
-    </div>
+      {onToggle && (
+        <span style={{ color: C.inkSoft }} className="shrink-0">
+          {ouvert ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+        </span>
+      )}
+    </>
   );
-}
-
-// Carte d'un séjour dans la liste d'accueil. « passe » la grise — un séjour
-// terminé reste ouvrable, mais il ne doit plus tirer l'œil : fond du papier,
-// texte adouci et couleurs d'accent éteintes.
-function CarteSejour({ trip: t, passe, onOpen }) {
-  const days = daysInRange(t.startDate, t.endDate);
+  if (!onToggle) return <div className="flex items-center gap-3 pt-2">{contenu}</div>;
   return (
-    <button onClick={() => onOpen(t.id)}
-      style={{ background: passe ? C.paper : C.card, border: `1px solid ${C.line}`, opacity: passe ? 0.75 : 1 }}
-      className="w-full text-left rounded-2xl p-4 active:scale-95 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300">
-      <div style={{ color: passe ? C.inkSoft : C.ink }} className="font-semibold text-lg leading-tight">{t.name}</div>
-      <div style={{ color: C.inkSoft }} className="text-sm mt-1 flex items-center gap-1.5">
-        <Calendar size={14} /> {fmtRange(t.startDate, t.endDate)}
-      </div>
-      <div className="flex items-center gap-2 flex-wrap mt-2">
-        <div style={{ color: passe ? C.inkSoft : C.teal, fontFamily: MONO }} className="text-xs font-medium">
-          {days.length} jour{days.length > 1 ? "s" : ""}
-        </div>
-        {t.isOwner && (t.members?.length > 0) && (
-          <span style={{ background: passe ? C.line : C.tealSoft, color: passe ? C.inkSoft : C.teal }} className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium">
-            <Users size={11} /> Partagé · {t.members.length}
-          </span>
-        )}
-        {!t.isOwner && (
-          <span style={{ background: passe ? C.line : C.amberSoft, color: passe ? C.inkSoft : C.amber }} className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium">
-            <Users size={11} /> Partagé avec vous · {t.role === "viewer" ? "Lecteur" : "Éditeur"}
-          </span>
-        )}
-      </div>
+    <button type="button" onClick={onToggle} aria-expanded={ouvert}
+      className="w-full flex items-center gap-3 pt-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 rounded">
+      {contenu}
     </button>
   );
 }
 
+// Carte d'un séjour dans la liste d'accueil. « passe » la grise — un séjour
+// terminé ou archivé reste ouvrable, mais il ne doit plus tirer l'œil : fond du
+// papier, texte adouci et couleurs d'accent éteintes.
+//
+// Le crayon ouvre l'édition du séjour, comme sur une activité. Il vit hors du
+// bouton qui ouvre le séjour — un bouton dans un bouton n'est pas du HTML
+// valable, et le clic irait de toute façon aux deux.
+function CarteSejour({ trip: t, passe, onOpen, onEdit }) {
+  const days = daysInRange(t.startDate, t.endDate);
+  const modifiable = t.role !== "viewer";
+  return (
+    <div style={{ background: passe ? C.paper : C.card, border: `1px solid ${C.line}`, opacity: passe ? 0.75 : 1 }}
+      className="rounded-2xl flex items-start">
+      <button onClick={() => onOpen(t.id)}
+        className="flex-1 min-w-0 text-left p-4 active:scale-95 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 rounded-2xl">
+        <div style={{ color: passe ? C.inkSoft : C.ink }} className="font-semibold text-lg leading-tight">{t.name}</div>
+        <div style={{ color: C.inkSoft }} className="text-sm mt-1 flex items-center gap-1.5">
+          <Calendar size={14} /> {fmtRange(t.startDate, t.endDate)}
+        </div>
+        <div className="flex items-center gap-2 flex-wrap mt-2">
+          <div style={{ color: passe ? C.inkSoft : C.teal, fontFamily: MONO }} className="text-xs font-medium">
+            {days.length} jour{days.length > 1 ? "s" : ""}
+          </div>
+          {t.isOwner && (t.members?.length > 0) && (
+            <span style={{ background: passe ? C.line : C.tealSoft, color: passe ? C.inkSoft : C.teal }} className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium">
+              <Users size={11} /> Partagé · {t.members.length}
+            </span>
+          )}
+          {!t.isOwner && (
+            <span style={{ background: passe ? C.line : C.amberSoft, color: passe ? C.inkSoft : C.amber }} className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium">
+              <Users size={11} /> Partagé avec vous · {t.role === "viewer" ? "Lecteur" : "Éditeur"}
+            </span>
+          )}
+        </div>
+      </button>
+      {modifiable && (
+        <button onClick={() => onEdit(t.id)} aria-label="Modifier le séjour" title="Modifier"
+          className={`${ICON_BTN} mt-3 mr-2`}>
+          <Pencil size={16} style={{ color: C.inkSoft }} />
+        </button>
+      )}
+    </div>
+  );
+}
+
 /* --- Accueil : liste des séjours + navigation ---------------------- */
-function Home({ trips, onOpen, onNew, onExample, userEmail, onSignOut, home, onSaveHome, sharedLink, onDismissShared, navApp, onSaveNavApp, defaultChecklist, onSaveDefaultChecklist }) {
+function Home({ trips, archives, onOpen, onEdit, onNew, onExample, userEmail, onSignOut, home, onSaveHome, sharedLink, onDismissShared, navApp, onSaveNavApp, defaultChecklist, onSaveDefaultChecklist }) {
   const [tab, setTab] = useState("trips");
+  const [archivesOuvertes, setArchivesOuvertes] = useState(false);
   return (
     <div>
       <div className="mx-auto max-w-md px-4 pt-6 pb-28">
@@ -1385,12 +1420,16 @@ function Home({ trips, onOpen, onNew, onExample, userEmail, onSignOut, home, onS
         </div>
       ) : (
         <div className="space-y-3">
-          {groupesDeSejours(trips).map((g) => (
-            <div key={g.key} className="space-y-3">
-              <SeparateurGroupe label={g.label} />
-              {g.trips.map((t) => <CarteSejour key={t.id} trip={t} passe={g.passe} onOpen={onOpen} />)}
-            </div>
-          ))}
+          {groupesDeSejours(trips, archives).map((g) => {
+            const deplie = !g.repliable || archivesOuvertes;
+            return (
+              <div key={g.key} className="space-y-3">
+                <SeparateurGroupe label={g.label}
+                  {...(g.repliable ? { count: g.trips.length, ouvert: deplie, onToggle: () => setArchivesOuvertes((v) => !v) } : {})} />
+                {deplie && g.trips.map((t) => <CarteSejour key={t.id} trip={t} passe={g.passe} onOpen={onOpen} onEdit={onEdit} />)}
+              </div>
+            );
+          })}
           <button onClick={onNew} style={{ background: C.teal }}
             className="w-full text-white rounded-xl py-3 font-medium active:scale-95 transition inline-flex items-center justify-center gap-2 mt-1">
             <Plus size={18} /> Nouveau séjour
@@ -3778,7 +3817,7 @@ function DateRangeField({ startDate, endDate, onChange }) {
 }
 
 /* --- Modale séjour (création / édition) --------------------------- */
-function TripModal({ draft, setDraft, onSave, onClose, onDelete, isNew, canDelete = true }) {
+function TripModal({ draft, setDraft, onSave, onClose, onDelete, onToggleArchive, archived, isNew, canDelete = true }) {
   const [confirmDel, setConfirmDel] = useState(false);
   const upd = (k, v) => setDraft({ ...draft, [k]: v });
   const dateError = draft.startDate && draft.endDate && parseDate(draft.endDate) < parseDate(draft.startDate);
@@ -3831,6 +3870,19 @@ function TripModal({ draft, setDraft, onSave, onClose, onDelete, isNew, canDelet
             <button onClick={onClose} style={{ border: `1px solid ${C.line}`, color: C.ink }} className="w-full rounded-xl py-3 font-medium bg-white active:scale-95 transition">
               Annuler
             </button>
+            {/* Archiver range le séjour hors de la liste principale sans rien
+                effacer, et le geste se défait d'un même bouton. Il agit tout de
+                suite, sur le séjour tel qu'il est enregistré : les modifications
+                en cours dans le formulaire ne le suivent pas — d'où sa place
+                sous « Annuler », à côté de la suppression et non des champs. */}
+            {!isNew && onToggleArchive && (
+              <button onClick={onToggleArchive} style={{ border: `1px solid ${C.line}`, color: C.ink }}
+                className="w-full rounded-xl py-3 font-medium bg-white active:scale-95 transition inline-flex items-center justify-center gap-1.5">
+                {archived
+                  ? <><ArchiveRestore size={16} style={{ color: C.inkSoft }} /> Sortir des archives</>
+                  : <><Archive size={16} style={{ color: C.inkSoft }} /> Archiver le séjour</>}
+              </button>
+            )}
             {!isNew && canDelete && (
               confirmDel ? (
                 <div className="flex gap-2">
@@ -4047,6 +4099,11 @@ function SejourApp() {
   // dans les activités de chaque nouveau séjour créé. Propre au compte, comme
   // le lieu de départ ou l'application d'itinéraire.
   const [defaultChecklist, setDefaultChecklist] = useState([]);
+  // Séjours archivés : les identifiants de ceux rangés hors de la liste
+  // principale. Sur le compte, comme le dernier jour consulté, et non sur le
+  // séjour lui-même : archiver, c'est désencombrer SA propre liste. Un séjour
+  // partagé que j'archive reste donc en place chez les autres membres.
+  const [archivedTrips, setArchivedTrips] = useState([]);
   // Lien reçu par partage Android (voir shared-link.js). Lu une seule fois au
   // démarrage : il survit donc à l'écran de connexion, puisque celui-ci ne
   // remonte pas jusqu'ici sans session.
@@ -4080,6 +4137,7 @@ function SejourApp() {
     // altéré à la main) ne doit pas empêcher l'application de démarrer.
     if (md.last_day_by_trip && typeof md.last_day_by_trip === "object") setLastDayByTrip(md.last_day_by_trip);
     if (Array.isArray(md.default_checklist)) setDefaultChecklist(md.default_checklist);
+    if (Array.isArray(md.archived_trips)) setArchivedTrips(md.archived_trips.filter((x) => typeof x === "string"));
   })(); }, []);
 
   // Enregistre le lieu de départ par défaut dans les métadonnées de l'utilisateur.
@@ -4098,6 +4156,18 @@ function SejourApp() {
     catch (e) { console.error("Sauvegarde compte:", e); }
   };
 
+  // Liste des archivés : appliquée aussitôt à l'écran, puis rangée sur le compte.
+  // Les identifiants de séjours disparus sont élagués au passage — ces
+  // métadonnées voyagent dans le jeton d'authentification, une liste qui ne fait
+  // que grossir finirait par le faire déborder.
+  const saveArchived = async (ids) => {
+    const vivants = new Set(trips.map((t) => t.id));
+    const next = ids.filter((id) => vivants.has(id));
+    setArchivedTrips(next);
+    try { await supabase.auth.updateUser({ data: { archived_trips: next } }); }
+    catch (e) { console.error("Sauvegarde compte:", e); }
+  };
+
   // Application d'itinéraire : appliquée aussitôt à l'écran, puis mémorisée sur
   // le compte pour être retrouvée sur les autres appareils.
   const saveNavApp = async (app) => {
@@ -4110,6 +4180,11 @@ function SejourApp() {
   const commit = (next) => { const norm = normalizeOrder(next); setTrips(norm); return queueSaveTrips(norm); };
   const trip = trips.find((t) => t.id === tripId) || null;
   const canEditTrip = trip ? trip.role !== "viewer" : false;
+  const archivesSet = useMemo(() => new Set(archivedTrips), [archivedTrips]);
+  // Le séjour que la modale d'édition a sous la main : ouvert depuis la liste, il
+  // n'est pas le séjour courant — c'est pourtant lui qui dit si la suppression
+  // est permise (le propriétaire seul) et s'il est déjà archivé.
+  const tripModalTrip = tripModal && !tripModal.isNew ? (trips.find((t) => t.id === tripModal.id) || null) : null;
 
   /* --- partage --- */
   const shareTrip = trips.find((t) => t.id === shareTripId) || null;
@@ -4186,7 +4261,21 @@ function SejourApp() {
 
   /* --- séjours --- */
   const newTrip = () => setTripModal({ isNew: true, id: null, name: "", startDate: toISO(new Date()), endDate: toISO(addDays(new Date(), 1)), startName: home.label || "Maison", startRaw: home.address || "", startTime: "09:00" });
-  const editTrip = () => trip && setTripModal({ isNew: false, id: trip.id, name: trip.name, startDate: trip.startDate, endDate: trip.endDate });
+  const ouvreEditionTrip = (t) => setTripModal({ isNew: false, id: t.id, name: t.name, startDate: t.startDate, endDate: t.endDate });
+  const editTrip = () => trip && ouvreEditionTrip(trip);
+  // Édition depuis la liste d'accueil (crayon de la carte), séjour fermé : c'est
+  // l'identifiant qui arrive, le séjour se retrouve dans l'état.
+  const editTripFromList = (id) => { const t = trips.find((x) => x.id === id); if (t) ouvreEditionTrip(t); };
+  // Archiver / sortir des archives. Un séjour qu'on archive alors qu'il est
+  // ouvert n'a plus de raison de le rester : on referme sur la liste, où le
+  // groupe « Archivés » montre où il est passé.
+  const toggleArchiveTrip = () => {
+    const id = tripModal.id;
+    const dejaArchive = archivedTrips.includes(id);
+    saveArchived(dejaArchive ? archivedTrips.filter((x) => x !== id) : [...archivedTrips, id]);
+    setTripModal(null);
+    if (!dejaArchive) setTripId(null);
+  };
   const saveTrip = async () => {
     const d = tripModal;
     if (d.isNew) {
@@ -4232,14 +4321,17 @@ function SejourApp() {
     } else {
       const next = trips.map((t) => t.id === d.id ? { ...t, name: d.name.trim(), startDate: d.startDate, endDate: d.endDate } : t);
       commit(next); setTripModal(null);
+      // Le jour affiché ne se recale que si c'est bien le séjour ouvert qu'on
+      // vient de modifier : l'édition depuis la liste ne concerne aucun jour.
       const days = daysInRange(d.startDate, d.endDate);
-      if (!days.includes(curDay)) setCurDay(days[0]);
+      if (d.id === tripId && !days.includes(curDay)) setCurDay(days[0]);
     }
   };
   const deleteTrip = () => {
     const id = tripModal.id;
     commit(trips.filter((t) => t.id !== id));
     deleteTripRemote(id);            // suppression explicite en base (cascade activités)
+    if (archivedTrips.includes(id)) saveArchived(archivedTrips.filter((x) => x !== id));
     setTripModal(null); setTripId(null);
   };
 
@@ -4602,7 +4694,7 @@ function SejourApp() {
         </div>
       )}
       {!trip ? (
-        <Home trips={trips} onOpen={openTrip} onNew={newTrip} onExample={loadExample}
+        <Home trips={trips} archives={archivesSet} onOpen={openTrip} onEdit={editTripFromList} onNew={newTrip} onExample={loadExample}
           userEmail={userEmail} onSignOut={signOut} home={home} onSaveHome={saveHome}
           sharedLink={sharedLink} onDismissShared={() => setSharedLink(null)}
           navApp={navApp} onSaveNavApp={saveNavApp}
@@ -4662,7 +4754,8 @@ function SejourApp() {
       {tripModal && (
         <TripModal draft={tripModal} setDraft={setTripModal} isNew={tripModal.isNew}
           onSave={saveTrip} onClose={() => setTripModal(null)} onDelete={deleteTrip}
-          canDelete={tripModal.isNew ? true : (trip ? trip.isOwner : true)} />
+          onToggleArchive={toggleArchiveTrip} archived={archivesSet.has(tripModal.id)}
+          canDelete={tripModal.isNew ? true : (tripModalTrip ? tripModalTrip.isOwner !== false : true)} />
       )}
     </div>
     </NavAppContext.Provider>
