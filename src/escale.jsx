@@ -878,6 +878,21 @@ function scheduleForDay(dayActs) {
   });
 }
 
+// Minutes écoulées depuis minuit, heure de l'appareil.
+const minutesMaintenant = () => { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); };
+
+// L'étape « de l'heure qu'il est » dans une journée déjà ordonnancée : celle en
+// cours, sinon la prochaine — être entre deux étapes, c'est être en route vers la
+// suivante — sinon la dernière, la journée étant finie. Un hébergement ne dure
+// pas (fin = début) : il n'est donc jamais « en cours », mais il peut être la
+// prochaine étape, ou la dernière.
+function etapeCourante(acts, minutes) {
+  if (!acts || !acts.length) return null;
+  const enCours = acts.find((a) => minutes >= a._startMin && minutes < a._endMin);
+  if (enCours) return enCours;
+  return acts.find((a) => a._startMin >= minutes) || acts[acts.length - 1];
+}
+
 // Rend un ordre choisi à la main compatible avec le tri chronologique :
 // - la 1re activité du jour porte toujours une heure fixe (elle amorce la cascade) ;
 // - une heure fixe qui commencerait avant la fin de l'activité qui la précède
@@ -2660,10 +2675,13 @@ function SuggestionsSheet({ trip, jour, onAdd, onRemove, onClose, canEdit, promp
 function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onAddSuggestion, onRemoveSuggestion, onEditAct, onEditTrip, onUpdateChecklist, onEditDuration, onEditTravel, onReorder, canEdit = true, canShare = false, onShare }) {
   const days = daysInRange(trip.startDate, trip.endDate);
   const safeCurrent = current && days.includes(current) ? current : days[0];
-  // Changer de jour (bande des dates ou balayage) repart du haut de la
-  // timeline : la position de défilement d'un jour ne doit pas s'appliquer
-  // au suivant.
-  useEffect(() => { window.scrollTo(0, 0); }, [safeCurrent]);
+  // L'en-tête est collant : sa hauteur sert de décalage pour ne pas glisser une
+  // carte dessous en la faisant défiler à l'écran.
+  const enTete = useRef(null);
+  // Jour déjà positionné : on ne recadre qu'à l'arrivée sur une journée. Les
+  // temps de trajet réels arrivent après coup et recalculent les heures — sans
+  // ce garde-fou, la timeline sauterait sous le doigt de qui vient de défiler.
+  const jourPositionne = useRef(null);
   // Un hébergement compte dans chaque journée où il apparaît, pas seulement à sa
   // date d'arrivée : le compteur de la pastille suit ce qui est réellement affiché.
   const counts = useMemo(() => {
@@ -2772,6 +2790,31 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
 
   /* --- Réorganisation manuelle (appui long puis glisser) ------------ */
   const cardRefs = useRef(new Map());
+
+  // Position de départ de la timeline. Sur la journée d'AUJOURD'HUI, on se cadre
+  // sur l'étape de l'heure qu'il est : c'est ce qu'on vient regarder en cours de
+  // séjour, et le haut de la journée n'a plus d'intérêt à 17 h. Les autres jours
+  // repartent du haut — la position de défilement d'un jour ne doit pas
+  // s'appliquer au suivant.
+  useEffect(() => {
+    if (jourPositionne.current === safeCurrent) return;
+    const finir = () => { jourPositionne.current = safeCurrent; };
+    if (safeCurrent !== toISO(new Date())) { window.scrollTo(0, 0); finir(); return; }
+    const cible = etapeCourante(acts, minutesMaintenant());
+    const el = cible ? cardRefs.current.get(cible.id) : null;
+    // Journée vide, ou carte pas encore montée : le haut fait un repli correct.
+    // La PREMIÈRE étape aussi : la cadrer sous l'en-tête ferait glisser hors de
+    // vue ce qui la précède — bandeau de checklist, rappel de trajet — pour
+    // quelques pixels de gagnés.
+    if (!el || cible === acts[0]) { window.scrollTo(0, 0); finir(); return; }
+    // Décalage de la hauteur de l'en-tête collant, sinon la carte visée se
+    // rangerait dessous, invisible.
+    const haut = enTete.current ? enTete.current.getBoundingClientRect().height : 0;
+    const y = el.getBoundingClientRect().top + window.scrollY - haut - 8;
+    window.scrollTo({ top: Math.max(0, y) });
+    finir();
+  }, [safeCurrent, acts]);
+
   const [drag, setDrag] = useState(null);   // { id, from, over, dy, rects }
   const dragRef = useRef(null);
   const dropRef = useRef(null);
@@ -2840,7 +2883,7 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
       {/* TopBar et bande des jours groupées dans un même bloc collé en haut : la
           bande reste visible même en défilant plus bas dans la journée, au lieu
           de disparaître avec le reste de l'en-tête. */}
-      <div className="sticky top-0 z-20">
+      <div ref={enTete} className="sticky top-0 z-20">
         <TopBar
           left={<IconBtn onClick={onBack} label="Retour"><ChevronLeft size={22} /></IconBtn>}
           title={trip.name}

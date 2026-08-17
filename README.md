@@ -550,6 +550,29 @@ Trois pièges, et ce qui les évite :
   le saut programmé, et l'écouteur l'ignore. Les fermetures simultanées sont
   regroupées en un seul `go(-n)` — un `back()` par couche risquait d'être fusionné.
 
+### Où la timeline se positionne
+Sur **aujourd'hui**, la journée s'ouvre cadrée sur **l'étape de l'heure qu'il
+est** : à 17 h, le haut de la matinée n'a plus d'intérêt, et c'est l'étape en
+cours qu'on vient regarder. Les autres jours repartent du haut — la position de
+défilement d'un jour ne doit pas s'appliquer au suivant.
+
+L'étape visée, dans cet ordre : celle **en cours**, sinon la **prochaine** — être
+entre deux étapes, c'est être en route vers la suivante — sinon la **dernière**,
+la journée étant finie. Un hébergement ne dure pas (fin = début) : il n'est donc
+jamais « en cours », mais il peut être la prochaine ou la dernière.
+
+Trois précautions :
+
+- Le défilement décale de la **hauteur de l'en-tête collant**, sans quoi la carte
+  visée se rangerait dessous, invisible.
+- Si la cible est la **première étape** du jour, on reste tout en haut : la cadrer
+  sous l'en-tête ferait glisser hors de vue ce qui la précède — bandeau de
+  checklist, rappel de départ — pour quelques pixels de gagnés.
+- Le recadrage n'a lieu qu'**une fois par arrivée** sur une journée, mémorisée dans
+  une référence. Les temps de trajet réels arrivent après coup et recalculent les
+  heures : sans ce garde-fou, la timeline sauterait sous le doigt de qui vient de
+  défiler à la main.
+
 ### Jour affiché à l'ouverture d'un séjour
 Deux règles, dans cet ordre :
 
