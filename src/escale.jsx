@@ -1663,17 +1663,17 @@ function TravelLeg({
       <div className="shrink-0 relative flex justify-center items-start" style={{ width: 66 }}>
         <div style={{ background: C.line }} className="absolute inset-y-0 w-0.5" />
         {peutAjouter && (
-          // Même dessin que le bouton flottant — disque teal, « + » blanc, croix
-          // à l'ouverture — mais aux dimensions de la pastille de durée qui lui
-          // fait face (30 px) : un disque de 56 px n'a pas sa place dans cette
-          // colonne étroite.
+          // Pastille blanche cerclée, « + » teal, croix à l'ouverture : le dessin
+          // exact de la pastille de durée qui lui fait face — mêmes 30 px, même
+          // fond, même liseré. Un disque teal plein tranchait sur le trait
+          // vertical qu'il recouvre ; ici la pastille s'y pose comme les autres.
           <button onClick={() => (ajoutOuvert ? onFermerAjout() : onOuvrirAjout())}
             aria-expanded={ajoutOuvert}
             aria-label={ajoutOuvert
               ? "Fermer le menu d'ajout après ce trajet"
               : `Ajouter une étape après ${from.name || "cette étape"}`}
-            style={{ background: C.teal, height: 30, width: 30, marginTop: 6 }}
-            className="relative rounded-full text-white shadow-sm flex items-center justify-center active:scale-95 transition shrink-0">
+            style={{ background: "#fff", border: `1px solid ${C.line}`, color: C.teal, height: 30, width: 30, marginTop: 6 }}
+            className="relative rounded-full shadow-sm flex items-center justify-center active:scale-95 transition shrink-0">
             <Plus size={16} style={{ transform: ajoutOuvert ? "rotate(45deg)" : "none", transition: "transform .18s" }} />
           </button>
         )}
@@ -2862,11 +2862,15 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
                   </button>
                 </>
               )}
+              {/* Blanc cerclé, « + » teal : même dessin que le bouton d'ajout
+                  d'un trajet, et que les pastilles de la timeline. L'ombre
+                  portée, plus marquée qu'ailleurs, reste ce qui le décolle du
+                  fond — un aplat teal n'y est plus nécessaire. */}
               <button onClick={() => (ajoutOuvert ? fermeAjout() : setAjoutOuvert(true))}
                 aria-expanded={ajoutOuvert}
                 aria-label={ajoutOuvert ? "Fermer le menu d'ajout" : "Ajouter une étape"}
-                style={{ background: C.teal }}
-                className="pointer-events-auto h-14 w-14 rounded-full text-white shadow-lg flex items-center justify-center active:scale-95 transition">
+                style={{ background: "#fff", border: `1px solid ${C.line}`, color: C.teal }}
+                className="pointer-events-auto h-14 w-14 rounded-full shadow-lg flex items-center justify-center active:scale-95 transition">
                 {/* La croix n'est que le « + » pivoté : même dessin, l'état se lit
                     d'un coup d'œil sans changer d'icône. */}
                 <Plus size={26} style={{ transform: ajoutOuvert ? "rotate(45deg)" : "none", transition: "transform .18s" }} />

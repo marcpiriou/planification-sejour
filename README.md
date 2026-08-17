@@ -400,7 +400,9 @@ Le réglage rapide n'affiche pas le douzième bouton `…` : ses champs *Heures*
 *Minutes* sont déjà à l'écran, la saisie libre n'a pas besoin d'un détour.
 
 ### Bouton « + » d'ajout
-Un seul bouton flottant en bas à droite. Le toucher déploie les trois ajouts,
+Un seul bouton flottant en bas à droite, **blanc cerclé au « + » teal** comme
+les pastilles de la timeline — c'est son ombre portée, plus marquée qu'ailleurs,
+qui le décolle du fond, pas un aplat de couleur. Le toucher déploie les trois ajouts,
 empilés au-dessus de lui : **Activité en bas**, au plus près du pouce puisque
 c'est de loin le plus fréquent, **Hébergement** au-dessus, **Suggestions** en
 haut. Côte à côte en permanence, ces boutons occupaient tout le bas de l'écran
@@ -423,10 +425,10 @@ ligne de trajet porte donc son propre « + », dans le flux de la timeline.
 
 Il se pose **sur le trait vertical, dans la colonne de gauche** — exactement là
 où la pastille de durée se pose sur le trait d'une activité. C'est la colonne des
-commandes de la timeline, et il en prend le gabarit : **30 px**, la hauteur de
-cette pastille. Le dessin reste celui du bouton flottant (disque teal, « + »
-blanc qui pivote en croix), mais un disque de 56 px n'aurait pas sa place dans
-une colonne de 66 px de large.
+commandes de la timeline, et il en prend le dessin entier : **30 px**, fond
+blanc, liseré `C.line`, « + » teal qui pivote en croix. Un disque teal plein
+tranchait sur le trait qu'il recouvre ; une pastille blanche s'y pose comme les
+autres.
 
 Il est ancré **en haut** de sa colonne, et non centré : le menu ouvert fait
 grandir la ligne, et un bouton centré descendrait au milieu des choix qu'il vient
