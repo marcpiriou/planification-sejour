@@ -75,6 +75,9 @@ function distanceM(aLat: number, aLng: number, bLat: number, bLng: number): numb
 // le nom que Google a écrit dans l'URL.
 const MAX_DISTANCE_M = 500;
 
+// Champs demandés à Google pour toute recherche : tous au palier « Pro ».
+const CHAMPS = "places.id,places.photos,places.displayName,places.formattedAddress,places.location";
+
 // Le lieu trouvé correspond-il à la recherche ? Repli lexical, utilisé seulement
 // quand on n'a pas de coordonnées pour ancrer la vérification : on exige qu'une
 // nette majorité des mots significatifs cherchés se retrouve dans le nom ou
@@ -101,7 +104,7 @@ Deno.serve(async (req: Request) => {
   if (!KEY) return json({ error: "GOOGLE_PLACES_KEY manquant (secret Supabase)" }, 500);
 
   try {
-    const { query, lat, lng } = await req.json();
+    const { query, lat, lng, avecNote } = await req.json();
     const q = (query || "").toString().trim();
     if (!q) return json({}); // rien à chercher -> pas de photo
 
@@ -119,7 +122,14 @@ Deno.serve(async (req: Request) => {
       headers: {
         "Content-Type": "application/json",
         "X-Goog-Api-Key": KEY,
-        "X-Goog-FieldMask": "places.id,places.photos,places.displayName,places.formattedAddress,places.location",
+        // La note et le nombre d'avis font passer la requête du palier « Pro » au
+        // palier « Enterprise » chez Google (~32 → ~35 $ / 1000 au-delà du quota
+        // gratuit). C'est le seul moyen de les obtenir sans payer une SECONDE
+        // requête (fiche détaillée) : dans la même recherche, elles ne coûtent
+        // que la différence de palier. On ne les demande donc QUE pour l'écran
+        // Suggestions IA, qui les affiche : les vignettes de la timeline, elles,
+        // restent au palier Pro.
+        "X-Goog-FieldMask": CHAMPS + (avecNote === true ? ",places.rating,places.userRatingCount" : ""),
       },
       body: JSON.stringify(searchBody),
     });
@@ -172,6 +182,13 @@ Deno.serve(async (req: Request) => {
       adresse: address || undefined,
       ...(typeof loc?.latitude === "number" && typeof loc?.longitude === "number"
         ? { lat: loc.latitude, lng: loc.longitude } : {}),
+      // Note Google et nombre d'avis, affichés sur les cartes de l'écran
+      // Suggestions IA. Un lieu sans aucun avis n'a pas de note : le champ est
+      // alors absent, et la carte n'affiche rien plutôt qu'un « 0/5 » mensonger.
+      // Conditionné au drapeau, et pas seulement au masque de champs : ce qui
+      // n'a pas été demandé ne doit pas ressortir, même si Google en glissait.
+      ...(avecNote === true && typeof place?.rating === "number" ? { note: place.rating } : {}),
+      ...(avecNote === true && typeof place?.userRatingCount === "number" ? { nbAvis: place.userRatingCount } : {}),
     };
 
     const photoName = place?.photos?.[0]?.name;
