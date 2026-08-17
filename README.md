@@ -172,6 +172,32 @@ lignes** : une demande dépasse souvent une ligne, et on veut la relire en entie
 avant de lancer une recherche facturée. Le bouton **Rechercher** reste inactif
 tant que rien n'est écrit, et se change en indicateur d'attente pendant l'appel.
 
+### La demande préremplie
+Le champ s'ouvre déjà rempli de « **Recherche les activités autour de :** » suivi
+du repère du lieu **qui précédera l'étape ajoutée**. On cherche presque toujours à
+côté de là où l'on sera, et retaper une ville à chaque fois n'apporte rien ; « autour
+de » cadre par ailleurs la recherche bien mieux qu'un nom de région.
+
+Le lieu précédent dépend du chemin d'ouverture : le « + » d'un trajet désigne
+l'étape qui précède ce trajet ; le bouton flottant, qui ajoute en fin de journée,
+désigne la **dernière étape du jour**.
+
+Le repère est cherché dans cet ordre : l'**adresse** du lieu, sinon son **lien
+Google Maps**, sinon rien. Les deux couvrent presque tous les cas — une adresse
+tapée ou une proposition située par Google portent la première, un lien collé
+depuis Maps porte le second. Un nom seul est écarté : il ne situerait rien de
+fiable.
+
+Sans repère utilisable — un lieu sans adresse ni lien, ou une journée encore vide
+— l'amorce est **écrite quand même** et s'arrête après les deux-points, espace
+final compris : il n'y a plus qu'à compléter. Le revers assumé est que le bouton
+**Rechercher** est alors actif alors que la phrase ne désigne aucun lieu ; lancée
+telle quelle, la recherche ne rapportera rien (« Aucune suggestion pour cette
+demande »), pour un appel dépensé.
+
+Le préremplissage n'a lieu qu'**à l'ouverture** : ensuite le champ appartient à
+l'utilisateur, qui l'efface ou le réécrit sans que l'application y revienne.
+
 Deux services enchaînés, et non un seul :
 
 1. **Gemini** écrit les propositions (Edge Function `suggestions`). La sortie est

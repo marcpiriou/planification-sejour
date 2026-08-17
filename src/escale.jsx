@@ -2453,8 +2453,29 @@ function SuggestionCard({ s, ajoutee, onAdd, canEdit }) {
   );
 }
 
-function SuggestionsSheet({ trip, jour, onAdd, onClose, canEdit }) {
-  const [prompt, setPrompt] = useState("");
+// Amorce de la demande, construite à partir du lieu qui précédera l'étape
+// ajoutée. Rendre les propositions locales par défaut évite de retaper une ville
+// à chaque fois — et « autour de » cadre la recherche bien plus utilement que le
+// nom d'une région.
+const PROMPT_AUTOUR = "Recherche les activités autour de : ";
+
+// Le repère de ce lieu, dans l'ordre demandé : son adresse, sinon son lien
+// Google Maps, sinon rien. Les deux couvrent presque tous les cas — une adresse
+// tapée ou une proposition située par Google portent la première, un lien collé
+// depuis Maps porte le second. Un nom seul ne situerait rien de fiable.
+function repereLieu(etape) {
+  const pl = etape && etape.place;
+  if (!pl) return "";
+  const adresse = (pl.address || "").trim();
+  if (adresse) return adresse;
+  const lien = (pl.url || "").trim();
+  return isUrl(lien) ? lien : "";
+}
+
+function SuggestionsSheet({ trip, jour, onAdd, onClose, canEdit, promptInitial = "" }) {
+  // Le champ est prérempli à l'ouverture seulement : ensuite il appartient à
+  // l'utilisateur, qui peut l'effacer ou le réécrire sans qu'on y revienne.
+  const [prompt, setPrompt] = useState(promptInitial);
   const [chargement, setChargement] = useState(false);
   const [erreur, setErreur] = useState("");
   const [resultats, setResultats] = useState(null);   // null = pas encore cherché
@@ -2641,6 +2662,18 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
   // liste sortirait dans l'ordre inverse de celui où on l'a composée.
   const ancreSuggestion = useRef(null);
 
+  // Demande préremplie à l'ouverture de l'écran Suggestions, à partir du lieu
+  // qui précédera l'étape ajoutée : celui du trajet touché, ou la dernière étape
+  // de la journée quand la demande vient du bouton flottant, qui ajoute en fin
+  // de journée. L'amorce est écrite dans tous les cas : sans repère utilisable —
+  // lieu sans adresse ni lien, journée encore vide — la phrase s'arrête après
+  // les deux-points, et il n'y a plus qu'à compléter.
+  const promptSuggestions = () => {
+    const apresId = ancreSuggestion.current;
+    const etape = apresId ? acts.find((x) => x.id === apresId) : acts[acts.length - 1];
+    return PROMPT_AUTOUR + repereLieu(etape);
+  };
+
   const totalTravel = useMemo(() => {
     let t = 0;
     for (let i = 0; i < acts.length - 1; i++) { const l = legBetween(acts[i], acts[i + 1]); if (l.min != null) t += l.min; }
@@ -2821,6 +2854,7 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
 
       {suggestionsOuvert && (
         <SuggestionsSheet trip={trip} jour={safeCurrent} canEdit={canEdit}
+          promptInitial={promptSuggestions()}
           onAdd={(s) => {
             // L'ancre avance sur l'étape qu'on vient de poser : les propositions
             // retenues se suivent dans l'ordre où on les a prises.
