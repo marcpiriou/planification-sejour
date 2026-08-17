@@ -1620,7 +1620,13 @@ function DurationPicker({ initial, onCancel, onValidate }) {
 }
 
 /* --- Segment de trajet entre deux étapes -------------------------- */
-function TravelLeg({ from, to, leg, onEdit, variant, fromEndMin, toStartMin }) {
+// Le trajet porte aussi un « + » : c'est là qu'on se dit « il manque quelque
+// chose entre ces deux étapes », et le bouton flottant du bas, lui, ne sait
+// ajouter qu'en fin de journée.
+function TravelLeg({
+  from, to, leg, onEdit, variant, fromEndMin, toStartMin,
+  ajoutOuvert, onOuvrirAjout, onFermerAjout, onAjoutActivite, onAjoutSuggestion,
+}) {
   const walk = leg.mode === "walk";
   const color = walk ? C.teal : C.amber;
   const soft = walk ? C.tealSoft : C.amberSoft;
@@ -1632,8 +1638,12 @@ function TravelLeg({ from, to, leg, onEdit, variant, fromEndMin, toStartMin }) {
   const earliest = prevEnd + (leg.min ?? 0);
   const gap = toStart - earliest;
 
+  const peutAjouter = !!onAjoutActivite;
+
   return (
-    <div className="flex gap-3">
+    // Le menu ouvert doit passer au-dessus du voile ; il vit dans le flux de la
+    // liste, pas en surimpression, pour ne pas être rogné par le défilement.
+    <div className="flex gap-3" style={ajoutOuvert ? { position: "relative", zIndex: 30 } : undefined}>
       {/* Même largeur que la colonne horaire d'une carte (66) : sans cela le trait
           tombait 7 px à gauche de l'axe des pastilles. */}
       <div className="shrink-0 flex justify-center" style={{ width: 66 }}>
@@ -1650,7 +1660,36 @@ function TravelLeg({ from, to, leg, onEdit, variant, fromEndMin, toStartMin }) {
             {leg.km != null && <span style={{ fontFamily: MONO }} className="t11 opacity-80">· {leg.km.toFixed(leg.km < 10 ? 1 : 0)} km</span>}
             {onEdit && <Pencil size={11} className="opacity-70" />}
           </button>
+          {peutAjouter && (
+            // Même dessin que le bouton flottant — disque teal, « + » blanc, croix
+            // à l'ouverture — mais à la taille de la ligne : un disque de 56 px
+            // écraserait la pastille de trajet qu'il accompagne.
+            <button onClick={() => (ajoutOuvert ? onFermerAjout() : onOuvrirAjout())}
+              aria-expanded={ajoutOuvert}
+              aria-label={ajoutOuvert
+                ? "Fermer le menu d'ajout après ce trajet"
+                : `Ajouter une étape après ${from.name || "cette étape"}`}
+              style={{ background: C.teal }}
+              className="h-9 w-9 rounded-full text-white shadow flex items-center justify-center active:scale-95 transition shrink-0">
+              <Plus size={20} style={{ transform: ajoutOuvert ? "rotate(45deg)" : "none", transition: "transform .18s" }} />
+            </button>
+          )}
         </div>
+
+        {/* Deux choix seulement : un hébergement ne s'insère pas au milieu d'une
+            journée, sa place y est déduite de ses nuits. */}
+        {ajoutOuvert && (
+          <div className="mt-2 flex flex-col items-start gap-2">
+            <button onClick={onAjoutSuggestion} style={{ background: C.ink }}
+              className="text-white rounded-full pl-4 pr-5 py-2.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
+              <Sparkles size={18} /> Suggestions
+            </button>
+            <button onClick={onAjoutActivite} style={{ background: C.teal }}
+              className="text-white rounded-full pl-4 pr-5 py-2.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
+              <Plus size={18} /> Activité
+            </button>
+          </div>
+        )}
 
         {isStart ? (
           leg.min != null ? (
@@ -2567,6 +2606,26 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
   const fermeAjout = () => window.history.back();
   const choisitAjout = (action) => { ajoutChoisi.current = action; window.history.back(); };
 
+  /* --- Menu d'ajout d'un trajet ------------------------------------- */
+  // Même mécanique que le menu flottant, sur une autre couche : `ajoutTrajet`
+  // porte l'identifiant AFFICHÉ de l'étape qui précède le trajet touché, donc
+  // celle après laquelle la nouvelle étape s'insérera. Un seul menu ouvert à la
+  // fois, cet état étant unique.
+  const [ajoutTrajet, setAjoutTrajet] = useState(null);
+  const trajetChoisi = useRef(null);
+  useRetour(!!ajoutTrajet, () => {
+    setAjoutTrajet(null);
+    const action = trajetChoisi.current;
+    trajetChoisi.current = null;
+    if (action) action();
+  });
+  const fermeTrajet = () => window.history.back();
+  const choisitTrajet = (action) => { trajetChoisi.current = action; window.history.back(); };
+  // Ancre des ajouts venus de l'écran Suggestions : elle avance à chaque ajout,
+  // sinon la deuxième proposition retenue se glisserait AVANT la première et la
+  // liste sortirait dans l'ordre inverse de celui où on l'a composée.
+  const ancreSuggestion = useRef(null);
+
   const totalTravel = useMemo(() => {
     let t = 0;
     for (let i = 0; i < acts.length - 1; i++) { const l = legBetween(acts[i], acts[i + 1]); if (l.min != null) t += l.min; }
@@ -2715,7 +2774,15 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
                     onDragStart={canEdit && !isStay(a) && acts.filter((x) => !isStay(x)).length > 1 && !drag ? (y) => startDrag(i, a.id, y) : null} />
                 </div>
                 {i < acts.length - 1 && !sameStay(a, acts[i + 1]) && <TravelLeg from={a} to={acts[i + 1]} leg={legBetween(a, acts[i + 1])}
-                  fromEndMin={a._endMin} toStartMin={acts[i + 1]._startMin} onEdit={canEdit && !drag ? onEditTravel : undefined} />}
+                  fromEndMin={a._endMin} toStartMin={acts[i + 1]._startMin} onEdit={canEdit && !drag ? onEditTravel : undefined}
+                  ajoutOuvert={ajoutTrajet === a.id}
+                  onOuvrirAjout={() => setAjoutTrajet(a.id)}
+                  onFermerAjout={fermeTrajet}
+                  onAjoutActivite={canEdit && !drag ? () => choisitTrajet(() => onAddAct(a.id)) : undefined}
+                  onAjoutSuggestion={() => choisitTrajet(() => {
+                    ancreSuggestion.current = a.id;
+                    setSuggestionsOuvert(true);
+                  })} />}
                 {drag && drag.over === acts.length && i === acts.length - 1 && <InsertBar />}
               </div>
               );
@@ -2739,7 +2806,12 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
 
       {suggestionsOuvert && (
         <SuggestionsSheet trip={trip} jour={safeCurrent} canEdit={canEdit}
-          onAdd={(s) => onAddSuggestion(s, safeCurrent)}
+          onAdd={(s) => {
+            // L'ancre avance sur l'étape qu'on vient de poser : les propositions
+            // retenues se suivent dans l'ordre où on les a prises.
+            const nouvelId = onAddSuggestion(s, safeCurrent, ancreSuggestion.current);
+            if (nouvelId) ancreSuggestion.current = nouvelId;
+          }}
           onClose={() => setSuggestionsOuvert(false)} />
       )}
 
@@ -2748,9 +2820,10 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
           le bas de l'écran et recouvraient la fin de la journée. */}
       {canEdit && (
         <>
-          {/* Voile : toucher à côté referme le menu sans rien ajouter. */}
-          {ajoutOuvert && (
-            <button type="button" onClick={fermeAjout} aria-label="Fermer le menu d'ajout"
+          {/* Voile : toucher à côté referme le menu sans rien ajouter. Le même
+              geste vaut pour le menu d'un trajet, qui se dresse au-dessus. */}
+          {(ajoutOuvert || ajoutTrajet) && (
+            <button type="button" onClick={ajoutTrajet ? fermeTrajet : fermeAjout} aria-label="Fermer le menu d'ajout"
               className="fixed inset-0 z-20" style={{ background: "rgba(15,23,42,0.20)" }} />
           )}
           <div className="fixed bottom-0 inset-x-0 z-30 pointer-events-none">
@@ -2760,7 +2833,7 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
                   plus fréquent, reste au plus près du pouce, juste au-dessus du « + ». */}
               {ajoutOuvert && (
                 <>
-                  <button onClick={() => choisitAjout(() => setSuggestionsOuvert(true))} style={{ background: C.ink }}
+                  <button onClick={() => choisitAjout(() => { ancreSuggestion.current = null; setSuggestionsOuvert(true); })} style={{ background: C.ink }}
                     className="pointer-events-auto text-white rounded-full pl-4 pr-5 py-3.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
                     <Sparkles size={20} /> Suggestions
                   </button>
@@ -3886,15 +3959,37 @@ function SejourApp() {
   // Ouvre le formulaire d'une nouvelle activité, éventuellement avec un lieu déjà
   // rempli (lien reçu par partage). Prend le séjour en paramètre : à l'arrivée
   // d'un partage, l'état `trip` n'est pas encore à jour.
-  const openNewActivity = (t, day, placeRaw = "") => {
+  // Insère une étape juste après celle qui porte l'identifiant AFFICHÉ `apresId`
+  // (un hébergement du matin s'affiche sous « id#am », d'où l'identifiant de la
+  // séquence et non celui de la base). On travaille sur la séquence affichée,
+  // comme le déplacement manuel : c'est l'ordre du tableau qui porte la cascade
+  // des heures « auto », et enforceManualOrder la recalcule ensuite de proche en
+  // proche — trajets compris. Sans ancre reconnue, l'étape rejoint la fin du jour.
+  const activitesAvecInsertion = (t, date, apresId, act) => {
+    const seq = scheduleForDay(dayList(t.activities, date, t.endDate));
+    const i = seq.findIndex((x) => x.id === apresId);
+    if (i < 0) return [...t.activities.filter((a) => a.id !== act.id), act];
+    const firstStart = seq.length ? seq[0]._startMin : null;
+    const suite = seq.map(({ _startMin, _endMin, _auto, ...rest }) => rest);
+    suite.splice(i + 1, 0, act);
+    // Les entrées d'hébergement sont dérivées, elles ne s'enregistrent pas :
+    // on les retire après le recalcul, les vraies lignes étant dans `autres`.
+    const recalcule = enforceManualOrder(suite, firstStart).filter((a) => !isStay(a));
+    const autres = t.activities.filter((a) => isStay(a) || (a.date !== date && a.id !== act.id));
+    return [...autres, ...recalcule];
+  };
+
+  const openNewActivity = (t, day, placeRaw = "", apresId = null) => {
     // 1re activité du jour : heure fixe ; les suivantes : "auto" (calculées en
     // cascade). Un hébergement au petit matin compte comme première étape.
     const startTime = dayList(t.activities, day, t.endDate).length ? AUTO : "09:00";
-    setEditor({ mode: "new", kind: "act", id: uid(), date: day, name: "", category: "visite", startTime, durationMin: 60, placeRaw, addressRaw: "", travelMode: MODE_AUTO, travelMinutes: "", notes: "", nights: null });
+    setEditor({ mode: "new", kind: "act", id: uid(), date: day, name: "", category: "visite", startTime, durationMin: 60, placeRaw, addressRaw: "", travelMode: MODE_AUTO, travelMinutes: "", notes: "", nights: null, insererApres: apresId, insererJour: apresId ? day : null });
   };
-  const newActivity = () => {
+  // `apresId` n'arrive que du « + » d'un trajet ; branché sur un onClick, le
+  // premier argument serait l'événement de clic.
+  const newActivity = (apresId) => {
     const day = curDay && days.includes(curDay) ? curDay : days[0];
-    openNewActivity(trip, day);
+    openNewActivity(trip, day, "", typeof apresId === "string" ? apresId : null);
   };
   // Hébergement : deux heures par défaut, départ le matin et arrivée le soir.
   // Aucune durée, mais un nombre de nuits.
@@ -3909,12 +4004,15 @@ function SejourApp() {
   // en prendre plusieurs ; tout se corrige ensuite depuis la timeline.
   // Le lieu est déjà situé (Google l'a reconnu pour la photo) : on reprend ses
   // coordonnées telles quelles, il n'y a rien à géocoder.
-  const addSuggestion = (s, day) => {
-    if (!trip || !s) return;
+  // `apresId` : ancre facultative, quand l'écran a été ouvert depuis le « + »
+  // d'un trajet. Renvoie l'identifiant de l'étape créée, pour que l'appelant
+  // fasse avancer son ancre.
+  const addSuggestion = (s, day, apresId = null) => {
+    if (!trip || !s) return null;
     const jour = day && days.includes(day) ? day : days[0];
-    if (!jour) return;
+    if (!jour) return null;
     const nom = (s.nom || "").trim();
-    if (!nom) return;
+    if (!nom) return null;
     // Même règle que pour une activité saisie à la main : la première du jour
     // porte une heure fixe, les suivantes s'enchaînent en « auto ».
     const startTime = dayList(trip.activities, jour, trip.endDate).length ? AUTO : "09:00";
@@ -3936,7 +4034,11 @@ function SejourApp() {
       nights: null, nightTimes: {}, nightArrivals: {},
     };
     amorcePlaceInfo(place, { photoUri: s.photoUri, placeId: s.placeId });
-    commit(trips.map((t) => (t.id === trip.id ? { ...t, activities: [...t.activities, act] } : t)));
+    const activities = apresId
+      ? activitesAvecInsertion(trip, jour, apresId, act)
+      : [...trip.activities, act];
+    commit(trips.map((t) => (t.id === trip.id ? { ...t, activities } : t)));
+    return act.id;
   };
   const editActivity = (entry) => {
     // Les entrées d'hébergement affichées sont dérivées : on modifie la
@@ -4107,9 +4209,16 @@ function SejourApp() {
     // Un changement de jour est le seul cas où elle rejoint la fin — celle de
     // son nouveau jour, où elle n'avait pas de place.
     const idx = trip.activities.findIndex((a) => a.id === d.id);
-    const nextActs = idx >= 0 && trip.activities[idx].date === act.date
-      ? trip.activities.map((a) => (a.id === d.id ? act : a))
-      : [...trip.activities.filter((a) => a.id !== d.id), act];
+    // Formulaire ouvert depuis le « + » d'un trajet : la nouvelle étape se glisse
+    // juste après celle qui précède ce trajet. L'ancre est abandonnée si la date
+    // a changé dans le formulaire — l'étape part alors sur un autre jour, où ce
+    // trajet-là n'existe pas.
+    const ancre = d.insererApres && idx < 0 && act.date === d.insererJour ? d.insererApres : null;
+    const nextActs = ancre
+      ? activitesAvecInsertion(trip, act.date, ancre, act)
+      : idx >= 0 && trip.activities[idx].date === act.date
+        ? trip.activities.map((a) => (a.id === d.id ? act : a))
+        : [...trip.activities.filter((a) => a.id !== d.id), act];
     const next = trips.map((t) => t.id === trip.id ? { ...t, activities: nextActs } : t);
     commit(next); if (d.date !== curDay) setCurDay(d.date); setEditor(null);
   };

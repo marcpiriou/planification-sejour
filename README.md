@@ -407,6 +407,40 @@ en se refermant et l'éditeur pose la sienne ; enchaînés dans le même rendu, 
 retrait aurait emporté l'entrée de l'éditeur au lieu de celle du menu. La
 fermeture passe donc par l'historique, et l'action attend le rappel.
 
+### Un « + » sur chaque trajet
+Le bouton flottant ne sait ajouter qu'**en fin de journée**. Or c'est en lisant
+un trajet qu'on se dit « il manque quelque chose entre ces deux étapes » : chaque
+pastille de trajet porte donc son propre « + », à sa droite, dans le flux de la
+timeline. Même dessin que le bouton flottant — disque teal, « + » blanc qui pivote
+en croix à l'ouverture — mais à la taille de la ligne : un disque de 56 px
+écraserait la pastille qu'il accompagne.
+
+Le menu s'ouvre **au niveau du trajet touché**, dans le flux plutôt qu'en
+surimpression : une position absolue se ferait rogner par le défilement de la
+liste. Deux choix seulement, **Activité** et **Suggestions** — un hébergement ne
+s'insère pas au milieu d'une journée, sa place y est déduite de ses nuits. Le
+menu réutilise la mécanique de couche d'historique du bouton flottant, ce qui lui
+donne les mêmes trois façons de refermer.
+
+Un seul menu à la fois, l'état ne retenant qu'une ancre. Menu ouvert, le voile
+couvre l'écran : viser le « + » d'un autre trajet referme d'abord le menu courant,
+comme pour le bouton flottant.
+
+**Où atterrit l'étape ajoutée.** Juste après l'étape qui précède le trajet, donc
+exactement là où le trajet était affiché. L'insertion se fait dans la **séquence
+affichée**, comme le déplacement manuel : c'est l'ordre du tableau qui porte la
+cascade des heures « auto », et `enforceManualOrder` recalcule ensuite heures et
+trajets de proche en proche. Les entrées d'hébergement de cette séquence sont
+dérivées et ne s'enregistrent pas : elles sont retirées après le recalcul.
+
+Deux détails qui se voient à l'usage :
+
+- Depuis l'écran Suggestions ouvert par un trajet, l'ancre **avance** à chaque
+  ajout. Sans cela la deuxième proposition retenue se glisserait avant la
+  première, et la liste sortirait dans l'ordre inverse de celui où on l'a composée.
+- Si la date est changée dans le formulaire, l'ancre est **abandonnée** :
+  l'activité part sur un autre jour, où ce trajet-là n'existe pas.
+
 ### Bouton « retour » du téléphone
 Il referme l'écran le plus haut : un écran interne d'abord (checklist, carte,
 éditeur, modale de partage), puis le séjour — qui ramène à la **liste** —, et
