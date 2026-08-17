@@ -5,7 +5,7 @@ import {
   ChevronLeft, Trash2, Pencil, Navigation, Calendar, X, AlertTriangle,
   Check, ExternalLink, MoreVertical, Route, Mail, LogOut,
   Users, Share2, UserPlus, User, Home as HomeIcon, Building2, ClipboardPaste, Copy,
-  ListChecks, ChevronRight, Search, Loader2,
+  ListChecks, ChevronRight, ChevronDown, Search, Loader2,
   // Alias obligatoire : « Map » masquerait le constructeur Map de JavaScript,
   // dont se servent les caches de trajets et de photos.
   Map as MapIcon
@@ -765,6 +765,36 @@ function fetchLieu(requete) {
     } catch { return null; }
   })();
   lieuCache.set(q, p);
+  return p;
+}
+
+// Synthèse des avis Google d'un lieu, en trois points. Demandée seulement quand
+// une carte est dépliée — jamais pour les six d'un coup : chaque appel coûte une
+// fiche Google et un appel Gemini, et on ne déplie qu'une carte ou deux.
+// Le cache est indexé sur le placeId, si bien que replier puis redéplier une
+// carte, ou relancer la même recherche, ne repaie pas la synthèse.
+const avisCache = new Map();
+function fetchAvis(placeId) {
+  const id = (placeId || "").trim();
+  if (!id) return Promise.resolve(null);
+  if (avisCache.has(id)) return avisCache.get(id);
+  const p = (async () => {
+    try {
+      const { data, error } = await supabase.functions.invoke("place-reviews", { body: { placeId: id } });
+      if (error) return { erreur: (await messageFonction(error)) || "avis indisponibles" };
+      if (!data) return { erreur: "avis indisponibles" };
+      if (data.error) return { erreur: data.detail ? `${data.error} (${data.detail})` : data.error };
+      return {
+        points: Array.isArray(data.points) ? data.points : [],
+        note: typeof data.note === "number" ? data.note : null,
+        nombre: typeof data.nombre === "number" ? data.nombre : null,
+        avisLus: typeof data.avisLus === "number" ? data.avisLus : 0,
+      };
+    } catch (e) {
+      return { erreur: e?.message || String(e) };
+    }
+  })();
+  avisCache.set(id, p);
   return p;
 }
 
@@ -2209,48 +2239,162 @@ function ChecklistSheet({ trip, onUpdate, onClose, canEdit, title = "Checklist a
 // lieu), puis chacune est située chez Google pour sa photo et ses coordonnées.
 // Cette seconde étape se fait proposition par proposition, en parallèle : la
 // liste s'affiche dès le retour de Gemini, les photos arrivent ensuite.
+// La synthèse des avis, dans une carte dépliée. Chargée à l'ouverture et pas
+// avant : c'est deux services facturés par lieu, pour un texte qu'on ne lit que
+// si on s'intéresse à la proposition.
+function AvisSynthese({ placeId }) {
+  const [etat, setEtat] = useState({ chargement: true });
+
+  useEffect(() => {
+    let vivant = true;
+    setEtat({ chargement: true });
+    fetchAvis(placeId).then((r) => { if (vivant) setEtat({ chargement: false, ...(r || { erreur: "avis indisponibles" }) }); });
+    return () => { vivant = false; };
+  }, [placeId]);
+
+  if (etat.chargement) {
+    return (
+      <div style={{ color: C.inkSoft }} className="mt-3 flex items-center gap-2 t11">
+        <Loader2 size={13} className="animate-spin" /> Lecture des avis Google…
+      </div>
+    );
+  }
+  if (etat.erreur) {
+    return <div style={{ color: C.inkSoft }} className="mt-3 t11">Avis indisponibles ({etat.erreur}).</div>;
+  }
+
+  const note = etat.note != null
+    ? `${etat.note.toFixed(1)}/5${etat.nombre ? ` · ${etat.nombre} avis` : ""}`
+    : null;
+
+  return (
+    <div style={{ borderTop: `1px solid ${C.line}` }} className="mt-3 pt-3">
+      <div className="flex items-baseline justify-between gap-2">
+        <div style={{ color: C.inkSoft }} className="t11 font-medium uppercase tracking-wide">Ce qu'en disent les avis</div>
+        {note && <div style={{ color: C.ink }} className="t11 font-semibold">{note}</div>}
+      </div>
+      {etat.points.length > 0 ? (
+        <ul className="mt-1.5 space-y-1">
+          {etat.points.map((p, i) => (
+            <li key={i} style={{ color: C.ink }} className="text-xs flex gap-2">
+              <span style={{ color: C.teal }} className="shrink-0">•</span>
+              <span>{p}</span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <div style={{ color: C.inkSoft }} className="text-xs mt-1.5">
+          Pas assez d'avis rédigés sur ce lieu pour en tirer une synthèse.
+        </div>
+      )}
+      {etat.avisLus > 0 && (
+        // Dit franchement sur quoi porte la synthèse : Google ne donne que cinq
+        // avis par son API, ceux qu'il juge les plus pertinents. Écrire
+        // « synthèse des avis » tout court laisserait croire à un résumé des
+        // 1 200 avis affichés par la note.
+        <div style={{ color: C.inkSoft }} className="t11 mt-2">
+          Résumé par Gemini des {etat.avisLus} avis que Google communique, non de tous.
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SuggestionCard({ s, ajoutee, onAdd, canEdit }) {
+  // Dépliée : le descriptif entier, l'adresse sur plusieurs lignes, et la
+  // synthèse des avis. La vignette grandit avec, sinon le texte s'étire à côté
+  // d'un timbre-poste.
+  const [ouverte, setOuverte] = useState(false);
+  const bascule = () => setOuverte((v) => !v);
+
+  // La photo. Vignette à gauche quand la carte est repliée, bandeau pleine
+  // largeur quand elle est ouverte. Cliquable dans les deux cas : on touche la
+  // carte, pas une zone précise.
+  const photo = (
+    <button type="button" onClick={bascule}
+      aria-expanded={ouverte} aria-label={ouverte ? `Replier ${s.nom}` : `Voir le détail de ${s.nom}`}
+      className={ouverte ? "w-full h-32 flex items-center justify-center" : "shrink-0 w-24 self-stretch flex items-center justify-center"}
+      style={{
+        background: s.photoUri ? undefined : C.paper,
+        [ouverte ? "borderBottom" : "borderRight"]: `1px solid ${C.line}`,
+        ...(s.photoUri ? { backgroundImage: `url("${s.photoUri}")`, backgroundSize: "cover", backgroundPosition: "center" } : {}),
+      }}>
+      {!s.photoUri && <Building2 size={ouverte ? 30 : 22} style={{ color: C.inkSoft, opacity: 0.45 }} />}
+    </button>
+  );
+
+  // Le texte. Tout le bloc est le bouton : viser « le texte » ne doit pas
+  // demander de viser une ligne en particulier.
+  const texte = (
+    <button type="button" onClick={bascule} aria-expanded={ouverte} className="w-full text-left">
+      <div style={{ color: C.ink }} className="font-semibold leading-tight flex items-start gap-1">
+        <span className="flex-1 min-w-0">{s.nom}</span>
+        <span className="shrink-0 mt-0.5" style={{ color: C.inkSoft }}>
+          {ouverte ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+        </span>
+      </div>
+      {s.description && (
+        <div style={{ color: C.inkSoft }} className={`text-xs mt-1 ${ouverte ? "" : "clamp3"}`}>{s.description}</div>
+      )}
+      {s.adresse && (
+        <div style={{ color: C.inkSoft }} className={`t11 mt-1 ${ouverte ? "" : "truncate"}`}>{s.adresse}</div>
+      )}
+    </button>
+  );
+
+  const bouton = ajoutee ? (
+    // Ajoutée : le repère reste, plutôt que de faire disparaître la carte — on
+    // parcourt la liste en en prenant plusieurs, il faut voir où on en est.
+    <div style={{ background: C.tealSoft, color: C.teal }}
+      className="h-10 w-10 rounded-full flex items-center justify-center shrink-0" title="Ajoutée à la journée">
+      <Check size={20} />
+    </div>
+  ) : (
+    <button onClick={onAdd} aria-label={`Ajouter ${s.nom} à la journée`}
+      style={{ background: C.teal }}
+      className="h-10 w-10 rounded-full text-white flex items-center justify-center shadow active:scale-95 transition shrink-0">
+      <Plus size={20} />
+    </button>
+  );
+
+  // Ouverte, la carte passe en colonne : à côté d'une vignette et d'un bouton,
+  // le texte n'aurait qu'un tiers de la largeur, et « voir le texte complet »
+  // reviendrait à le lire dans un couloir de trois mots.
+  if (ouverte) {
+    return (
+      <div style={{ background: C.card, border: `1px solid ${C.line}` }}
+        className="rounded-2xl overflow-hidden mb-3">
+        {photo}
+        <div className="p-3">
+          {texte}
+          {/* La synthèse n'est montée qu'à l'ouverture : c'est ce montage qui
+              déclenche l'appel, donc une carte jamais dépliée ne coûte rien. */}
+          {s.placeId
+            ? <AvisSynthese placeId={s.placeId} />
+            : (
+              <div style={{ color: C.inkSoft }} className="t11 mt-3">
+                Lieu non reconnu par Google : ni photo, ni avis, ni position sur la carte.
+              </div>
+            )}
+          {canEdit && (
+            <div style={{ borderTop: `1px solid ${C.line}` }} className="mt-3 pt-3 flex items-center justify-between gap-3">
+              <span style={{ color: C.inkSoft }} className="t11">
+                {ajoutee ? "Déjà dans la journée" : "Ajouter à la journée"}
+              </span>
+              {bouton}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ background: C.card, border: `1px solid ${C.line}` }}
       className="rounded-2xl overflow-hidden flex items-stretch mb-3">
-      {/* Vignette : la photo Google si le lieu a été reconnu, sinon un bâtiment
-          générique — même règle que sur la timeline, pas de photo douteuse. */}
-      <div className="shrink-0 w-24 self-stretch flex items-center justify-center"
-        style={{
-          background: s.photoUri ? undefined : C.paper,
-          borderRight: `1px solid ${C.line}`,
-          ...(s.photoUri ? { backgroundImage: `url("${s.photoUri}")`, backgroundSize: "cover", backgroundPosition: "center" } : {}),
-        }}
-        role="img" aria-label={s.photoUri ? `Photo de ${s.nom}` : `Aucune photo pour ${s.nom}`}>
-        {!s.photoUri && <Building2 size={22} style={{ color: C.inkSoft, opacity: 0.45 }} />}
-      </div>
-      <div className="flex-1 min-w-0 p-3">
-        <div style={{ color: C.ink }} className="font-semibold leading-tight">{s.nom}</div>
-        {s.description && (
-          <div style={{ color: C.inkSoft }} className="text-xs mt-1 clamp3">{s.description}</div>
-        )}
-        {s.adresse && (
-          <div style={{ color: C.inkSoft }} className="t11 mt-1 truncate">{s.adresse}</div>
-        )}
-      </div>
-      {canEdit && (
-        <div className="shrink-0 self-center pr-3">
-          {ajoutee ? (
-            // Ajoutée : le repère reste, plutôt que de faire disparaître la carte —
-            // on parcourt la liste en en prenant plusieurs, il faut voir où on en est.
-            <div style={{ background: C.tealSoft, color: C.teal }}
-              className="h-10 w-10 rounded-full flex items-center justify-center" title="Ajoutée à la journée">
-              <Check size={20} />
-            </div>
-          ) : (
-            <button onClick={onAdd} aria-label={`Ajouter ${s.nom} à la journée`}
-              style={{ background: C.teal }}
-              className="h-10 w-10 rounded-full text-white flex items-center justify-center shadow active:scale-95 transition">
-              <Plus size={20} />
-            </button>
-          )}
-        </div>
-      )}
+      {photo}
+      <div className="flex-1 min-w-0 p-3">{texte}</div>
+      {canEdit && <div className="shrink-0 self-center pr-3">{bouton}</div>}
     </div>
   );
 }

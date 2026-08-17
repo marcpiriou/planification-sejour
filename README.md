@@ -114,12 +114,13 @@ erreur, visible, qu'un secret exposé en silence.
 
 Un troisième secret, sans rapport avec Google Maps, complète la liste :
 **`GEMINI_API_KEY`** pour l'écran Suggestions (voir plus bas), avec
-`GEMINI_MODEL` en option.
+`GEMINI_MODEL` en option. `place-reviews` est la seule fonction à se servir des
+deux : `GOOGLE_PLACES_KEY` pour lire les avis, `GEMINI_API_KEY` pour les résumer.
 
 ### Accès aux Edge Functions
-Les cinq fonctions (`maps-key`, `resolve-place`, `travel-time`, `place-photo`,
-`suggestions`) consomment un quota facturé — Google pour les quatre premières,
-Gemini pour la dernière : elles vérifient donc chacune, en première instruction,
+Les six fonctions (`maps-key`, `resolve-place`, `travel-time`, `place-photo`,
+`suggestions`, `place-reviews`) consomment un quota facturé — Google, Gemini, ou
+les deux pour la dernière : elles vérifient donc chacune, en première instruction,
 que l'appel vient d'une **session utilisateur** (`_shared/auth.ts`).
 
 `verify_jwt` ne suffisait pas : la passerelle Supabase accepte aussi la clé
@@ -192,6 +193,40 @@ bâtiment générique** et n'emporte aucune coordonnée — mieux vaut une étap
 point sur la carte qu'une étape posée au mauvais endroit. La mention sous la
 liste le dit à l'utilisateur : ce sont des propositions, à vérifier.
 
+### Déplier une carte
+Toucher **la photo ou le texte** d'une proposition agrandit sa carte. Elle passe
+alors en pleine largeur — photo en bandeau au-dessus, texte dessous — plutôt que
+de garder sa vignette à gauche : à côté d'une image et d'un bouton, le texte
+n'aurait qu'un tiers de la largeur, et « voir le texte complet » reviendrait à le
+lire dans un couloir de trois mots. Le descriptif n'est plus tronqué à trois
+lignes, l'adresse s'affiche en entier.
+
+La carte dépliée montre en plus une **synthèse en trois points des avis Google**
+du lieu (Edge Function `place-reviews`) : la fiche Google donne les avis et la
+note, Gemini en tire trois phrases courtes. La consigne lui demande de rendre
+compte de ce qui revient réellement, **critiques comprises** — un lieu bien noté
+qui fait attendre mérite que l'attente soit dite, sinon la synthèse n'est qu'une
+brochure.
+
+Trois précautions, parce qu'un résumé automatique d'avis se croit facilement plus
+solide qu'il n'est :
+
+- Google ne communique que **cinq avis** par son API, ceux qu'il juge les plus
+  pertinents — pas un échantillon représentatif. L'écran l'écrit noir sur blanc
+  (« Résumé par Gemini des 5 avis que Google communique, non de tous ») plutôt
+  que de laisser croire à un résumé des 12 000 avis que la note recouvre.
+- Un lieu **sans avis rédigés** affiche sa note et le dit ; aucune synthèse n'est
+  fabriquée à partir de rien, et Gemini n'est même pas appelé.
+- Le texte des avis vient de tiers. La consigne est donc posée en
+  `systemInstruction`, séparée de ce texte, et la sortie est contrainte par un
+  schéma : un avis qui contiendrait des instructions n'a rien à détourner — au
+  pire il fausse un résumé.
+
+L'appel part **à l'ouverture d'une carte, jamais en lot**. Résumer d'emblée les
+six propositions coûterait six fiches Google et six appels Gemini pour un texte
+qu'on ne lira peut-être pas. Le résultat est mis en cache par `placeId` : replier
+puis rouvrir, ou relancer la même recherche, ne repaie rien.
+
 Le « + » d'une carte ajoute l'étape **directement à la journée affichée**, sans
 passer par le formulaire : catégorie « visite », 60 minutes, le descriptif en
 note, et l'heure suivant la règle habituelle (fixe à 09:00 pour la première du
@@ -227,6 +262,11 @@ la console Cloud impose sinon un `gcloud beta services api-keys create
 --service-account=…`. À ne pas confondre avec une **clé de compte de service**
 (le fichier JSON sous IAM), qui est un autre objet, souvent interdit par une
 règle d'organisation, et dont on n'a pas besoin ici.
+
+L'appel à Gemini — liste de modèles, repli, sortie contrainte par un schéma —
+est mutualisé dans `_shared/gemini.ts` : `suggestions` et `place-reviews` s'en
+servent toutes deux, et une mise à la retraite de modèle ne se corrige qu'à un
+seul endroit.
 
 ### Le modèle, et pourquoi il y en a deux
 `gemini-3.5-flash`, avec `gemini-2.5-flash` en repli. Google retire ses modèles
