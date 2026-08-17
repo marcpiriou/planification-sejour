@@ -275,10 +275,27 @@ puis rouvrir, ou relancer la même recherche, ne repaie rien.
 Le « + » d'une carte ajoute l'étape **directement à la journée affichée**, sans
 passer par le formulaire : catégorie « visite », 60 minutes, le descriptif en
 note, et l'heure suivant la règle habituelle (fixe à 09:00 pour la première du
-jour, « auto » ensuite). La carte ne disparaît pas — elle échange son « + »
-contre une coche : on parcourt la liste en en prenant plusieurs, il faut voir où
-l'on en est. L'écran reste ouvert d'autant, et tout se corrige ensuite depuis la
-timeline.
+jour, « auto » ensuite). La carte ne disparaît pas — on parcourt la liste en en
+prenant plusieurs, il faut voir où l'on en est. L'écran reste ouvert d'autant.
+
+Son « + » devient alors une **croix rouge qui retire l'étape de la journée** :
+même bouton, même taille, il bascule. Se tromper de proposition se répare donc
+d'un toucher, sans quitter l'écran ni rouvrir la timeline. C'est bien une
+suppression, explicite en base comme celle de l'éditeur.
+
+Deux points que cela impose :
+
+- La carte retient l'**identifiant** de l'activité qu'elle a créée, non un simple
+  drapeau : c'est ce qui lui permet de retirer celle-là et pas une autre. Un ajout
+  qui n'aurait rien créé ne fait pas basculer le bouton, faute de quoi il offrirait
+  de retirer une étape inexistante.
+- L'ancre d'insertion est une **pile**. Elle avance à chaque ajout pour que les
+  propositions se suivent dans l'ordre pris, mais un retrait la fait reculer —
+  sans quoi retirer la dernière étape ajoutée laissait l'ancre sur une activité
+  disparue, et l'ajout suivant repartait silencieusement en fin de journée.
+
+Une **nouvelle recherche** rend toutes les cartes à leur « + » : la liste s'est
+renouvelée, mais les étapes déjà ajoutées restent au programme.
 
 Deux économies de requêtes, l'API Places étant facturée à l'appel :
 `place-photo` renvoie désormais coordonnées, nom et adresse **avec** la photo —

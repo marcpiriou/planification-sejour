@@ -2371,7 +2371,7 @@ function AvisSynthese({ placeId }) {
   );
 }
 
-function SuggestionCard({ s, ajoutee, onAdd, canEdit }) {
+function SuggestionCard({ s, ajoutee, onAdd, onRemove, canEdit }) {
   // Dépliée : le descriptif entier, l'adresse sur plusieurs lignes, et la
   // synthèse des avis. La vignette grandit avec, sinon le texte s'étire à côté
   // d'un timbre-poste.
@@ -2414,12 +2414,16 @@ function SuggestionCard({ s, ajoutee, onAdd, canEdit }) {
   );
 
   const bouton = ajoutee ? (
-    // Ajoutée : le repère reste, plutôt que de faire disparaître la carte — on
-    // parcourt la liste en en prenant plusieurs, il faut voir où on en est.
-    <div style={{ background: C.tealSoft, color: C.teal }}
-      className="h-10 w-10 rounded-full flex items-center justify-center shrink-0" title="Ajoutée à la journée">
-      <Check size={20} />
-    </div>
+    // Ajoutée : la carte reste — on parcourt la liste en en prenant plusieurs,
+    // il faut voir où on en est — et son bouton devient une croix rouge qui
+    // retire l'étape de la journée. Même forme et même taille que le « + » :
+    // c'est le même bouton qui bascule, et se tromper se répare d'un toucher.
+    <button onClick={onRemove} aria-label={`Retirer ${s.nom} de la journée`}
+      title="Ajoutée à la journée — toucher pour la retirer"
+      style={{ background: C.warn }}
+      className="h-10 w-10 rounded-full text-white flex items-center justify-center shadow active:scale-95 transition shrink-0">
+      <X size={20} />
+    </button>
   ) : (
     <button onClick={onAdd} aria-label={`Ajouter ${s.nom} à la journée`}
       style={{ background: C.teal }}
@@ -2450,7 +2454,7 @@ function SuggestionCard({ s, ajoutee, onAdd, canEdit }) {
           {canEdit && (
             <div style={{ borderTop: `1px solid ${C.line}` }} className="mt-3 pt-3 flex items-center justify-between gap-3">
               <span style={{ color: C.inkSoft }} className="t11">
-                {ajoutee ? "Déjà dans la journée" : "Ajouter à la journée"}
+                {ajoutee ? "Dans la journée — retirer" : "Ajouter à la journée"}
               </span>
               {bouton}
             </div>
@@ -2497,7 +2501,7 @@ function repereLieu(etape) {
   return { texte: "", attente: resoluble ? fetchPlaceAdresse(pl) : null };
 }
 
-function SuggestionsSheet({ trip, jour, onAdd, onClose, canEdit, promptInitial = "", repereAttendu = null }) {
+function SuggestionsSheet({ trip, jour, onAdd, onRemove, onClose, canEdit, promptInitial = "", repereAttendu = null }) {
   // Le champ est prérempli à l'ouverture seulement : ensuite il appartient à
   // l'utilisateur, qui peut l'effacer ou le réécrire sans qu'on y revienne.
   const [prompt, setPrompt] = useState(promptInitial);
@@ -2565,9 +2569,22 @@ function SuggestionsSheet({ trip, jour, onAdd, onClose, canEdit, promptInitial =
     });
   };
 
+  // `ajoutees` retient l'IDENTIFIANT de l'activité créée par chaque carte, pas un
+  // simple drapeau : c'est ce qui permet de la retirer ensuite. Une carte dont
+  // l'ajout n'a rien renvoyé — journée hors dates, proposition sans nom — ne
+  // passe pas en « ajoutée », faute de quoi elle offrirait de retirer une étape
+  // qui n'existe pas.
   const ajoute = (s) => {
-    onAdd(s);
-    setAjoutees((prev) => ({ ...prev, [s.cle]: true }));
+    const id = onAdd(s);
+    if (!id) return;
+    setAjoutees((prev) => ({ ...prev, [s.cle]: id }));
+  };
+
+  const retire = (s) => {
+    const id = ajoutees[s.cle];
+    if (!id) return;
+    onRemove(id);
+    setAjoutees((prev) => { const { [s.cle]: _, ...reste } = prev; return reste; });
   };
 
   return (
@@ -2625,7 +2642,7 @@ function SuggestionsSheet({ trip, jour, onAdd, onClose, canEdit, promptInitial =
               </div>
               {resultats.map((s) => (
                 <SuggestionCard key={s.cle} s={s} canEdit={canEdit}
-                  ajoutee={!!ajoutees[s.cle]} onAdd={() => ajoute(s)} />
+                  ajoutee={!!ajoutees[s.cle]} onAdd={() => ajoute(s)} onRemove={() => retire(s)} />
               ))}
               <div style={{ color: C.inkSoft }} className="t11 mt-1">
                 Propositions écrites par Gemini : à vérifier avant de s'y fier.
@@ -2640,7 +2657,7 @@ function SuggestionsSheet({ trip, jour, onAdd, onClose, canEdit, promptInitial =
 }
 
 /* --- Vue d'un séjour ---------------------------------------------- */
-function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onAddSuggestion, onEditAct, onEditTrip, onUpdateChecklist, onEditDuration, onEditTravel, onReorder, canEdit = true, canShare = false, onShare }) {
+function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onAddSuggestion, onRemoveSuggestion, onEditAct, onEditTrip, onUpdateChecklist, onEditDuration, onEditTravel, onReorder, canEdit = true, canShare = false, onShare }) {
   const days = daysInRange(trip.startDate, trip.endDate);
   const safeCurrent = current && days.includes(current) ? current : days[0];
   // Changer de jour (bande des dates ou balayage) repart du haut de la
@@ -2720,10 +2737,14 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
   });
   const fermeTrajet = () => window.history.back();
   const choisitTrajet = (action) => { trajetChoisi.current = action; window.history.back(); };
-  // Ancre des ajouts venus de l'écran Suggestions : elle avance à chaque ajout,
-  // sinon la deuxième proposition retenue se glisserait AVANT la première et la
-  // liste sortirait dans l'ordre inverse de celui où on l'a composée.
-  const ancreSuggestion = useRef(null);
+  // Ancre des ajouts venus de l'écran Suggestions. Une PILE, et non une seule
+  // valeur : elle avance à chaque ajout — sinon la deuxième proposition retenue
+  // se glisserait AVANT la première et la liste sortirait à l'envers — mais un
+  // retrait doit pouvoir la faire reculer. Sans cela, retirer la dernière étape
+  // ajoutée laissait l'ancre sur une activité disparue, et l'ajout suivant
+  // repartait silencieusement en fin de journée.
+  const pileAncres = useRef([]);
+  const ancre = () => pileAncres.current[pileAncres.current.length - 1] || null;
 
   // Demande préremplie à l'ouverture de l'écran Suggestions, à partir du lieu
   // qui précédera l'étape ajoutée : celui du trajet touché, ou la dernière étape
@@ -2736,7 +2757,7 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
   // l'attend repartirait sans fin.
   const [amorce, setAmorce] = useState({ promptInitial: "", repereAttendu: null });
   const ouvreSuggestions = (apresId) => {
-    ancreSuggestion.current = apresId || null;
+    pileAncres.current = apresId ? [apresId] : [];
     const etape = apresId ? acts.find((x) => x.id === apresId) : acts[acts.length - 1];
     const { texte, attente } = repereLieu(etape);
     setAmorce({ promptInitial: PROMPT_AUTOUR + texte, repereAttendu: attente });
@@ -2924,8 +2945,15 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
           onAdd={(s) => {
             // L'ancre avance sur l'étape qu'on vient de poser : les propositions
             // retenues se suivent dans l'ordre où on les a prises.
-            const nouvelId = onAddSuggestion(s, safeCurrent, ancreSuggestion.current);
-            if (nouvelId) ancreSuggestion.current = nouvelId;
+            const nouvelId = onAddSuggestion(s, safeCurrent, ancre());
+            if (nouvelId) pileAncres.current.push(nouvelId);
+            return nouvelId;
+          }}
+          onRemove={(actId) => {
+            // L'ancre recule : l'ajout suivant reprend la place de celui qu'on
+            // vient de retirer, au lieu de filer en fin de journée.
+            pileAncres.current = pileAncres.current.filter((x) => x !== actId);
+            onRemoveSuggestion(actId);
           }}
           onClose={() => setSuggestionsOuvert(false)} />
       )}
@@ -4158,6 +4186,16 @@ function SejourApp() {
     commit(trips.map((t) => (t.id === trip.id ? { ...t, activities } : t)));
     return act.id;
   };
+  // Retrait d'une proposition qu'on vient d'ajouter, depuis sa carte. Même
+  // effet que la suppression depuis l'éditeur, mais désignée par identifiant :
+  // la carte sait ce qu'elle a créé, elle n'a pas besoin d'ouvrir un formulaire.
+  const removeSuggestion = (actId) => {
+    if (!trip || !actId) return;
+    commit(trips.map((t) => (t.id === trip.id
+      ? { ...t, activities: t.activities.filter((a) => a.id !== actId) }
+      : t)));
+    deleteActivityRemote(actId);          // suppression explicite en base
+  };
   const editActivity = (entry) => {
     // Les entrées d'hébergement affichées sont dérivées : on modifie la
     // réservation enregistrée, avec sa date d'arrivée et son nombre de nuits.
@@ -4427,7 +4465,7 @@ function SejourApp() {
       ) : (
         <TripView
           trip={trip} current={curDay} onSelectDay={setCurDay}
-          onBack={() => setTripId(null)} onAddAct={newActivity} onAddStay={newStay} onAddSuggestion={addSuggestion} onEditAct={editActivity} onEditTrip={editTrip}
+          onBack={() => setTripId(null)} onAddAct={newActivity} onAddStay={newStay} onAddSuggestion={addSuggestion} onRemoveSuggestion={removeSuggestion} onEditAct={editActivity} onEditTrip={editTrip}
           onUpdateChecklist={updateChecklist} onReorder={reorderActivities}
           onEditDuration={(a) => setDurEdit({ id: a.id, durationMin: a.durationMin })}
           onEditTravel={(from, to) => setTravelEdit({ date: from.date, fromId: from.id, toId: to.id })}
