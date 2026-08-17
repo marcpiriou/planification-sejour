@@ -390,6 +390,15 @@ Le défilement horizontal qui précédait cachait les durées longues, qu'il fal
 deviner. Le `0` sert aux étapes qui ne durent pas — un passage, un rendez-vous à
 heure dite — et le quart d'heure manquait pour tout ce qui est bref.
 
+**Les mêmes pastilles dans les deux écrans.** Le réglage rapide, ouvert depuis la
+timeline en touchant la durée d'une étape, n'en proposait que sept
+(`30 → 3h`), en bande défilante. Il reprend désormais la même grille et la même
+liste. Une seule constante, `DUREES`, alimente les deux : deux jeux séparés
+avaient précisément fini par diverger.
+
+Le réglage rapide n'affiche pas le douzième bouton `…` : ses champs *Heures* et
+*Minutes* sont déjà à l'écran, la saisie libre n'a pas besoin d'un détour.
+
 ### Bouton « + » d'ajout
 Un seul bouton flottant en bas à droite. Le toucher déploie les trois ajouts,
 empilés au-dessus de lui : **Activité en bas**, au plus près du pouce puisque

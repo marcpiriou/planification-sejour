@@ -58,6 +58,12 @@ const minToTime = (min) => { let x = ((Math.round(min) % 1440) + 1440) % 1440; c
 const fmtDur = (min) => { if (min <= 0) return "0 min"; if (min < 60) return `${min} min`; const h = Math.floor(min / 60), m = min % 60; return m ? `${h} h ${String(m).padStart(2, "0")}` : `${h} h`; };
 const compactDur = (min) => { if (min == null) return "…"; if (min < 60) return `${min}`; const h = Math.floor(min / 60), m = min % 60; return m ? `${h}h${m}` : `${h}h`; };
 
+// Durées proposées, partagées par le formulaire d'activité et le réglage rapide
+// depuis la timeline. Une seule liste : deux jeux de pastilles séparés avaient
+// fini par diverger — la timeline en proposait sept, le formulaire onze.
+// Disposées en six colonnes, elles tiennent sur deux rangées.
+const DUREES = [0, 15, 30, 45, 60, 90, 120, 150, 180, 210, 240];
+
 const parseDate = (s) => { if (!s || typeof s !== "string") return new Date(); const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
 const toISO = (dt) => `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
 const addDays = (dt, n) => new Date(dt.getFullYear(), dt.getMonth(), dt.getDate() + n);
@@ -1577,7 +1583,6 @@ function ActivityCard({ act, onEdit, onEditDuration, startMin, endMin, auto, pre
 
 /* --- Popup de sélection de durée (pastilles + champs libres) ------ */
 function DurationPicker({ initial, onCancel, onValidate }) {
-  const CHIPS = [30, 45, 60, 90, 120, 150, 180];
   const [h, setH] = useState(String(Math.floor((initial || 0) / 60)));
   const [m, setM] = useState(String((initial || 0) % 60));
   const total = Math.max(0, (parseInt(h, 10) || 0) * 60 + (parseInt(m, 10) || 0));
@@ -1587,13 +1592,16 @@ function DurationPicker({ initial, onCancel, onValidate }) {
       <div className="absolute inset-0 dim" onClick={onCancel} />
       <div style={{ background: C.card }} className="relative w-full max-w-xs rounded-2xl p-4">
         <div style={{ color: C.ink }} className="font-semibold text-base">Durée de l'activité</div>
-        <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1 mt-3">
-          {CHIPS.map((d) => {
+        {/* Mêmes durées et même grille que le formulaire d'activité. Elles
+            défilaient horizontalement ici, ce qui cachait les plus longues :
+            deux rangées de six les montrent toutes d'un coup d'œil. */}
+        <div className="grid grid-cols-6 gap-1.5 mt-3">
+          {DUREES.map((d) => {
             const active = total === d;
             return (
               <button key={d} onClick={() => setChip(d)}
                 style={{ background: active ? C.ink : "#fff", color: active ? "#fff" : C.ink, border: `1px solid ${active ? C.ink : C.line}`, fontFamily: MONO }}
-                className="shrink-0 rounded-full px-2.5 py-1 text-xs active:scale-95 transition">{compactDur(d)}</button>
+                className="rounded-full px-1 py-1 text-xs active:scale-95 transition">{compactDur(d)}</button>
             );
           })}
         </div>
@@ -3013,8 +3021,7 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
   // rangées pleines de six. Le zéro sert aux étapes qui ne durent pas — un
   // passage, un rendez-vous à heure dite — et le quart d'heure manquait pour
   // tout ce qui est bref.
-  const durChips = [0, 15, 30, 45, 60, 90, 120, 150, 180, 210, 240];
-  const isPreset = durChips.includes(draft.durationMin);
+  const isPreset = DUREES.includes(draft.durationMin);
   const openCustom = () => { setCh(Math.floor((draft.durationMin || 0) / 60)); setCm((draft.durationMin || 0) % 60); setCustomOpen(true); };
   const applyCustom = () => { const total = Math.max(0, (Number(ch) || 0) * 60 + (Number(cm) || 0)); upd("durationMin", total); setCustomOpen(false); };
 
@@ -3124,7 +3131,7 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
                 donné neuf pastilles sur la première rangée et trois sur la
                 seconde. */}
             <div className="grid grid-cols-6 gap-1.5">
-              {durChips.map((d) => {
+              {DUREES.map((d) => {
                 const active = draft.durationMin === d;
                 return (
                   <button key={d} onClick={() => upd("durationMin", d)}
