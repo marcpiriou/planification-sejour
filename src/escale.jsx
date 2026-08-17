@@ -1764,6 +1764,37 @@ function TravelLeg({
   );
 }
 
+/* --- Repère de l'heure actuelle ------------------------------------ */
+// Une ligne en travers de la timeline, à la place qu'occupe l'instant présent.
+// Elle se glisse juste avant la première étape non encore terminée : au-dessus,
+// tout est fini ; en dessous, rien ne l'est. Une étape en cours se trouve donc
+// juste sous la ligne, et ses heures de début et de fin — affichées dans la
+// colonne de gauche — encadrent celle du repère, ce qui se lit sans explication.
+//
+// La couleur est le rose de la palette, la seule qui ne serve à rien d'autre sur
+// la timeline : teal désigne les étapes, ambre les trajets, indigo les
+// hébergements. Un repère de temps ne doit pas se confondre avec une étape.
+function MarqueurMaintenant({ minutes }) {
+  return (
+    <div className="flex gap-3 items-center" role="separator"
+      aria-label={`Heure actuelle : ${minToTime(minutes)}`}>
+      {/* Le trait vertical passe derrière, comme sous la pastille de durée :
+          sans cela la colonne se briserait à hauteur du repère. */}
+      <div className="shrink-0 relative flex justify-center items-center" style={{ width: 66 }}>
+        <div style={{ background: C.line }} className="absolute inset-y-0 w-0.5" />
+        <span style={{ background: C.rose, fontFamily: MONO }}
+          className="relative text-white t10 font-semibold rounded-full px-1.5 py-0.5 shadow-sm">
+          {minToTime(minutes)}
+        </span>
+      </div>
+      <div className="flex-1 flex items-center gap-1.5 py-1.5">
+        <span style={{ background: C.rose }} className="h-2 w-2 rounded-full shrink-0" />
+        <span style={{ background: C.rose, opacity: 0.55 }} className="h-0.5 flex-1 rounded-full" />
+      </div>
+    </div>
+  );
+}
+
 /* --- Carte de la journée : Google Maps interactif, plein écran ------ */
 // Une image ne se déplace pas et ses marqueurs ne se touchent pas : la carte
 // vient donc de l'API Maps JavaScript. Son chargeur réclame la clé dans le
@@ -2712,6 +2743,27 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
     [trip.activities, safeCurrent, trip.endDate, travelTick]
   );
 
+  // Repère de l'heure actuelle : seulement sur la journée du jour, et rafraîchi
+  // chaque minute — un repère de temps qui se figerait vaudrait moins que rien.
+  // L'intervalle n'existe que sur cette journée-là : ailleurs il n'y a rien à
+  // redessiner.
+  const estAujourdhui = safeCurrent === toISO(new Date());
+  const [minuteTick, setMinuteTick] = useState(0);
+  useEffect(() => {
+    if (!estAujourdhui) return;
+    const t = setInterval(() => setMinuteTick((n) => n + 1), 60000);
+    return () => clearInterval(t);
+  }, [estAujourdhui]);
+  const maintenant = minutesMaintenant();
+  // Rang de la ligne dans la séquence : juste avant la première étape non
+  // terminée, ou tout en bas si la journée est finie. minuteTick n'est pas lu
+  // ici mais provoque le rendu qui recalcule `maintenant`.
+  const rangMaintenant = (() => {
+    if (!estAujourdhui || !acts.length) return -1;
+    const i = acts.findIndex((a) => a._endMin > maintenant);
+    return i < 0 ? acts.length : i;
+  })();
+
   const markers = useMemo(() => dayMarkers(acts), [acts]);
   const [mapOpen, setMapOpen] = useState(false);
   const [checklistOpen, setChecklistOpen] = useState(false);
@@ -2942,6 +2994,7 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
               const isDragged = drag && drag.id === a.id;
               return (
               <div key={a.id}>
+                {rangMaintenant === i && <MarqueurMaintenant minutes={maintenant} />}
                 {drag && drag.over === i && <InsertBar />}
                 <div
                   ref={(el) => { if (el) cardRefs.current.set(a.id, el); else cardRefs.current.delete(a.id); }}
@@ -2962,6 +3015,8 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
                   onAjoutActivite={canEdit && !drag ? () => choisitTrajet(() => onAddAct(a.id)) : undefined}
                   onAjoutSuggestion={() => choisitTrajet(() => ouvreSuggestions(a.id))} />}
                 {drag && drag.over === acts.length && i === acts.length - 1 && <InsertBar />}
+                {/* Journée finie : le repère se pose après la dernière étape. */}
+                {rangMaintenant === acts.length && i === acts.length - 1 && <MarqueurMaintenant minutes={maintenant} />}
               </div>
               );
             })}

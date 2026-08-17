@@ -550,6 +550,28 @@ Trois pièges, et ce qui les évite :
   le saut programmé, et l'écouteur l'ignore. Les fermetures simultanées sont
   regroupées en un seul `go(-n)` — un `back()` par couche risquait d'être fusionné.
 
+### Repère de l'heure actuelle
+Sur la journée du jour, une ligne traverse la timeline à la place qu'occupe
+l'instant présent : une pastille rose portant l'heure sur la colonne de gauche, un
+trait en travers du contenu.
+
+Elle se glisse **juste avant la première étape non encore terminée**. L'invariant
+se lit donc sans explication : au-dessus de la ligne, tout est fini ; en dessous,
+rien ne l'est. Une étape en cours se trouve juste sous la ligne, et ses heures de
+début et de fin — affichées dans la colonne de gauche — encadrent celle du repère.
+Avant le début de la journée la ligne est tout en haut, après la dernière étape
+tout en bas.
+
+Le **rose** de la palette est la seule couleur qui ne serve à rien d'autre sur la
+timeline : teal désigne les étapes, ambre les trajets, indigo les hébergements. Un
+repère de temps ne doit pas se confondre avec une étape.
+
+Deux détails d'implémentation : le trait vertical de la colonne passe **derrière**
+la pastille, comme sous la pastille de durée, sans quoi la colonne se briserait à
+hauteur du repère ; et un intervalle d'une minute redessine la ligne, mais
+**seulement sur la journée du jour** — ailleurs il n'y a rien à rafraîchir, et un
+repère de temps figé vaudrait moins que rien.
+
 ### Où la timeline se positionne
 Sur **aujourd'hui**, la journée s'ouvre cadrée sur **l'étape de l'heure qu'il
 est** : à 17 h, le haut de la matinée n'a plus d'intérêt, et c'est l'étape en
