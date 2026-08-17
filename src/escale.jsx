@@ -1263,6 +1263,75 @@ function AccountPanel({ userEmail, home, onSaveHome, navApp, onSaveNavApp, defau
   );
 }
 
+// Range les séjours en trois groupes, dans l'ordre où ils s'affichent : ceux en
+// cours d'abord, puis ceux à venir (le plus proche en tête), enfin les passés
+// (le plus récent en tête). Les dates d'un séjour sont en ISO local, comme la
+// date du jour : la comparaison de chaînes suffit à les situer. Calculée au
+// rendu — une liste laissée ouverte d'un jour sur l'autre se remet à jour au
+// prochain affichage, ce qui suffit ici. Les groupes vides disparaissent, barre
+// de séparation comprise.
+function groupesDeSejours(trips) {
+  const aujourdhui = toISO(new Date());
+  const enCours = [], aVenir = [], passes = [];
+  for (const t of trips) {
+    if (t.endDate < aujourdhui) passes.push(t);
+    else if (t.startDate > aujourdhui) aVenir.push(t);
+    else enCours.push(t);
+  }
+  const parDebut = (a, b) => a.startDate.localeCompare(b.startDate);
+  enCours.sort(parDebut);
+  aVenir.sort(parDebut);
+  passes.sort((a, b) => b.endDate.localeCompare(a.endDate));
+  return [
+    { key: "en-cours", label: "En cours", trips: enCours },
+    { key: "planifies", label: "Planifiés", trips: aVenir },
+    { key: "termines", label: "Terminés", trips: passes, passe: true },
+  ].filter((g) => g.trips.length > 0);
+}
+
+// Barre de séparation en tête d'un groupe : le libellé, puis un filet qui court
+// jusqu'au bord de la liste.
+function SeparateurGroupe({ label }) {
+  return (
+    <div className="flex items-center gap-3 pt-2">
+      <div style={{ color: C.inkSoft, fontFamily: MONO }} className="t11 uppercase tracking-wide font-semibold shrink-0">{label}</div>
+      <div style={{ background: C.line }} className="h-px flex-1" />
+    </div>
+  );
+}
+
+// Carte d'un séjour dans la liste d'accueil. « passe » la grise — un séjour
+// terminé reste ouvrable, mais il ne doit plus tirer l'œil : fond du papier,
+// texte adouci et couleurs d'accent éteintes.
+function CarteSejour({ trip: t, passe, onOpen }) {
+  const days = daysInRange(t.startDate, t.endDate);
+  return (
+    <button onClick={() => onOpen(t.id)}
+      style={{ background: passe ? C.paper : C.card, border: `1px solid ${C.line}`, opacity: passe ? 0.75 : 1 }}
+      className="w-full text-left rounded-2xl p-4 active:scale-95 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300">
+      <div style={{ color: passe ? C.inkSoft : C.ink }} className="font-semibold text-lg leading-tight">{t.name}</div>
+      <div style={{ color: C.inkSoft }} className="text-sm mt-1 flex items-center gap-1.5">
+        <Calendar size={14} /> {fmtRange(t.startDate, t.endDate)}
+      </div>
+      <div className="flex items-center gap-2 flex-wrap mt-2">
+        <div style={{ color: passe ? C.inkSoft : C.teal, fontFamily: MONO }} className="text-xs font-medium">
+          {days.length} jour{days.length > 1 ? "s" : ""}
+        </div>
+        {t.isOwner && (t.members?.length > 0) && (
+          <span style={{ background: passe ? C.line : C.tealSoft, color: passe ? C.inkSoft : C.teal }} className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium">
+            <Users size={11} /> Partagé · {t.members.length}
+          </span>
+        )}
+        {!t.isOwner && (
+          <span style={{ background: passe ? C.line : C.amberSoft, color: passe ? C.inkSoft : C.amber }} className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium">
+            <Users size={11} /> Partagé avec vous · {t.role === "viewer" ? "Lecteur" : "Éditeur"}
+          </span>
+        )}
+      </div>
+    </button>
+  );
+}
+
 /* --- Accueil : liste des séjours + navigation ---------------------- */
 function Home({ trips, onOpen, onNew, onExample, userEmail, onSignOut, home, onSaveHome, sharedLink, onDismissShared, navApp, onSaveNavApp, defaultChecklist, onSaveDefaultChecklist }) {
   const [tab, setTab] = useState("trips");
@@ -1316,34 +1385,12 @@ function Home({ trips, onOpen, onNew, onExample, userEmail, onSignOut, home, onS
         </div>
       ) : (
         <div className="space-y-3">
-          {trips.map((t) => {
-            const days = daysInRange(t.startDate, t.endDate);
-            return (
-              <button key={t.id} onClick={() => onOpen(t.id)}
-                style={{ background: C.card, border: `1px solid ${C.line}` }}
-                className="w-full text-left rounded-2xl p-4 active:scale-95 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300">
-                <div style={{ color: C.ink }} className="font-semibold text-lg leading-tight">{t.name}</div>
-                <div style={{ color: C.inkSoft }} className="text-sm mt-1 flex items-center gap-1.5">
-                  <Calendar size={14} /> {fmtRange(t.startDate, t.endDate)}
-                </div>
-                <div className="flex items-center gap-2 flex-wrap mt-2">
-                  <div style={{ color: C.teal, fontFamily: MONO }} className="text-xs font-medium">
-                    {days.length} jour{days.length > 1 ? "s" : ""}
-                  </div>
-                  {t.isOwner && (t.members?.length > 0) && (
-                    <span style={{ background: C.tealSoft, color: C.teal }} className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium">
-                      <Users size={11} /> Partagé · {t.members.length}
-                    </span>
-                  )}
-                  {!t.isOwner && (
-                    <span style={{ background: C.amberSoft, color: C.amber }} className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium">
-                      <Users size={11} /> Partagé avec vous · {t.role === "viewer" ? "Lecteur" : "Éditeur"}
-                    </span>
-                  )}
-                </div>
-              </button>
-            );
-          })}
+          {groupesDeSejours(trips).map((g) => (
+            <div key={g.key} className="space-y-3">
+              <SeparateurGroupe label={g.label} />
+              {g.trips.map((t) => <CarteSejour key={t.id} trip={t} passe={g.passe} onOpen={onOpen} />)}
+            </div>
+          ))}
           <button onClick={onNew} style={{ background: C.teal }}
             className="w-full text-white rounded-xl py-3 font-medium active:scale-95 transition inline-flex items-center justify-center gap-2 mt-1">
             <Plus size={18} /> Nouveau séjour
