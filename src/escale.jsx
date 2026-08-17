@@ -699,7 +699,7 @@ async function fetchTravelTimes(legs) {
 // photo : la recherche textuelle renverrait le lieu le plus proche du texte,
 // pas le bon — c'est ainsi qu'une vitrine de Maisons du Monde se retrouvait en
 // photo d'un domicile. Sans lien, l'application affiche l'icône générique.
-const photoCache = new Map(); // clé -> Promise<{photoUri, placeId}|null>
+const photoCache = new Map(); // clé -> Promise<{photoUri, placeId, adresse}|null>
 function fetchPlaceInfo(place) {
   if (!place) return Promise.resolve(null);
   const q = place.mapsName && !isUrl(place.mapsName) ? place.mapsName.trim() : "";
@@ -712,7 +712,14 @@ function fetchPlaceInfo(place) {
       if (place.lat != null && place.lng != null) { body.lat = place.lat; body.lng = place.lng; }
       const { data, error } = await supabase.functions.invoke("place-photo", { body });
       if (error || !data) return null;
-      return { photoUri: data.photoUri || null, placeId: data.placeId || null };
+      // L'adresse postale part dans la même réponse : la garder ne coûte rien,
+      // et elle sert à l'écran Suggestions, où un lien Google Maps ne vaut rien
+      // comme texte de recherche.
+      return {
+        photoUri: data.photoUri || null,
+        placeId: data.placeId || null,
+        adresse: data.adresse || null,
+      };
     } catch { return null; }
   })();
   photoCache.set(key, p);
@@ -720,6 +727,16 @@ function fetchPlaceInfo(place) {
 }
 const fetchPlacePhoto = (place) => fetchPlaceInfo(place).then((i) => (i && i.photoUri) || null);
 const fetchPlaceId = (place) => fetchPlaceInfo(place).then((i) => (i && i.placeId) || null);
+// L'adresse postale d'un lieu connu seulement par son lien Google Maps. Le lien
+// lui-même ne se cherche pas en texte — « autour de https://… » ne dit rien à un
+// modèle de langue. À défaut d'adresse reconnue, le nom que Google a écrit dans
+// l'URL fait un repère acceptable, lui.
+const fetchPlaceAdresse = (place) => fetchPlaceInfo(place).then((i) => {
+  const adresse = i && i.adresse ? i.adresse.trim() : "";
+  if (adresse) return adresse;
+  const nom = place && place.mapsName ? place.mapsName.trim() : "";
+  return nom && !isUrl(nom) ? nom : "";
+});
 
 // Amorce ce cache pour un lieu déjà identifié ailleurs — l'écran Suggestions
 // interroge Google pour ses vignettes, et l'activité ajoutée porte le même nom
@@ -2459,20 +2476,28 @@ function SuggestionCard({ s, ajoutee, onAdd, canEdit }) {
 // nom d'une région.
 const PROMPT_AUTOUR = "Recherche les activités autour de : ";
 
-// Le repère de ce lieu, dans l'ordre demandé : son adresse, sinon son lien
-// Google Maps, sinon rien. Les deux couvrent presque tous les cas — une adresse
-// tapée ou une proposition située par Google portent la première, un lien collé
-// depuis Maps porte le second. Un nom seul ne situerait rien de fiable.
+// Le repère de ce lieu, pour la demande envoyée à Gemini. Toujours une adresse
+// postale ou rien : un lien Google Maps collé tel quel ne se cherche pas — « les
+// activités autour de https://maps.google.com/… » ne dit rien à un modèle de
+// langue, qui ne suit aucune URL.
+//
+// Renvoie { texte, attente } : `texte` est disponible tout de suite, `attente`
+// est une promesse d'adresse quand il faut la demander à Google. Un lieu qui
+// porte déjà son adresse — adresse tapée, proposition située par Google — n'a
+// rien à attendre ; un lieu connu par son seul lien, si.
 function repereLieu(etape) {
   const pl = etape && etape.place;
-  if (!pl) return "";
+  if (!pl) return { texte: "", attente: null };
   const adresse = (pl.address || "").trim();
-  if (adresse) return adresse;
+  if (adresse) return { texte: adresse, attente: null };
   const lien = (pl.url || "").trim();
-  return isUrl(lien) ? lien : "";
+  // Le nom écrit par Google dans l'URL est ce qui permet de retrouver la fiche,
+  // et donc l'adresse. Sans lui, rien à résoudre.
+  const resoluble = isUrl(lien) && pl.mapsName && !isUrl(pl.mapsName);
+  return { texte: "", attente: resoluble ? fetchPlaceAdresse(pl) : null };
 }
 
-function SuggestionsSheet({ trip, jour, onAdd, onClose, canEdit, promptInitial = "" }) {
+function SuggestionsSheet({ trip, jour, onAdd, onClose, canEdit, promptInitial = "", repereAttendu = null }) {
   // Le champ est prérempli à l'ouverture seulement : ensuite il appartient à
   // l'utilisateur, qui peut l'effacer ou le réécrire sans qu'on y revienne.
   const [prompt, setPrompt] = useState(promptInitial);
@@ -2480,9 +2505,39 @@ function SuggestionsSheet({ trip, jour, onAdd, onClose, canEdit, promptInitial =
   const [erreur, setErreur] = useState("");
   const [resultats, setResultats] = useState(null);   // null = pas encore cherché
   const [ajoutees, setAjoutees] = useState({});
+  // Adresse encore à venir : le lieu précédent n'est connu que par son lien
+  // Google Maps, et l'adresse se demande à Google.
+  const [attente, setAttente] = useState(!!repereAttendu);
   // Une recherche chassant la précédente, les photos de l'ancienne ne doivent
   // pas venir se poser sur la nouvelle liste.
   const course = useRef(0);
+  const champ = useRef(null);
+
+  // L'adresse arrive après coup : on complète l'amorce, mais SEULEMENT si le
+  // champ n'a pas bougé entre-temps. Écraser ce que l'utilisateur vient de taper
+  // serait bien pire que de renoncer à compléter.
+  useEffect(() => {
+    if (!repereAttendu) return;
+    let vivant = true;
+    repereAttendu.then((adresse) => {
+      if (!vivant) return;
+      setAttente(false);
+      const a = (adresse || "").trim();
+      if (!a) return;
+      setPrompt((actuel) => (actuel === promptInitial ? promptInitial + a : actuel));
+    });
+    return () => { vivant = false; };
+  }, [repereAttendu, promptInitial]);
+
+  // Champ qui grandit avec son contenu : une demande de trois lignes ne doit pas
+  // se lire par une fenêtre de deux. Borné en hauteur, au-delà il défile — sinon
+  // un collage un peu long repousserait le bouton de recherche hors de l'écran.
+  useLayoutEffect(() => {
+    const el = champ.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [prompt]);
 
   const cherche = async () => {
     const q = prompt.trim();
@@ -2524,16 +2579,24 @@ function SuggestionsSheet({ trip, jour, onAdd, onClose, canEdit, promptInitial =
       />
       <div className="flex-1 overflow-y-auto">
         <div className="mx-auto max-w-md px-4 py-4">
-          {/* Deux lignes : la demande tient rarement sur une, et on veut la
-              relire en entier avant de lancer une recherche facturée. */}
+          {/* Deux lignes au minimum : la demande tient rarement sur une, et on
+              veut la relire en entier avant de lancer une recherche facturée.
+              Au-delà, le champ grandit de lui-même (voir useLayoutEffect). */}
           <textarea
+            ref={champ}
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             rows={2}
             placeholder="Recherche les activités à Biarritz"
-            style={inputStyle}
+            style={{ ...inputStyle, maxHeight: 200, overflowY: "auto" }}
             className="w-full rounded-xl px-3 py-2.5 outline-none resize-none"
           />
+          {attente && (
+            <div style={{ color: C.inkSoft }} className="mt-1.5 flex items-center gap-1.5 t11">
+              <Loader2 size={12} className="animate-spin" />
+              Recherche de l'adresse du lieu précédent…
+            </div>
+          )}
           <button onClick={cherche} disabled={!prompt.trim() || chargement}
             style={{ background: (!prompt.trim() || chargement) ? C.inkSoft : C.teal, opacity: (!prompt.trim() || chargement) ? 0.6 : 1 }}
             className="mt-2 w-full text-white rounded-xl py-3 font-medium inline-flex items-center justify-center gap-2 active:scale-95 transition">
@@ -2668,10 +2731,16 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
   // de journée. L'amorce est écrite dans tous les cas : sans repère utilisable —
   // lieu sans adresse ni lien, journée encore vide — la phrase s'arrête après
   // les deux-points, et il n'y a plus qu'à compléter.
-  const promptSuggestions = () => {
-    const apresId = ancreSuggestion.current;
+  // Calculée UNE FOIS, à l'ouverture, et rangée dans un état. La calculer au
+  // rendu recréerait la promesse d'adresse à chaque passage, et l'effet qui
+  // l'attend repartirait sans fin.
+  const [amorce, setAmorce] = useState({ promptInitial: "", repereAttendu: null });
+  const ouvreSuggestions = (apresId) => {
+    ancreSuggestion.current = apresId || null;
     const etape = apresId ? acts.find((x) => x.id === apresId) : acts[acts.length - 1];
-    return PROMPT_AUTOUR + repereLieu(etape);
+    const { texte, attente } = repereLieu(etape);
+    setAmorce({ promptInitial: PROMPT_AUTOUR + texte, repereAttendu: attente });
+    setSuggestionsOuvert(true);
   };
 
   const totalTravel = useMemo(() => {
@@ -2827,10 +2896,7 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
                   onOuvrirAjout={() => setAjoutTrajet(a.id)}
                   onFermerAjout={fermeTrajet}
                   onAjoutActivite={canEdit && !drag ? () => choisitTrajet(() => onAddAct(a.id)) : undefined}
-                  onAjoutSuggestion={() => choisitTrajet(() => {
-                    ancreSuggestion.current = a.id;
-                    setSuggestionsOuvert(true);
-                  })} />}
+                  onAjoutSuggestion={() => choisitTrajet(() => ouvreSuggestions(a.id))} />}
                 {drag && drag.over === acts.length && i === acts.length - 1 && <InsertBar />}
               </div>
               );
@@ -2854,7 +2920,7 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
 
       {suggestionsOuvert && (
         <SuggestionsSheet trip={trip} jour={safeCurrent} canEdit={canEdit}
-          promptInitial={promptSuggestions()}
+          {...amorce}
           onAdd={(s) => {
             // L'ancre avance sur l'étape qu'on vient de poser : les propositions
             // retenues se suivent dans l'ordre où on les a prises.
@@ -2882,7 +2948,7 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
                   plus fréquent, reste au plus près du pouce, juste au-dessus du « + ». */}
               {ajoutOuvert && (
                 <>
-                  <button onClick={() => choisitAjout(() => { ancreSuggestion.current = null; setSuggestionsOuvert(true); })} style={{ background: C.ink }}
+                  <button onClick={() => choisitAjout(() => ouvreSuggestions(null))} style={{ background: C.ink }}
                     className="pointer-events-auto text-white rounded-full pl-4 pr-5 py-3.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
                     <Sparkles size={20} /> Suggestions
                   </button>

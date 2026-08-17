@@ -169,8 +169,12 @@ retirer lui-même — d'où la clause sur son propre email dans `members_delete`
 Le choix **Suggestions** du bouton « + » ouvre un écran de recherche en langage
 courant — « Recherche les activités à Biarritz ». Le champ tient sur **deux
 lignes** : une demande dépasse souvent une ligne, et on veut la relire en entier
-avant de lancer une recherche facturée. Le bouton **Rechercher** reste inactif
-tant que rien n'est écrit, et se change en indicateur d'attente pendant l'appel.
+avant de lancer une recherche facturée. Le champ **grandit ensuite avec son
+contenu** — une demande de cinq lignes ne se relit pas par une fenêtre de deux —
+jusqu'à 200 px, au-delà de quoi il défile : sans cette borne, un collage un peu
+long repousserait le bouton de recherche hors de l'écran. Le bouton
+**Rechercher** reste inactif tant que rien n'est écrit, et se change en
+indicateur d'attente pendant l'appel.
 
 ### La demande préremplie
 Le champ s'ouvre déjà rempli de « **Recherche les activités autour de :** » suivi
@@ -182,11 +186,26 @@ Le lieu précédent dépend du chemin d'ouverture : le « + » d'un trajet dési
 l'étape qui précède ce trajet ; le bouton flottant, qui ajoute en fin de journée,
 désigne la **dernière étape du jour**.
 
-Le repère est cherché dans cet ordre : l'**adresse** du lieu, sinon son **lien
-Google Maps**, sinon rien. Les deux couvrent presque tous les cas — une adresse
-tapée ou une proposition située par Google portent la première, un lien collé
-depuis Maps porte le second. Un nom seul est écarté : il ne situerait rien de
-fiable.
+Le repère est **toujours une adresse postale, jamais une URL**. Un lien Google
+Maps collé tel quel ne se cherche pas : « les activités autour de
+https://maps.google.com/… » ne dit rien à un modèle de langue, qui ne suit aucune
+adresse web.
+
+Deux chemins, donc :
+
+- Le lieu **porte déjà son adresse** — adresse tapée, proposition située par
+  Google : elle est écrite d'emblée, sans aucune requête.
+- Le lieu n'est connu que par son **lien Maps** : l'adresse est demandée à Google
+  avec le nom que Google lui-même a écrit dans l'URL, ancré sur les coordonnées du
+  lien. C'est le même appel `place-photo` que celui des vignettes de la timeline,
+  qui renvoyait déjà cette adresse sans que personne la lise — le plus souvent
+  elle est donc **déjà en cache** et arrive instantanément. Sinon une mention
+  discrète signale l'attente, et le champ se complète à l'arrivée.
+
+L'adresse n'écrase jamais une frappe : si le champ a bougé pendant la résolution,
+elle est simplement abandonnée. Et si Google ne reconnaît pas le lieu, le nom
+inscrit dans l'URL sert de repli — c'est un nom de lieu réel, lui, contrairement
+à un libellé libre comme « Pique-nique », qui reste écarté.
 
 Sans repère utilisable — un lieu sans adresse ni lien, ou une journée encore vide
 — l'amorce est **écrite quand même** et s'arrête après les deux-points, espace
