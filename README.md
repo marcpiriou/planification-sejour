@@ -419,17 +419,26 @@ fermeture passe donc par l'historique, et l'action attend le rappel.
 ### Un « + » sur chaque trajet
 Le bouton flottant ne sait ajouter qu'**en fin de journée**. Or c'est en lisant
 un trajet qu'on se dit « il manque quelque chose entre ces deux étapes » : chaque
-pastille de trajet porte donc son propre « + », à sa droite, dans le flux de la
-timeline. Même dessin que le bouton flottant — disque teal, « + » blanc qui pivote
-en croix à l'ouverture — mais à la taille de la ligne : un disque de 56 px
-écraserait la pastille qu'il accompagne.
+ligne de trajet porte donc son propre « + », dans le flux de la timeline.
+
+Il se pose **sur le trait vertical, dans la colonne de gauche** — exactement là
+où la pastille de durée se pose sur le trait d'une activité. C'est la colonne des
+commandes de la timeline, et il en prend le gabarit : **30 px**, la hauteur de
+cette pastille. Le dessin reste celui du bouton flottant (disque teal, « + »
+blanc qui pivote en croix), mais un disque de 56 px n'aurait pas sa place dans
+une colonne de 66 px de large.
+
+Il est ancré **en haut** de sa colonne, et non centré : le menu ouvert fait
+grandir la ligne, et un bouton centré descendrait au milieu des choix qu'il vient
+d'ouvrir au lieu de rester en face du trajet.
 
 Le menu s'ouvre **au niveau du trajet touché**, dans le flux plutôt qu'en
 surimpression : une position absolue se ferait rogner par le défilement de la
-liste. Deux choix seulement, **Activité** et **Suggestions** — un hébergement ne
-s'insère pas au milieu d'une journée, sa place y est déduite de ses nuits. Le
-menu réutilise la mécanique de couche d'historique du bouton flottant, ce qui lui
-donne les mêmes trois façons de refermer.
+liste. Ses deux boutons se rangent dans la colonne de contenu, alignés sur la
+pastille de trajet. Deux choix seulement, **Activité** et **Suggestions** — un
+hébergement ne s'insère pas au milieu d'une journée, sa place y est déduite de
+ses nuits. Le menu réutilise la mécanique de couche d'historique du bouton
+flottant, ce qui lui donne les mêmes trois façons de refermer.
 
 Un seul menu à la fois, l'état ne retenant qu'une ancre. Menu ouvert, le voile
 couvre l'écran : viser le « + » d'un autre trajet referme d'abord le menu courant,

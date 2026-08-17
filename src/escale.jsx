@@ -1653,9 +1653,30 @@ function TravelLeg({
     // liste, pas en surimpression, pour ne pas être rogné par le défilement.
     <div className="flex gap-3" style={ajoutOuvert ? { position: "relative", zIndex: 30 } : undefined}>
       {/* Même largeur que la colonne horaire d'une carte (66) : sans cela le trait
-          tombait 7 px à gauche de l'axe des pastilles. */}
-      <div className="shrink-0 flex justify-center" style={{ width: 66 }}>
-        <div style={{ background: C.line }} className="w-0.5" />
+          tombait 7 px à gauche de l'axe des pastilles. Le « + » se pose sur ce
+          trait, exactement là où la pastille de durée se pose sur celui d'une
+          activité — c'est la colonne des commandes de la timeline. */}
+      {/* items-start, et non items-center : menu ouvert, la ligne grandit, et un
+          bouton centré descendrait au milieu des choix qu'il vient d'ouvrir. Le
+          décalage le pose en face de la pastille de trajet, dont la colonne de
+          droite commence 8 px plus bas (mt-2). */}
+      <div className="shrink-0 relative flex justify-center items-start" style={{ width: 66 }}>
+        <div style={{ background: C.line }} className="absolute inset-y-0 w-0.5" />
+        {peutAjouter && (
+          // Même dessin que le bouton flottant — disque teal, « + » blanc, croix
+          // à l'ouverture — mais aux dimensions de la pastille de durée qui lui
+          // fait face (30 px) : un disque de 56 px n'a pas sa place dans cette
+          // colonne étroite.
+          <button onClick={() => (ajoutOuvert ? onFermerAjout() : onOuvrirAjout())}
+            aria-expanded={ajoutOuvert}
+            aria-label={ajoutOuvert
+              ? "Fermer le menu d'ajout après ce trajet"
+              : `Ajouter une étape après ${from.name || "cette étape"}`}
+            style={{ background: C.teal, height: 30, width: 30, marginTop: 6 }}
+            className="relative rounded-full text-white shadow-sm flex items-center justify-center active:scale-95 transition shrink-0">
+            <Plus size={16} style={{ transform: ajoutOuvert ? "rotate(45deg)" : "none", transition: "transform .18s" }} />
+          </button>
+        )}
       </div>
       <div className="flex-1 pb-1 mt-2 mb-1">
         <div className="flex items-center gap-2 flex-wrap">
@@ -1668,20 +1689,6 @@ function TravelLeg({
             {leg.km != null && <span style={{ fontFamily: MONO }} className="t11 opacity-80">· {leg.km.toFixed(leg.km < 10 ? 1 : 0)} km</span>}
             {onEdit && <Pencil size={11} className="opacity-70" />}
           </button>
-          {peutAjouter && (
-            // Même dessin que le bouton flottant — disque teal, « + » blanc, croix
-            // à l'ouverture — mais à la taille de la ligne : un disque de 56 px
-            // écraserait la pastille de trajet qu'il accompagne.
-            <button onClick={() => (ajoutOuvert ? onFermerAjout() : onOuvrirAjout())}
-              aria-expanded={ajoutOuvert}
-              aria-label={ajoutOuvert
-                ? "Fermer le menu d'ajout après ce trajet"
-                : `Ajouter une étape après ${from.name || "cette étape"}`}
-              style={{ background: C.teal }}
-              className="h-9 w-9 rounded-full text-white shadow flex items-center justify-center active:scale-95 transition shrink-0">
-              <Plus size={20} style={{ transform: ajoutOuvert ? "rotate(45deg)" : "none", transition: "transform .18s" }} />
-            </button>
-          )}
         </div>
 
         {/* Deux choix seulement : un hébergement ne s'insère pas au milieu d'une
