@@ -1639,17 +1639,18 @@ function ActivityCard({ act, onEdit, onEditDuration, startMin, endMin, auto, pre
     fetchPlacePhoto(act.place).then((u) => { if (alive) setPhoto(u); });
     return () => { alive = false; };
   }, [stay, act.place?.mapsName, act.place?.lat, act.place?.lng]);
-  const accent = stay ? STAY_COLOR : C.teal;
   return (
     <div className="flex gap-3">
-      {/* colonne horaire + noeuds + durée (cliquable) */}
+      {/* Colonne horaire : les deux heures, le rail, et la durée. Les nœuds
+          colorés — plein au départ, cerclé à l'arrivée — ont été retirés : ils
+          répétaient ce que les heures disaient déjà, et la couleur de l'étape se
+          lit sur sa carte. La colonne ne porte plus que des chiffres. */}
       <div className="shrink-0 flex flex-col items-center" style={{ width: 66 }}>
         <div style={{ color: C.ink, fontFamily: MONO }} className="text-sm font-semibold">{start}</div>
         {auto && <div style={{ color: C.inkSoft }} className="t10 leading-none">auto</div>}
         {maintenant != null && <PastilleMaintenant minutes={maintenant} dansEtape />}
-        <div style={{ background: accent, border: `3px solid ${C.paper}`, boxSizing: "content-box" }} className="mt-1 h-3.5 w-3.5 rounded-full"></div>
         {/* ligne verticale avec la durée centrée dessus (grande zone cliquable) */}
-        <div className="relative w-full flex-1 flex items-center justify-center py-2" style={{ minHeight: 54 }}>
+        <div className="relative w-full flex-1 flex items-center justify-center py-2 mt-1" style={{ minHeight: 54 }}>
           <div style={{ background: C.line }} className="absolute w-0.5 h-full" />
           {!stay && (
             <button onClick={() => canEdit && onEditDuration(act)} disabled={!canEdit} aria-label="Modifier la durée"
@@ -1659,9 +1660,8 @@ function ActivityCard({ act, onEdit, onEditDuration, startMin, endMin, auto, pre
             </button>
           )}
         </div>
-        {/* Un hébergement ne dure pas : ni rond de fin, ni heure de fin — elle
-            vaudrait son heure de début. */}
-        {!stay && <div style={{ border: `2px solid ${accent}`, background: C.paper, boxSizing: "content-box" }} className="h-2 w-2 rounded-full"></div>}
+        {/* Un hébergement ne dure pas : pas d'heure de fin — elle vaudrait son
+            heure de début. */}
         {!stay && <div style={{ color: C.inkSoft, fontFamily: MONO }} className="t11 mt-1 leading-none">{end}</div>}
       </div>
       {/* corps — un appui long (photo comprise) démarre le déplacement */}
