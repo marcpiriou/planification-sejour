@@ -730,10 +730,8 @@ présent —, et à la minute de sa fin la pastille passe sur sa propre ligne ju
 sous l'heure de fin. Les faire disparaître demanderait de mentir sur l'un des deux.
 
 Le **rose** de la palette est la seule couleur qui ne serve à rien d'autre sur la
-timeline : ambre pour les trajets, indigo pour la carte d'un hébergement. Un repère
-de temps ne doit pas se confondre avec une étape — et c'est désormais la **seule
-couleur de la colonne des horaires**, qui ne porte plus que des chiffres (voir
-ci-dessous).
+timeline : teal désigne les étapes, ambre les trajets, indigo les hébergements. Un
+repère de temps ne doit pas se confondre avec une étape.
 
 Deux détails d'implémentation : sur sa ligne à part, le trait vertical de la
 colonne passe **derrière** la pastille, comme sous la pastille de durée, sans quoi
@@ -741,17 +739,16 @@ la colonne se briserait à hauteur du repère ; et un intervalle d'une minute re
 **seulement sur la journée du jour** — ailleurs il n'y a rien à rafraîchir, et un
 repère de temps figé vaudrait moins que rien.
 
-### La colonne des horaires ne porte que des chiffres
-Elle a longtemps montré, pour chaque étape, un **nœud plein** à son heure de début
-et un **nœud cerclé** à son heure de fin, teal pour une activité, indigo pour un
-hébergement. Les deux ont été retirés.
+### Un seul nœud par étape, à son début
+La colonne montrait deux nœuds par étape : un **plein** à son heure de début, un
+**cerclé** à son heure de fin — teal pour une activité, indigo pour un hébergement.
+Le cerclé a été retiré.
 
-Ils répétaient ce que les heures écrites juste à côté disaient déjà, et la couleur
-de l'étape se lit de toute façon sur sa carte — bordure indigo et icône de lit pour
-un hébergement. Ce qui reste : les deux heures, la pastille de durée, le rail gris,
-et les « + » d'ajout sur les trajets. La colonne se lit d'un coup d'œil, sans
-ponctuation décorative, et le rose du repère de l'heure courante y est la seule
-couleur.
+Le nœud plein reste : c'est lui qui accroche la carte au rail, et qui donne à
+l'étape sa couleur dans la timeline. Le cerclé, lui, tombait **au milieu**, entre la
+pastille de durée et l'heure de fin, et ne disait rien de plus que cette heure
+écrite juste dessous. La colonne se lit donc : heure de début, nœud, durée, heure de
+fin — un seul point d'accroche par étape au lieu de deux.
 
 ### Où la timeline se positionne
 Sur **aujourd'hui**, la journée s'ouvre cadrée sur **l'étape de l'heure qu'il

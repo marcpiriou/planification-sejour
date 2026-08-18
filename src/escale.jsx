@@ -1639,18 +1639,22 @@ function ActivityCard({ act, onEdit, onEditDuration, startMin, endMin, auto, pre
     fetchPlacePhoto(act.place).then((u) => { if (alive) setPhoto(u); });
     return () => { alive = false; };
   }, [stay, act.place?.mapsName, act.place?.lat, act.place?.lng]);
+  const accent = stay ? STAY_COLOR : C.teal;
   return (
     <div className="flex gap-3">
-      {/* Colonne horaire : les deux heures, le rail, et la durée. Les nœuds
-          colorés — plein au départ, cerclé à l'arrivée — ont été retirés : ils
-          répétaient ce que les heures disaient déjà, et la couleur de l'étape se
-          lit sur sa carte. La colonne ne porte plus que des chiffres. */}
+      {/* Colonne horaire : un nœud plein à l'heure de début, le rail, la durée, et
+          l'heure de fin. Le nœud plein marque le DÉBUT de l'étape sur le rail —
+          c'est lui qui donne le point d'accroche de la carte. Le cercle qui
+          marquait la fin, lui, a été retiré : posé au milieu, entre la durée et
+          l'heure de fin, il ponctuait le rail sans rien ajouter à ce que l'heure
+          écrite juste dessous disait déjà. */}
       <div className="shrink-0 flex flex-col items-center" style={{ width: 66 }}>
         <div style={{ color: C.ink, fontFamily: MONO }} className="text-sm font-semibold">{start}</div>
         {auto && <div style={{ color: C.inkSoft }} className="t10 leading-none">auto</div>}
         {maintenant != null && <PastilleMaintenant minutes={maintenant} dansEtape />}
+        <div style={{ background: accent, border: `3px solid ${C.paper}`, boxSizing: "content-box" }} className="mt-1 h-3.5 w-3.5 rounded-full"></div>
         {/* ligne verticale avec la durée centrée dessus (grande zone cliquable) */}
-        <div className="relative w-full flex-1 flex items-center justify-center py-2 mt-1" style={{ minHeight: 54 }}>
+        <div className="relative w-full flex-1 flex items-center justify-center py-2" style={{ minHeight: 54 }}>
           <div style={{ background: C.line }} className="absolute w-0.5 h-full" />
           {!stay && (
             <button onClick={() => canEdit && onEditDuration(act)} disabled={!canEdit} aria-label="Modifier la durée"
