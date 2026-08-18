@@ -830,6 +830,23 @@ async function fetchSuggestions(prompt) {
   }
 }
 
+// Les lieux d'un type donné autour d'un point, par Google Maps (Edge Function
+// `places-around`). Contrairement aux suggestions de Gemini, rien n'est à situer
+// ensuite : une seule requête rend des lieux qui existent, déjà positionnés,
+// notés et photographiés.
+async function fetchLieuxAutour(sujet, lat, lng) {
+  try {
+    const { data, error } = await supabase.functions.invoke("places-around", { body: { sujet, lat, lng } });
+    const MUET = "service indisponible pour l'instant — réessayez dans un instant";
+    if (error) return { erreur: (await messageFonction(error)) || MUET };
+    if (!data) return { erreur: MUET };
+    if (data.error) return { erreur: data.detail ? `${data.error} (${data.detail})` : data.error };
+    return { lieux: Array.isArray(data.lieux) ? data.lieux : [] };
+  } catch (e) {
+    return { erreur: e?.message || String(e) };
+  }
+}
+
 // Situe un lieu décrit en texte : photo, coordonnées, nom et adresse retenus par
 // Google. Un seul appel sert les quatre — c'est pourquoi place-photo renvoie
 // aussi la position, plutôt que de payer une seconde recherche pour l'obtenir.
@@ -2731,15 +2748,28 @@ const PROMPT_AUTOUR = "Recherche les activités autour de : ";
 // demande est le morceau de phrase envoyé à Gemini, au pluriel et parfois
 // précisé — « glacier » seul se comprendrait comme une étendue de glace, et non
 // comme un marchand de glaces.
+// `categorie` : la nature du lieu décide de la catégorie de l'étape créée, plutôt
+// que de tout ranger en « visite ». Un restaurant ajouté depuis une pastille est
+// un repas, et sa pastille de timeline doit le dire.
+// `google` : le sujet est-il cherchable chez Google Maps, et sous quel mot-clé —
+// c'est l'Edge Function qui traduit ce mot-clé en types de lieux, le navigateur
+// n'en dicte aucun. Absent quand Google ne sait pas répondre à la question.
 const SUJETS = [
-  { cle: "activites", libelle: "activités", demande: "les activités et lieux à visiter" },
-  { cle: "parking-gratuit", libelle: "parking gratuit", demande: "les parkings gratuits" },
-  { cle: "parking", libelle: "parking", demande: "les parkings" },
-  { cle: "glacier", libelle: "glacier", demande: "les glaciers, c'est-à-dire les marchands de glaces" },
-  { cle: "restaurant", libelle: "restaurant", demande: "les restaurants" },
-  { cle: "toilettes", libelle: "toilettes publiques", demande: "les toilettes publiques" },
+  { cle: "activites", libelle: "activités", demande: "les activités et lieux à visiter", categorie: "visite", google: "activites" },
+  { cle: "parking-gratuit", libelle: "parking gratuit", demande: "les parkings gratuits", categorie: "transport" },
+  { cle: "parking", libelle: "parking", demande: "les parkings", categorie: "transport", google: "parking" },
+  { cle: "glacier", libelle: "glacier", demande: "les glaciers, c'est-à-dire les marchands de glaces", categorie: "cafe", google: "glacier" },
+  { cle: "restaurant", libelle: "restaurant", demande: "les restaurants", categorie: "repas", google: "restaurant" },
+  { cle: "toilettes", libelle: "toilettes publiques", demande: "les toilettes publiques", categorie: "autre", google: "toilettes" },
 ];
 const promptSujet = (sujet, repere) => `Recherche ${sujet.demande} autour de : ${repere}`;
+
+// Ce que Google Maps sait chercher. « parking gratuit » n'en fait pas partie :
+// distinguer le gratuit du payant demanderait le palier tarifaire le plus cher de
+// l'API (« Enterprise + Atmosphere »), pour une donnée que Google ne renseigne
+// que par endroits. Mieux vaut retirer la pastille et le dire que rendre des
+// parkings payants sous une étiquette « gratuit ».
+const SUJETS_GOOGLE = SUJETS.filter((s) => s.google);
 
 // Le repère de ce lieu : le texte pour la demande envoyée à Gemini, la position
 // pour mesurer les distances. Le texte est toujours une adresse postale ou rien :
@@ -2771,9 +2801,11 @@ function repereLieu(etape) {
 }
 
 function SuggestionsSheet({ trip, jour, onAdd, onRemove, onClose, canEdit, promptInitial = "", repereAttendu = null, repereInitial = null }) {
-  // Deux façons de chercher. « Automatique » par défaut : une pastille suffit, et
+  // Trois façons de chercher. « Automatique » par défaut : une pastille suffit, et
   // c'est ce qu'on veut neuf fois sur dix en cours de route. « Manuel » garde la
-  // demande libre, pour ce qu'aucune pastille ne couvre.
+  // demande libre, pour ce qu'aucune pastille ne couvre. « Google Maps » reprend
+  // les mêmes pastilles mais interroge l'annuaire de Google au lieu de Gemini :
+  // des lieux qui existent, une seule requête, et rien à inventer.
   const [mode, setMode] = useState("auto");
   // Le champ est prérempli à l'ouverture seulement : ensuite il appartient à
   // l'utilisateur, qui peut l'effacer ou le réécrire sans qu'on y revienne.
@@ -2856,7 +2888,7 @@ function SuggestionsSheet({ trip, jour, onAdd, onRemove, onClose, canEdit, promp
     return info;
   };
 
-  const lance = async (q) => {
+  const lance = async (q, sujet = null) => {
     const demande = (q || "").trim();
     if (!demande || chargement) return;
     const moi = ++course.current;
@@ -2885,7 +2917,14 @@ function SuggestionsSheet({ trip, jour, onAdd, onRemove, onClose, canEdit, promp
       // l'activité posée sur la timeline.
       const situe = info ? { ...s, ...info, nom: s.nom, nomGoogle: info.nom || null } : { ...s };
       const mesurable = depart && situe.lat != null && situe.lng != null;
-      return { ...situe, km: mesurable ? haversineKm(depart, situe) : null };
+      return {
+        ...situe,
+        // La pastille touchée dit la nature du lieu : un restaurant devient une
+        // étape « repas », pas une « visite ». Une demande libre n'en dit rien,
+        // et retombe sur la catégorie par défaut.
+        categorie: sujet ? sujet.categorie : null,
+        km: mesurable ? haversineKm(depart, situe) : null,
+      };
     });
     // Du plus proche au plus lointain. Ce qui n'a pas pu être mesuré — lieu que
     // Google n'a pas reconnu, journée sans point de référence — passe en fin de
@@ -2902,15 +2941,48 @@ function SuggestionsSheet({ trip, jour, onAdd, onRemove, onClose, canEdit, promp
 
   const cherche = () => lance(prompt);
 
-  // Une pastille : la demande est écrite pour Gemini et la recherche part dans le
-  // même geste. Le texte composé rejoint le champ du mode manuel, où il pourra
-  // être repris et affiné sans le retaper.
+  // Une pastille en mode Automatique : la demande est écrite pour Gemini et la
+  // recherche part dans le même geste. Le texte composé rejoint le champ du mode
+  // manuel, où il pourra être repris et affiné sans le retaper.
   const chercheSujet = (sujet) => {
     if (chargement || !repere.texte.trim()) return;
     const q = promptSujet(sujet, repere.texte.trim());
     setPrompt(q);
     setSujetEnCours(sujet.cle);
-    lance(q);
+    lance(q, sujet);
+  };
+
+  // La même pastille, côté Google Maps. Aucune phrase à écrire : l'annuaire se
+  // cherche par type de lieu autour d'un point, et c'est l'Edge Function qui
+  // traduit le mot-clé en types. Il faut donc une POSITION, là où le mode
+  // Automatique se contentait d'une adresse en texte.
+  const chercheGoogle = async (sujet) => {
+    if (chargement) return;
+    const moi = ++course.current;
+    setSujetEnCours(sujet.cle);
+    setChargement(true); setPhase("annuaire"); setErreur(""); setResultats(null); setAjoutees({});
+    const depart = await origine();
+    if (course.current !== moi) return;
+    if (!depart) {
+      setChargement(false); setPhase(""); setSujetEnCours(null);
+      setErreur("lieu de référence introuvable : impossible de chercher autour de lui");
+      return;
+    }
+    const r = await fetchLieuxAutour(sujet.google, depart.lat, depart.lng);
+    if (course.current !== moi) return;
+    setChargement(false); setPhase(""); setSujetEnCours(null);
+    if (r.erreur) { setErreur(r.erreur); return; }
+    // Google les rend déjà du plus proche au plus loin ; on recalcule quand même
+    // la distance, pour qu'elle soit mesurée depuis le même point et de la même
+    // façon que dans le mode Automatique — deux chiffres qui se comparent.
+    const liste = r.lieux.map((l, i) => ({
+      ...l,
+      cle: `${moi}-${i}`,
+      nomGoogle: l.nom || null,
+      categorie: sujet.categorie,
+      km: l.lat != null && l.lng != null ? haversineKm(depart, l) : null,
+    }));
+    setResultats(liste);
   };
 
   // `ajoutees` retient l'IDENTIFIANT de l'activité créée par chaque carte, pas un
@@ -2947,27 +3019,32 @@ function SuggestionsSheet({ trip, jour, onAdd, onRemove, onClose, canEdit, promp
               aria-pressed={mode === "auto"}
               style={{ background: mode === "auto" ? C.teal : "#fff", color: mode === "auto" ? "#fff" : C.ink, border: `1px solid ${mode === "auto" ? C.teal : C.line}` }}
               className="flex-1 rounded-xl py-2 text-sm active:scale-95 transition">Automatique</button>
+            <button type="button" onClick={() => setMode("gmaps")}
+              aria-pressed={mode === "gmaps"}
+              style={{ background: mode === "gmaps" ? C.teal : "#fff", color: mode === "gmaps" ? "#fff" : C.ink, border: `1px solid ${mode === "gmaps" ? C.teal : C.line}` }}
+              className="flex-1 rounded-xl py-2 text-sm active:scale-95 transition">Google Maps</button>
             <button type="button" onClick={() => setMode("manuel")}
               aria-pressed={mode === "manuel"}
               style={{ background: mode === "manuel" ? C.teal : "#fff", color: mode === "manuel" ? "#fff" : C.ink, border: `1px solid ${mode === "manuel" ? C.teal : C.line}` }}
               className="flex-1 rounded-xl py-2 text-sm active:scale-95 transition">Manuel</button>
           </div>
 
-          {mode === "auto" ? (
+          {mode !== "manuel" ? (
             <div className="mt-3">
               {repere.texte.trim() ? (
                 <>
                   <div style={{ color: C.inkSoft }} className="t11">
                     Autour de <span style={{ color: C.ink }} className="font-medium">{repere.texte}</span>
                   </div>
-                  {/* Nuage de pastilles : un seul toucher lance la recherche, la
-                      demande étant écrite pour vous. */}
+                  {/* Nuage de pastilles : un seul toucher lance la recherche. Le
+                      mode décide de qui répond — Gemini écrit une liste, Google
+                      Maps rend son annuaire — le geste, lui, est le même. */}
                   <div className="mt-2 flex flex-wrap gap-2">
-                    {SUJETS.map((sujet) => {
+                    {(mode === "gmaps" ? SUJETS_GOOGLE : SUJETS).map((sujet) => {
                       const actif = sujetEnCours === sujet.cle;
                       return (
                         <button key={sujet.cle} type="button"
-                          onClick={() => chercheSujet(sujet)}
+                          onClick={() => (mode === "gmaps" ? chercheGoogle(sujet) : chercheSujet(sujet))}
                           disabled={chargement}
                           aria-label={`Rechercher ${sujet.libelle} autour de ${repere.texte}`}
                           style={{
@@ -2983,6 +3060,15 @@ function SuggestionsSheet({ trip, jour, onAdd, onRemove, onClose, canEdit, promp
                       );
                     })}
                   </div>
+                  {mode === "gmaps" && (
+                    // Dit pourquoi une pastille manque ici : sans cela, on la
+                    // chercherait en croyant à un oubli.
+                    <div style={{ color: C.inkSoft }} className="t11 mt-2">
+                      Lieux réels tirés de Google Maps, sans passer par l'IA. « Parking gratuit »
+                      n'y figure pas : Google ne distingue pas le gratuit du payant — le mode
+                      Automatique reste le seul à pouvoir le demander.
+                    </div>
+                  )}
                 </>
               ) : (
                 // Sans lieu de référence, « les parkings autour de : » ne veut
@@ -3047,10 +3133,12 @@ function SuggestionsSheet({ trip, jour, onAdd, onRemove, onClose, canEdit, promp
           {/* Le second temps de la recherche dure : Gemini a répondu, chaque
               proposition est en train d'être située chez Google. Le dire évite de
               croire l'écran figé. */}
-          {chargement && phase === "google" && (
+          {chargement && (phase === "google" || phase === "annuaire") && (
             <div style={{ color: C.inkSoft }} className="mt-3 flex items-center gap-1.5 t11">
               <Loader2 size={12} className="animate-spin" />
-              Localisation des propositions et calcul des distances…
+              {phase === "annuaire"
+                ? "Lecture de l'annuaire Google Maps…"
+                : "Localisation des propositions et calcul des distances…"}
             </div>
           )}
 
@@ -3082,8 +3170,10 @@ function SuggestionsSheet({ trip, jour, onAdd, onRemove, onClose, canEdit, promp
                   ajoutee={!!ajoutees[s.cle]} onAdd={() => ajoute(s)} onRemove={() => retire(s)} />
               ))}
               <div style={{ color: C.inkSoft }} className="t11 mt-1">
-                Propositions écrites par Gemini : à vérifier avant de s'y fier.
-                Chaque ajout rejoint la journée affichée, où il reste modifiable.
+                {mode === "gmaps"
+                  ? "Lieux tirés de l'annuaire Google Maps : ils existent, mais leur intérêt reste à juger."
+                  : "Propositions écrites par Gemini : à vérifier avant de s'y fier."}
+                {" "}Chaque ajout rejoint la journée affichée, où il reste modifiable.
                 {resultats.some((s) => s.km != null) && (
                   <> Distances à vol d'oiseau depuis {repere.texte || "le lieu de référence"}, notes issues de Google.</>
                 )}
@@ -4732,7 +4822,10 @@ function SejourApp() {
       url: null,
     };
     const act = {
-      id: uid(), date: jour, name: nom, category: "visite",
+      // La catégorie vient de la pastille touchée quand il y en avait une : un
+      // restaurant est un repas, un parking un transport. « visite » ne reste que
+      // pour une demande libre, qui ne dit rien de la nature du lieu.
+      id: uid(), date: jour, name: nom, category: s.categorie || "visite",
       startTime, arriveTime: null, durationMin: 60, place,
       travelMode: MODE_AUTO, travelMinutes: null,
       notes: (s.description || "").trim(),

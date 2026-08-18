@@ -118,8 +118,8 @@ Un troisième secret, sans rapport avec Google Maps, complète la liste :
 deux : `GOOGLE_PLACES_KEY` pour lire les avis, `GEMINI_API_KEY` pour les résumer.
 
 ### Accès aux Edge Functions
-Les six fonctions (`maps-key`, `resolve-place`, `travel-time`, `place-photo`,
-`suggestions`, `place-reviews`) consomment un quota facturé — Google, Gemini, ou
+Les sept fonctions (`maps-key`, `resolve-place`, `travel-time`, `place-photo`,
+`places-around`, `suggestions`, `place-reviews`) consomment un quota facturé — Google, Gemini, ou
 les deux pour la dernière : elles vérifient donc chacune, en première instruction,
 que l'appel vient d'une **session utilisateur** (`_shared/auth.ts`).
 
@@ -197,6 +197,61 @@ d'affirmer qu'il n'y a pas de repère.
 
 La demande composée **rejoint le champ du mode manuel** : passer en manuel après
 une recherche automatique permet de l'affiner sans la retaper.
+
+### Google Maps, la même chose sans l'IA
+Troisième bouton du sélecteur : **les mêmes pastilles, mais c'est l'annuaire de
+Google qui répond** (Edge Function `places-around`, *Nearby Search*). Un toucher,
+et les lieux du type demandé autour du point de référence arrivent, du plus proche
+au plus loin.
+
+Le gain n'est pas seulement de quota, et il vaut d'être dit précisément :
+
+| | Suggestions IA (Automatique) | Google Maps |
+|---|---|---|
+| Requêtes par recherche | 1 Gemini **+ 6 recherches Google** + 6 photos | **1 recherche Google** + 6 photos |
+| Les lieux | écrits par un modèle, donc parfois inventés | existent, par construction |
+| Position, note | à redemander lieu par lieu | dans la même réponse |
+
+Six recherches Google deviennent une seule : c'est là que se joue l'essentiel de
+l'économie, davantage que dans la différence de quota entre Google et Gemini. Et
+une proposition inventée par un modèle, que personne ne reconnaît ensuite, ne peut
+plus arriver.
+
+Ce que le mode Google Maps ne sait pas faire, et pourquoi :
+
+- **« Parking gratuit » n'y figure pas.** Google n'a pas de type pour cela, et
+  distinguer le gratuit du payant demanderait `parkingOptions`, un champ du palier
+  « Enterprise + Atmosphere » — le plus cher — pour une donnée qu'il ne renseigne
+  que par endroits. La pastille est donc retirée de ce mode, et l'écran écrit
+  pourquoi plutôt que de laisser croire à un oubli. Rendre des parkings payants
+  sous une étiquette « gratuit » serait le pire des trois choix.
+- **Aucune description rédigée.** Google n'en écrit pas : c'est la catégorie qu'il
+  attribue au lieu (`primaryTypeDisplayName` — « Glacier », « Parking public »)
+  qui en tient lieu. Elle a un mérite propre : un résultat hors sujet se voit d'un
+  coup d'œil. Palier Pro, donc gratuite.
+- **Une demande libre est impossible** : on cherche par type de lieu autour d'un
+  point, pas par phrase. Pour « un musée d'art moderne ouvert le lundi », les
+  modes IA restent les seuls.
+
+Deux détails d'implémentation qui comptent :
+
+- Les types de lieux (`tourist_attraction`, `parking`, `ice_cream_shop`,
+  `restaurant`, `public_bathroom`…) vivent **dans l'Edge Function**, pas dans le
+  bundle : le navigateur n'envoie qu'un mot-clé. Un type inconnu ferait refuser
+  toute la requête par Google, et laisser la page en dicter un ouvrirait la porte à
+  des recherches qu'on n'a pas prévu de payer. Un sujet non répertorié est refusé
+  **sans consommer de quota**.
+- `includedPrimaryTypes`, et non `includedTypes` : on veut ce que le lieu **est**,
+  pas ce qu'il propose accessoirement — un supermarché qui vend des glaces n'a rien
+  à faire dans une liste de glaciers.
+- Rayon unique de **15 km**, large à dessein. Le classement par distance met de
+  toute façon le plus proche en tête ; un rayon serré ne rendrait rien du tout en
+  pleine campagne, et la distance étant écrite sur chaque carte, c'est à
+  l'utilisateur de juger si 12 km valent le détour.
+
+Ce mode reste **sourd à Gemini pour la liste**, mais déplier une carte y appelle
+toujours la synthèse des avis, donc Gemini. C'est un geste à part, choisi carte par
+carte.
 
 ### Manuel
 Une demande en langage courant — « Recherche les activités à Biarritz ». Le champ
@@ -342,10 +397,16 @@ qu'on ne lira peut-être pas. Le résultat est mis en cache par `placeId` : repl
 puis rouvrir, ou relancer la même recherche, ne repaie rien.
 
 Le « + » d'une carte ajoute l'étape **directement à la journée affichée**, sans
-passer par le formulaire : catégorie « visite », 60 minutes, le descriptif en
+passer par le formulaire : 60 minutes, le descriptif en
 note, et l'heure suivant la règle habituelle (fixe à 09:00 pour la première du
 jour, « auto » ensuite). La carte ne disparaît pas — on parcourt la liste en en
 prenant plusieurs, il faut voir où l'on en est. L'écran reste ouvert d'autant.
+
+La **catégorie suit la pastille touchée** : un restaurant devient une étape
+« repas », un parking un « transport », un glacier un « café / pause ». Tout ranger
+en « visite » obligeait à corriger chaque étape après coup, alors que la pastille
+disait déjà de quoi il s'agissait. Une demande libre, elle, ne dit rien de la
+nature du lieu et retombe sur « visite ».
 
 Son « + » devient alors une **croix rouge qui retire l'étape de la journée** :
 même bouton, même taille, il bascule. Se tromper de proposition se répare donc
