@@ -7,7 +7,7 @@
 // (voir _shared/auth.ts) : sans cela la clé publiable du bundle suffirait à
 // faire tourner deux facturations.
 //
-// Appelée à la demande, jamais en lot : l'écran Suggestions ne la sollicite que
+// Appelée à la demande, jamais en lot : l'écran Suggestions IA ne la sollicite que
 // lorsqu'on déplie une carte. Résumer d'emblée six lieux dont on n'en lira
 // peut-être aucun coûterait six fiches Google et six appels Gemini pour rien.
 

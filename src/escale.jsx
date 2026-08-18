@@ -816,8 +816,13 @@ function amorcePlaceInfo(place, info) {
 async function fetchSuggestions(prompt) {
   try {
     const { data, error } = await supabase.functions.invoke("suggestions", { body: { prompt } });
-    if (error) return { erreur: (await messageFonction(error)) || "recherche impossible" };
-    if (!data) return { erreur: "recherche impossible" };
+    // « recherche impossible » ne disait rien : c'est ce qu'affichait l'écran
+    // quand la passerelle coupait un appel trop long, sans corps à lire. Le
+    // message dit maintenant quoi faire, puisque le seul geste utile est de
+    // relancer.
+    const MUET = "service indisponible pour l'instant — réessayez dans un instant";
+    if (error) return { erreur: (await messageFonction(error)) || MUET };
+    if (!data) return { erreur: MUET };
     if (data.error) return { erreur: data.detail ? `${data.error} (${data.detail})` : data.error };
     return { suggestions: Array.isArray(data.suggestions) ? data.suggestions : [] };
   } catch (e) {

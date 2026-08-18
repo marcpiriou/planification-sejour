@@ -15,6 +15,14 @@
 // explicite : on ne lui cherche pas de remplaçant.
 export const MODELES_DEFAUT = ["gemini-3.5-flash", "gemini-2.5-flash"];
 
+// Statuts qui décrivent l'état du modèle, non la demande : un autre modèle a de
+// vraies chances de répondre.
+const TRANSITOIRE = new Set([500, 502, 503, 504]);
+
+// Borne par appel. Assez large pour un modèle lent, assez courte pour que deux
+// modèles saturés rendent la main avant que la passerelle ne coupe.
+const DELAI_MAX_MS = 25000;
+
 export type EchecGemini = { error: string; status: number; detail: string };
 
 // Renvoie l'objet JSON produit par le modèle, ou un échec descriptible.
@@ -42,20 +50,43 @@ export async function demandeJson(
     },
   });
 
-  // Un modèle retiré répond 404. C'est le SEUL cas qui vaille un second essai :
-  // un quota dépassé ou une clé refusée le seraient tout autant sur le modèle
-  // suivant, et insister ne ferait que doubler la latence d'un échec certain.
+  // Deux familles d'échec valent un second essai sur le modèle SUIVANT :
+  //   • 404 — le modèle a été retiré ;
+  //   • 503 / 500 / 502 / 504 — la capacité de CE modèle, pas la validité de la
+  //     demande. « This model is currently experiencing high demand » a mis
+  //     l'écran Suggestions IA à l'arrêt en production : le repli ne jouait alors
+  //     que sur un 404, et une saturation passagère devenait une panne.
+  // Tout le reste — clé refusée, quota du compte, demande invalide — échouerait
+  // à l'identique sur le modèle suivant : insister ne ferait que doubler la
+  // latence d'un échec certain.
+  //
+  // Une seule passe, et non deux : Google met parfois plus de vingt secondes à
+  // prononcer son 503, si bien qu'insister ferait attendre une minute pour rien.
+  // Le second modèle suffit dans le cas courant, et si les deux sont saturés
+  // l'écran le dit — relancer est alors le geste de l'utilisateur, en un toucher.
   let res: Response | null = null;
   let echec: { status: number; detail: string } | null = null;
   for (const modele of modeles) {
-    const r = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modele)}:generateContent`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-goog-api-key": cle },
-        body: corps,
-      },
-    );
+    let r: Response;
+    try {
+      r = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modele)}:generateContent`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-goog-api-key": cle },
+          body: corps,
+          // Sans cette borne, un appel qui ne revient pas laisse la passerelle
+          // Supabase couper la requête : le client reçoit alors une erreur sans
+          // corps lisible, et n'affiche qu'un « recherche impossible » muet.
+          signal: AbortSignal.timeout(DELAI_MAX_MS),
+        },
+      );
+    } catch (e) {
+      const expire = String(e).includes("Timeout") || String(e).includes("timed out");
+      console.error(`gemini: appel interrompu sur ${modele} — ${String(e).slice(0, 200)}`);
+      echec = { status: expire ? 504 : 0, detail: String(e).slice(0, 300) };
+      continue;
+    }
     if (r.ok) { res = r; break; }
     const detail = (await r.text()).slice(0, 300);
     // Journalisé : le corps part au client, mais une trace côté serveur évite
@@ -63,14 +94,22 @@ export async function demandeJson(
     // mal restreinte ou un crédit épuisé se diagnostiquent d'un coup d'œil.
     console.error(`gemini: ${r.status} sur ${modele} — ${detail}`);
     echec = { status: r.status, detail };
-    if (r.status !== 404) break;
+    if (r.status !== 404 && !TRANSITOIRE.has(r.status)) break;
   }
   if (!res) {
+    const st = echec?.status ?? 0;
     return {
       echec: {
-        error: "Gemini a refusé la demande",
-        status: echec?.status ?? 0,
-        detail: echec?.detail ?? "aucun modèle disponible",
+        // Un message distinct : « refusé » invite à corriger la demande, ce qui
+        // n'a aucun sens face à une saturation où il n'y a qu'à réessayer.
+        error: TRANSITOIRE.has(st)
+          ? "Gemini est momentanément saturé — réessayez dans un instant"
+          : "Gemini a refusé la demande",
+        status: st,
+        // Face à une saturation, le détail est le pavé JSON de Google : il n'a
+        // rien à apprendre à l'utilisateur, dont le seul geste utile est de
+        // relancer. Il reste entier dans le journal de la fonction.
+        detail: TRANSITOIRE.has(st) ? "" : (echec?.detail ?? "aucun modèle disponible"),
       },
     };
   }

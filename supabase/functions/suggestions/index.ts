@@ -7,7 +7,7 @@
 // connectés : `verify_jwt` seul laisse passer la clé publiable du bundle, qui
 // ouvrirait ce générateur — et sa facturation — à n'importe qui
 // (voir _shared/auth.ts). L'appel lui-même, avec sa liste de modèles et son
-// repli sur un modèle retiré, vit dans _shared/gemini.ts.
+// repli sur un modèle retiré ou saturé, vit dans _shared/gemini.ts.
 
 import { refusAuth, utilisateurConnecte } from "../_shared/auth.ts";
 import { demandeJson } from "../_shared/gemini.ts";

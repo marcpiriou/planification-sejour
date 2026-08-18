@@ -406,10 +406,26 @@ fonction, répondait déjà `404 no longer available` le jour de sa mise en
 service. Un second nom transforme cette coupure en simple perte de qualité au
 lieu d'une panne.
 
-Le repli ne joue **que sur un 404**. Un quota dépassé ou une clé refusée le
-seraient tout autant sur le modèle suivant : insister ne ferait que doubler la
-latence d'un échec certain. Le secret facultatif `GEMINI_MODEL` impose un
-modèle unique — c'est un choix explicite, on ne lui cherche pas de remplaçant.
+Le repli joue sur **deux familles d'échec** : un 404, modèle retiré, et un
+**503 / 500 / 502 / 504**, qui décrit la capacité de ce modèle-là et non la
+validité de la demande. Ce second cas a mis l'écran à l'arrêt en production :
+`gemini-3.5-flash` répondait « This model is currently experiencing high demand »
+et le repli, restreint au 404, n'entrait pas en jeu — une saturation passagère
+devenait une panne, affichée par un « recherche impossible » qui ne disait rien.
+
+Tout le reste — clé refusée, quota du compte, demande invalide — échouerait à
+l'identique sur le modèle suivant : insister ne ferait que doubler la latence d'un
+échec certain. Le secret facultatif `GEMINI_MODEL` impose un modèle unique —
+c'est un choix explicite, on ne lui cherche pas de remplaçant.
+
+Une seule passe sur la liste, et non deux : Google met parfois plus de vingt
+secondes à prononcer son 503, si bien qu'insister ferait attendre une minute pour
+rien. Chaque appel est par ailleurs borné à **25 secondes** (`AbortSignal.timeout`) :
+sans cette borne, un appel qui ne revient pas laisse la passerelle Supabase couper
+la requête, et le client reçoit une erreur sans corps lisible — précisément le
+« recherche impossible » muet. Les deux modèles saturés, l'écran affiche
+« Gemini est momentanément saturé — réessayez dans un instant » : relancer est
+alors le geste de l'utilisateur, en un toucher sur la même pastille.
 
 L'appel passe par `:generateContent`, que Google qualifie désormais de
 « legacy » au profit de l'*Interactions API*, mais qu'il déclare pleinement
