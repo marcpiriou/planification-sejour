@@ -27,6 +27,10 @@ const C = {
   amber: "#DE8A1E",
   amberSoft: "#FBEBD6",
   rose: "#C0559B",
+  // Bleu des transports en commun : teal (marche), ambre (voiture) et indigo
+  // (hébergement) étaient déjà pris, le rose sert au repère de l'heure actuelle.
+  bleu: "#2E8BC0",
+  bleuSoft: "#E2EFF7",
   warn: "#D0453B",
   warnSoft: "#FBE6E4",
 };
@@ -226,7 +230,7 @@ const travelCache = new Map();
 const travelKey = (from, to, mode) => {
   if (!from || !to || from.lat == null || from.lng == null || to.lat == null || to.lng == null) return null;
   const r = (n) => Number(n).toFixed(5);
-  return `${r(from.lat)},${r(from.lng)}>${r(to.lat)},${r(to.lng)}|${mode === "walk" ? "walk" : "car"}`;
+  return `${r(from.lat)},${r(from.lng)}>${r(to.lat)},${r(to.lng)}|${MODES_TRAJET.includes(mode) ? mode : "car"}`;
 };
 
 // Durée d'un trajet : temps réel Google s'il est connu, sinon estimation à vol
@@ -241,6 +245,15 @@ const estimateTravel = (from, to, mode) => {
     const km = straight * 1.35;
     return { km, min: Math.max(1, Math.round((km / 4.5) * 60)), source: "estimate" };
   }
+  if (mode === "transit") {
+    // Repli grossier faute de réseau : le détour d'une ligne, une vitesse
+    // commerciale d'arrêt en arrêt, et le temps d'attente sur le quai. Un
+    // itinéraire réel dépend des horaires, que seule Google connaît — d'où
+    // ATTENTE_TC, qui évite d'annoncer un trajet plus rapide qu'en voiture.
+    const km = straight * 1.55;
+    const speed = Math.min(40, 12 + straight * 2);   // km/h : bus urbain -> tram/train
+    return { km, min: Math.max(2, Math.round((km / speed) * 60) + ATTENTE_TC), source: "estimate" };
+  }
   const km = straight * 1.4;
   const speed = Math.min(65, 22 + straight * 3.5); // km/h : urbain -> interurbain
   return { km, min: Math.max(1, Math.round((km / speed) * 60)), source: "estimate" };
@@ -254,12 +267,16 @@ const estimateTravel = (from, to, mode) => {
 // "walk" ou "car" : elles restent donc telles quelles, comme un choix explicite.
 const MODE_AUTO = "auto";
 const WALK_MAX_MIN = 30;
+// Les modes qu'un utilisateur peut désigner lui-même, par opposition à MODE_AUTO.
+const MODES_TRAJET = ["walk", "transit", "car"];
+// Minutes d'attente ajoutées à l'estimation d'un trajet en transports en commun.
+const ATTENTE_TC = 6;
 
 // Mode effectif du trajet a -> b : le choix de l'utilisateur s'il en a fait un,
 // sinon la marche tant qu'elle reste sous le seuil.
 const resolveTravelMode = (a, b) => {
   const m = a?.travelMode;
-  if (m === "walk" || m === "car") return m;
+  if (MODES_TRAJET.includes(m)) return m;
   const onFoot = estimateTravel(a?.place, b?.place, "walk");
   return onFoot && onFoot.min > WALK_MAX_MIN ? "car" : "walk";
 };
@@ -283,7 +300,8 @@ const parseCoords = (input) => {
 
 const placeQuery = (p) => (p ? (p.lat != null ? `${p.lat},${p.lng}` : (p.name || "")) : "");
 const mapsDirUrl = (from, to, mode) => {
-  const params = new URLSearchParams({ api: "1", destination: placeQuery(to), travelmode: mode === "walk" ? "walking" : "driving" });
+  const travelmode = mode === "walk" ? "walking" : mode === "transit" ? "transit" : "driving";
+  const params = new URLSearchParams({ api: "1", destination: placeQuery(to), travelmode });
   const o = placeQuery(from); if (o) params.set("origin", o);
   return `https://www.google.com/maps/dir/?${params.toString()}`;
 };
@@ -306,8 +324,8 @@ const wazeDirUrl = (to) => {
   return `https://www.waze.com/ul?${params.toString()}`;
 };
 // Itinéraire dans l'application choisie. Waze ne connaît que la voiture : un
-// trajet à pied reste donc sur Google Maps, sinon l'itinéraire ouvert ne
-// correspondrait pas au mode affiché sur le trajet.
+// trajet à pied ou en transports en commun reste donc sur Google Maps, sinon
+// l'itinéraire ouvert ne correspondrait pas au mode affiché sur le trajet.
 // Fiche Google Maps d'une étape, telle qu'on l'ouvre en touchant son repère.
 // Un lien de réservation (Airbnb, Booking) n'est pas une fiche Google : on ne le
 // suit que s'il pointe déjà vers Maps. Pour un hébergement, l'adresse prime.
@@ -373,7 +391,7 @@ const dayMarkers = (acts) => {
 const dirUrl = (from, to, mode, app, preferAddress = false) => {
   const addr = preferAddress && to && typeof to.address === "string" ? to.address.trim() : "";
   const dest = addr ? { name: addr } : to;
-  return (app === "waze" && mode !== "walk") ? wazeDirUrl(dest) : mapsDirUrl(from, dest, mode);
+  return (app === "waze" && mode === "car") ? wazeDirUrl(dest) : mapsDirUrl(from, dest, mode);
 };
 
 // La préférence est lue au moment du rendu de l'icône d'itinéraire, profondément dans
@@ -414,6 +432,7 @@ function rowToActivity(a) {
     durationMin: a.duration_min,
     place: a.place ?? null,
     travelMode: a.travel_mode,
+    travelNotes: a.travel_notes || "",
     travelMinutes: a.travel_minutes === "" || a.travel_minutes == null ? null : Number(a.travel_minutes),
     notes: a.notes || "",
     nights: a.nights == null ? null : Number(a.nights),
@@ -515,6 +534,7 @@ async function saveTrips(trips) {
     name: a.name || "", category: a.category || "autre",
     start_time: a.startTime || "09:00", duration_min: Number(a.durationMin) || 0,
     place: a.place ?? null, travel_mode: a.travelMode || "walk",
+    travel_notes: a.travelNotes || "",
     travel_minutes: a.travelMinutes == null ? "" : String(a.travelMinutes),
     notes: a.notes || "", position: i,
     nights: a.nights == null ? null : Number(a.nights),
@@ -688,11 +708,21 @@ async function fetchTravelTimes(legs) {
   try {
     const { data, error } = await supabase.functions.invoke("travel-time", { body: { legs: todo } });
     if (error || !data || !data.results) { travelPauseUntil = Date.now() + 60000; return false; }
+    let change = false;
     for (const l of todo) {
       const r = data.results[l.key];
+      // Le serveur renvoie le mode qu'il a effectivement demandé à Google. Une
+      // version de l'Edge Function antérieure aux transports en commun ne le
+      // renvoie pas et rabat ce mode sur la voiture : on écarte alors sa
+      // réponse plutôt que d'afficher un temps de voiture sous l'étiquette du
+      // bus. La clé est mémorisée comme sans itinéraire — l'estimation locale
+      // prend le relais et la question n'est pas reposée à chaque rendu ; le
+      // déploiement de la fonction suffira à obtenir les vrais horaires.
+      if (l.mode === "transit" && (!r || r.mode !== "transit")) { travelCache.set(l.key, null); continue; }
       travelCache.set(l.key, r && typeof r.min === "number" ? { min: r.min, km: Number(r.km) || 0 } : null);
+      change = true;
     }
-    return true;
+    return change;
   } catch {
     travelPauseUntil = Date.now() + 60000;
     return false;
@@ -1784,6 +1814,14 @@ function DurationPicker({ initial, onCancel, onValidate }) {
 }
 
 /* --- Segment de trajet entre deux étapes -------------------------- */
+// Couleur et icône d'un mode de trajet, partagées par la pastille de la timeline
+// et les boutons du popup : le bus doit se reconnaître au même bleu des deux côtés.
+const ASPECT_TRAJET = (mode) => (
+  mode === "walk" ? { color: C.teal, soft: C.tealSoft, Icon: Footprints, label: "À pied" }
+  : mode === "transit" ? { color: C.bleu, soft: C.bleuSoft, Icon: TrainFront, label: "Transports" }
+  : { color: C.amber, soft: C.amberSoft, Icon: Car, label: "Voiture" }
+);
+
 // Le trajet porte aussi un « + » : c'est là qu'on se dit « il manque quelque
 // chose entre ces deux étapes », et le bouton flottant du bas, lui, ne sait
 // ajouter qu'en fin de journée.
@@ -1791,10 +1829,7 @@ function TravelLeg({
   from, to, leg, onEdit, variant, fromEndMin, toStartMin,
   ajoutOuvert, onOuvrirAjout, onFermerAjout, onAjoutActivite, onAjoutSuggestion,
 }) {
-  const walk = leg.mode === "walk";
-  const color = walk ? C.teal : C.amber;
-  const soft = walk ? C.tealSoft : C.amberSoft;
-  const Icon = walk ? Footprints : Car;
+  const { color, soft, Icon } = ASPECT_TRAJET(leg.mode);
   const isStart = variant === "start";
 
   const prevEnd = fromEndMin != null ? fromEndMin : timeToMin(from.startTime) + from.durationMin;
@@ -1846,6 +1881,14 @@ function TravelLeg({
             {onEdit && <Pencil size={11} className="opacity-70" />}
           </button>
         </div>
+
+        {/* Commentaire du trajet : trois lignes au plus, les points de
+            suspension venant du clamp lui-même — au-delà, le trajet volerait la
+            place des étapes qu'il sépare. Même traitement que les notes d'une
+            activité. Le texte garde ses retours à la ligne. */}
+        {from.travelNotes && (
+          <div style={{ color: C.inkSoft, whiteSpace: "pre-line" }} className="text-xs mt-1.5 clamp3">{from.travelNotes}</div>
+        )}
 
         {/* Deux choix seulement : un hébergement ne s'insère pas au milieu d'une
             journée, sa place y est déduite de ses nuits. */}
@@ -2264,6 +2307,7 @@ function TravelPicker({ from, to, onCancel, onValidate }) {
   // sur voiture si la marche dépasse le seuil. Valider fige ce choix.
   const [mode, setMode] = useState(() => resolveTravelMode(from, to));
   const [manual, setManual] = useState(from.travelMinutes != null && from.travelMinutes !== "" ? String(from.travelMinutes) : "");
+  const [notes, setNotes] = useState(from.travelNotes || "");
   // Le mode peut changer ici : on demande à Google la durée du mode choisi.
   const [tick, setTick] = useState(0);
   useEffect(() => {
@@ -2275,10 +2319,7 @@ function TravelPicker({ from, to, onCancel, onValidate }) {
   }, [from.place?.lat, from.place?.lng, to.place?.lat, to.place?.lng, mode]);
   const est = useMemo(() => estimateTravel(from.place, to.place, mode), [from.place, to.place, mode, tick]);
   const effective = manual !== "" ? Math.max(0, parseInt(manual, 10) || 0) : (est ? est.min : null);
-  const MODES = [
-    { id: "walk", label: "À pied", Icon: Footprints, col: C.teal },
-    { id: "car", label: "Voiture", Icon: Car, col: C.amber },
-  ];
+  const MODES = MODES_TRAJET.map((id) => ({ id, ...ASPECT_TRAJET(id) }));
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center px-6">
       <div className="absolute inset-0 dim" onClick={onCancel} />
@@ -2287,13 +2328,13 @@ function TravelPicker({ from, to, onCancel, onValidate }) {
         {to && <div style={{ color: C.inkSoft }} className="text-xs mt-0.5 truncate">→ {to.name}</div>}
 
         <div className="flex gap-2 mt-3">
-          {MODES.map(({ id, label, Icon, col }) => {
+          {MODES.map(({ id, label, Icon, color }) => {
             const active = mode === id;
             return (
               <button key={id} onClick={() => setMode(id)}
-                style={{ background: active ? col : "#fff", color: active ? "#fff" : C.ink, border: `1px solid ${active ? col : C.line}` }}
-                className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl py-2.5 text-sm active:scale-95 transition">
-                <Icon size={16} /> {label}
+                style={{ background: active ? color : "#fff", color: active ? "#fff" : C.ink, border: `1px solid ${active ? color : C.line}` }}
+                className="flex-1 min-w-0 inline-flex flex-col items-center justify-center gap-1 rounded-xl py-2 t11 font-medium active:scale-95 transition">
+                <Icon size={17} /> <span className="truncate max-w-full">{label}</span>
               </button>
             );
           })}
@@ -2317,11 +2358,23 @@ function TravelPicker({ from, to, onCancel, onValidate }) {
           <div style={{ color: C.amber }} className="t11 mt-2">Aucune coordonnée sur les deux étapes : saisissez une durée manuelle.</div>
         )}
 
+        {/* Commentaire libre : le numéro de la ligne, le quai, le parking, ce
+            qu'aucun champ ne prévoit. Il s'affiche sous le trajet sur la
+            timeline, tronqué à trois lignes. */}
+        <div className="mt-3">
+          <div style={{ color: C.inkSoft }} className="text-xs mb-1">Commentaire</div>
+          <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3}
+            placeholder="Ex. Ligne A jusqu'à Jean Jaurès, puis tram T1"
+            style={{ background: "#fff", border: `1px solid ${C.line}`, color: C.ink }}
+            className="w-full rounded-xl px-3 py-2 outline-none text-sm resize-none" />
+          <div style={{ color: C.inkSoft }} className="t11 mt-1">Affiché sous le trajet, trois lignes au plus.</div>
+        </div>
+
         <div style={{ color: C.inkSoft }} className="text-xs mt-3">Retenu : {effective != null ? fmtDur(effective) : "non estimé"}</div>
 
         <div className="flex gap-2 mt-4">
           <button onClick={onCancel} style={{ border: `1px solid ${C.line}`, color: C.ink }} className="flex-1 rounded-xl py-2.5 bg-white">Annuler</button>
-          <button onClick={() => onValidate({ travelMode: mode, travelMinutes: manual === "" ? null : Math.max(0, parseInt(manual, 10) || 0) })}
+          <button onClick={() => onValidate({ travelMode: mode, travelMinutes: manual === "" ? null : Math.max(0, parseInt(manual, 10) || 0), travelNotes: notes.trim() })}
             style={{ background: C.teal }} className="flex-1 rounded-xl py-2.5 text-white font-medium">Valider</button>
         </div>
       </div>
@@ -4858,6 +4911,10 @@ function SejourApp() {
         : null,
       durationMin: isStayDraft ? 0 : (Number(d.durationMin) || 0), place,
       travelMode: d.travelMode, travelMinutes: d.travelMinutes === "" ? null : Number(d.travelMinutes), notes: d.notes.trim(),
+      // Le commentaire du trajet ne s'édite que dans le popup du trajet : il se
+      // reprend tel quel, sinon enregistrer l'activité par ce formulaire —
+      // qui reconstruit l'étape de zéro — l'effacerait.
+      travelNotes: prevAct.travelNotes || "",
       // Zéro nuit se conserve tel quel : c'est le point de départ/retour, que
       // réenregistrer ne doit pas convertir en nuitée.
       nights: !isStayDraft ? null

@@ -1,6 +1,11 @@
 // Edge Function : durées de trajet réelles via l'API Google Routes.
 // Reçoit un lot de trajets { key, from:{lat,lng}, to:{lat,lng}, mode } et renvoie
-// pour chaque clé { min, km } (ou null si Google ne sait pas répondre).
+// pour chaque clé { min, km, mode } (ou null si Google ne sait pas répondre).
+//
+// Le mode est renvoyé avec le résultat : le client refuse un temps de trajet dont
+// le mode ne serait pas celui qu'il a demandé. C'est ce qui lui permet de rester
+// sur son estimation locale si cette fonction n'est pas encore déployée dans la
+// version qui connaît les transports en commun.
 // La clé API reste secrète côté serveur (secret Supabase GOOGLE_PLACES_KEY).
 //
 // Réservée aux utilisateurs connectés : `verify_jwt` seul laissait passer la clé
@@ -39,17 +44,21 @@ function parseLeg(raw: unknown): Leg | null {
     key: l.key,
     from: { lat: f.lat, lng: f.lng },
     to: { lat: t.lat, lng: t.lng },
-    mode: l.mode === "walk" ? "walk" : "car",
+    mode: l.mode === "walk" || l.mode === "transit" ? l.mode : "car",
   };
 }
 
 // Un trajet via Routes API (computeRoutes). Renvoie { min, km } ou null.
+// TRANSIT dépend des horaires : sans heure de départ, Google répond pour
+// maintenant, ce qui est le repère utile au moment où l'on prépare le trajet.
 async function routeOne(key: string, leg: Leg): Promise<{ min: number; km: number } | null> {
+  const travelMode = leg.mode === "walk" ? "WALK" : leg.mode === "transit" ? "TRANSIT" : "DRIVE";
   const body = {
     origin: { location: { latLng: { latitude: leg.from.lat, longitude: leg.from.lng } } },
     destination: { location: { latLng: { latitude: leg.to.lat, longitude: leg.to.lng } } },
-    travelMode: leg.mode === "walk" ? "WALK" : "DRIVE",
+    travelMode,
     units: "METRIC",
+    // routingPreference n'est accepté ni par WALK ni par TRANSIT : on ne l'envoie pas.
   };
   const res = await fetch("https://routes.googleapis.com/directions/v2:computeRoutes", {
     method: "POST",
@@ -85,11 +94,12 @@ Deno.serve(async (req: Request) => {
     const parsed = legs.map(parseLeg).filter((l: Leg | null): l is Leg => l !== null);
     if (!parsed.length) return json({ results: {} });
 
-    const results: Record<string, { min: number; km: number } | null> = {};
+    const results: Record<string, { min: number; km: number; mode: string } | null> = {};
     let failure: string | null = null;
     await Promise.all(parsed.map(async (leg) => {
       try {
-        results[leg.key] = await routeOne(KEY, leg);
+        const r = await routeOne(KEY, leg);
+        results[leg.key] = r ? { ...r, mode: leg.mode } : null;
       } catch (e) {
         // Un trajet en échec ne doit pas faire tomber le lot : le client
         // retombe sur son estimation à vol d'oiseau. Ce repli étant silencieux,
