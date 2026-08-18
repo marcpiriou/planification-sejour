@@ -707,11 +707,16 @@ Trois pièges, et ce qui les évite :
   regroupées en un seul `go(-n)` — un `back()` par couche risquait d'être fusionné.
 
 ### Repère de l'heure actuelle
-Sur la journée du jour, une ligne traverse la timeline à la place qu'occupe
-l'instant présent : une pastille rose portant l'heure sur la colonne de gauche, un
-trait en travers du contenu.
+Sur la journée du jour, un repère marque la place qu'occupe l'instant présent :
+**un point rose sur le rail des horaires, et l'heure juste dessous**, dans la
+colonne de gauche. Rien à droite.
 
-Elle se glisse **juste avant la première étape non encore terminée**. L'invariant
+Une première version traversait aussi le contenu d'un point et d'un trait roses.
+Retiré : le trait redisait ce que la position du repère montrait déjà, et coupait
+la journée en deux au milieu des cartes. Ce qui donne la position exacte, c'est le
+point sur le rail — l'heure écrite dessous ne fait que la nommer.
+
+Le repère se glisse **juste avant la première étape non encore terminée**. L'invariant
 se lit donc sans explication : au-dessus de la ligne, tout est fini ; en dessous,
 rien ne l'est. Une étape en cours se trouve juste sous la ligne, et ses heures de
 début et de fin — affichées dans la colonne de gauche — encadrent celle du repère.
@@ -723,8 +728,8 @@ timeline : teal désigne les étapes, ambre les trajets, indigo les hébergement
 repère de temps ne doit pas se confondre avec une étape.
 
 Deux détails d'implémentation : le trait vertical de la colonne passe **derrière**
-la pastille, comme sous la pastille de durée, sans quoi la colonne se briserait à
-hauteur du repère ; et un intervalle d'une minute redessine la ligne, mais
+le point et la pastille, comme sous la pastille de durée, sans quoi la colonne se
+briserait à hauteur du repère ; et un intervalle d'une minute redessine la ligne, mais
 **seulement sur la journée du jour** — ailleurs il n'y a rien à rafraîchir, et un
 repère de temps figé vaudrait moins que rien.
 

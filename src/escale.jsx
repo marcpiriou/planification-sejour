@@ -1967,18 +1967,21 @@ function MarqueurMaintenant({ minutes }) {
   return (
     <div className="flex gap-3 items-center" role="separator"
       aria-label={`Heure actuelle : ${minToTime(minutes)}`}>
-      {/* Le trait vertical passe derrière, comme sous la pastille de durée :
+      {/* Tout se joue dans la colonne des horaires, à gauche : un point sur le
+          rail, puis l'heure. Le trait qui traversait le contenu à droite doublait
+          ce que la position du repère disait déjà, et coupait la journée en deux
+          au milieu des cartes.
+          Le trait vertical passe derrière, comme sous la pastille de durée :
           sans cela la colonne se briserait à hauteur du repère. */}
-      <div className="shrink-0 relative flex justify-center items-center" style={{ width: 66 }}>
+      <div className="shrink-0 relative flex flex-col justify-center items-center gap-1 py-1.5" style={{ width: 66 }}>
         <div style={{ background: C.line }} className="absolute inset-y-0 w-0.5" />
+        {/* Le point marque le rail lui-même : c'est lui qui donne la position
+            exacte, l'heure écrite juste dessous ne fait que la nommer. */}
+        <span style={{ background: C.rose }} className="relative h-2 w-2 rounded-full" />
         <span style={{ background: C.rose, fontFamily: MONO }}
           className="relative text-white t10 font-semibold rounded-full px-1.5 py-0.5 shadow-sm">
           {minToTime(minutes)}
         </span>
-      </div>
-      <div className="flex-1 flex items-center gap-1.5 py-1.5">
-        <span style={{ background: C.rose }} className="h-2 w-2 rounded-full shrink-0" />
-        <span style={{ background: C.rose, opacity: 0.55 }} className="h-0.5 flex-1 rounded-full" />
       </div>
     </div>
   );
