@@ -113,7 +113,7 @@ serveur — non restreignable — partait dans le navigateur. Mieux vaut une car
 erreur, visible, qu'un secret exposé en silence.
 
 Un troisième secret, sans rapport avec Google Maps, complète la liste :
-**`GEMINI_API_KEY`** pour l'écran Suggestions IA (voir plus bas), avec
+**`GEMINI_API_KEY`** pour les modes IA de l'écran Suggestions (voir plus bas), avec
 `GEMINI_MODEL` en option. `place-reviews` est la seule fonction à se servir des
 deux : `GOOGLE_PLACES_KEY` pour lire les avis, `GEMINI_API_KEY` pour les résumer.
 
@@ -165,12 +165,23 @@ Ce qui ne change pas : un éditeur modifie toujours librement le séjour et ses
 activités, voit la liste des accès (l'écran de partage en a besoin), et peut se
 retirer lui-même — d'où la clause sur son propre email dans `members_delete`.
 
-## Suggestions IA (Gemini)
-Le choix **Suggestions IA** du bouton « + » ouvre un écran de recherche de lieux.
-Deux façons d'y chercher, choisies par un sélecteur à deux boutons — le même
-qu'« Auto / Heure fixe » dans le formulaire d'activité.
+## Suggestions
+Le choix **Suggestions** du bouton « + » ouvre un écran de recherche de lieux.
+Trois façons d'y chercher, choisies par un sélecteur à trois boutons bâti sur le
+même modèle qu'« Auto / Heure fixe » dans le formulaire d'activité, le mode par
+défaut en premier.
 
-### Automatique, le mode d'arrivée
+L'écran s'est d'abord appelé « Suggestions IA », quand Gemini était sa seule
+source. Il ne l'est plus : son mode d'arrivée n'appelle aucune IA, et garder ce
+nom aurait promis dans le menu ce que l'écran ne fait plus par défaut.
+
+### Google Maps, le mode d'arrivée
+C'est **le mode par défaut** : les lieux existent par construction, la liste
+entière ne coûte qu'une requête là où la voie IA en dépense sept, et pour ce qu'on
+cherche en cours de route — un parking, des toilettes, un glacier — l'annuaire
+répond mieux qu'un modèle de langue. Le détail de ce mode est plus bas.
+
+### Automatique (IA), à un toucher
 Un **nuage de pastilles** — *activités*, *parking gratuit*, *parking*, *glacier*,
 *restaurant*, *toilettes publiques* — et **un seul toucher lance la recherche** :
 la demande est écrite pour vous à partir du lieu de référence. C'est le geste que
@@ -198,9 +209,8 @@ d'affirmer qu'il n'y a pas de repère.
 La demande composée **rejoint le champ du mode manuel** : passer en manuel après
 une recherche automatique permet de l'affiner sans la retaper.
 
-### Google Maps, la même chose sans l'IA
-Troisième bouton du sélecteur : **les mêmes pastilles, mais c'est l'annuaire de
-Google qui répond** (Edge Function `places-around`, *Nearby Search*). Un toucher,
+### Ce que fait le mode Google Maps
+**Les mêmes pastilles, mais c'est l'annuaire de Google qui répond** (Edge Function `places-around`, *Nearby Search*). Un toucher,
 et les lieux du type demandé autour du point de référence arrivent, du plus proche
 au plus loin.
 
@@ -351,7 +361,7 @@ requête pour un écran qu'on refermerait sans rien chercher.
 La note vient du même `searchText` que la photo, via un drapeau `avecNote`. Les
 champs `rating` et `userRatingCount` font passer la requête du palier **Pro** au
 palier **Enterprise** chez Google (~32 → ~35 $ / 1000 au-delà du quota gratuit) :
-c'est pourquoi seul l'écran Suggestions IA les demande, les vignettes de la
+c'est pourquoi seul l'écran Suggestions les demande, les vignettes de la
 timeline restant au palier Pro. L'alternative — une fiche détaillée par
 proposition — serait une **seconde requête** facturée à chaque fois.
 
@@ -612,7 +622,7 @@ Un seul bouton flottant en bas à droite, **blanc cerclé au « + » teal** comm
 les pastilles de la timeline — c'est son ombre portée, plus marquée qu'ailleurs,
 qui le décolle du fond, pas un aplat de couleur. Le toucher déploie les trois ajouts,
 empilés au-dessus de lui : **Activité en bas**, au plus près du pouce puisque
-c'est de loin le plus fréquent, **Hébergement** au-dessus, **Suggestions IA** en
+c'est de loin le plus fréquent, **Hébergement** au-dessus, **Suggestions** en
 haut. Côte à côte en permanence, ces boutons occupaient tout le bas de l'écran
 et recouvraient la fin de la journée.
 
@@ -645,7 +655,7 @@ d'ouvrir au lieu de rester en face du trajet.
 Le menu s'ouvre **au niveau du trajet touché**, dans le flux plutôt qu'en
 surimpression : une position absolue se ferait rogner par le défilement de la
 liste. Ses deux boutons se rangent dans la colonne de contenu, alignés sur la
-pastille de trajet. Deux choix seulement, **Activité** et **Suggestions IA** — un
+pastille de trajet. Deux choix seulement, **Activité** et **Suggestions** — un
 hébergement ne s'insère pas au milieu d'une journée, sa place y est déduite de
 ses nuits. Le menu réutilise la mécanique de couche d'historique du bouton
 flottant, ce qui lui donne les mêmes trois façons de refermer.
@@ -663,7 +673,7 @@ dérivées et ne s'enregistrent pas : elles sont retirées après le recalcul.
 
 Deux détails qui se voient à l'usage :
 
-- Depuis l'écran Suggestions IA ouvert par un trajet, l'ancre **avance** à chaque
+- Depuis l'écran Suggestions ouvert par un trajet, l'ancre **avance** à chaque
   ajout. Sans cela la deuxième proposition retenue se glisserait avant la
   première, et la liste sortirait dans l'ordre inverse de celui où on l'a composée.
 - Si la date est changée dans le formulaire, l'ancre est **abandonnée** :

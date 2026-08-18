@@ -757,14 +757,14 @@ function fetchPlaceInfo(place) {
       const { data, error } = await supabase.functions.invoke("place-photo", { body });
       if (error || !data) return null;
       // L'adresse postale part dans la même réponse : la garder ne coûte rien,
-      // et elle sert à l'écran Suggestions IA, où un lien Google Maps ne vaut rien
+      // et elle sert à l'écran Suggestions, où un lien Google Maps ne vaut rien
       // comme texte de recherche.
       return {
         photoUri: data.photoUri || null,
         placeId: data.placeId || null,
         adresse: data.adresse || null,
         // Position retenue par Google : elle sert de point de référence aux
-        // distances de l'écran Suggestions IA quand l'étape précédente n'a été
+        // distances de l'écran Suggestions quand l'étape précédente n'a été
         // saisie que par un lien, sans coordonnées lisibles dans l'URL.
         lat: typeof data.lat === "number" ? data.lat : null,
         lng: typeof data.lng === "number" ? data.lng : null,
@@ -792,7 +792,7 @@ const fetchPlaceRepere = (place) => fetchPlaceInfo(place).then((i) => {
   };
 });
 
-// Amorce ce cache pour un lieu déjà identifié ailleurs — l'écran Suggestions IA
+// Amorce ce cache pour un lieu déjà identifié ailleurs — l'écran Suggestions
 // interroge Google pour ses vignettes, et l'activité ajoutée porte le même nom
 // et les mêmes coordonnées. Sans cela, la timeline redemanderait aussitôt à
 // Google ce qui vient d'en revenir : une recherche facturée pour rien.
@@ -810,7 +810,7 @@ function amorcePlaceInfo(place, info) {
   }));
 }
 
-/* --- Suggestions IA (Gemini) ------------------------------------------- */
+/* --- Suggestions : la voie IA (Gemini) ------------------------------------------- */
 // Propositions d'activités pour une demande en langage courant. La clé Gemini
 // vit dans l'Edge Function, jamais ici.
 async function fetchSuggestions(prompt) {
@@ -1918,7 +1918,7 @@ function TravelLeg({
           <div className="mt-2 flex flex-col items-start gap-2">
             <button onClick={onAjoutSuggestion} style={{ background: C.ink }}
               className="text-white rounded-full pl-4 pr-5 py-2.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
-              <Sparkles size={18} /> Suggestions IA
+              <Sparkles size={18} /> Suggestions
             </button>
             <button onClick={onAjoutActivite} style={{ background: C.teal }}
               className="text-white rounded-full pl-4 pr-5 py-2.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
@@ -2547,7 +2547,7 @@ function ChecklistSheet({ trip, onUpdate, onClose, canEdit, title = "Checklist a
   );
 }
 
-/* --- Suggestions IA (feuille) ----------------------------- */
+/* --- Suggestions (feuille) ----------------------------- */
 // Une demande en langage courant — « Recherche les activités à Biarritz » —
 // donne des propositions que l'on ajoute d'un toucher à la journée affichée.
 //
@@ -2801,12 +2801,12 @@ function repereLieu(etape) {
 }
 
 function SuggestionsSheet({ trip, jour, onAdd, onRemove, onClose, canEdit, promptInitial = "", repereAttendu = null, repereInitial = null }) {
-  // Trois façons de chercher. « Automatique » par défaut : une pastille suffit, et
-  // c'est ce qu'on veut neuf fois sur dix en cours de route. « Manuel » garde la
-  // demande libre, pour ce qu'aucune pastille ne couvre. « Google Maps » reprend
-  // les mêmes pastilles mais interroge l'annuaire de Google au lieu de Gemini :
-  // des lieux qui existent, une seule requête, et rien à inventer.
-  const [mode, setMode] = useState("auto");
+  // Trois façons de chercher, « Google Maps » par défaut : une pastille suffit, les
+  // lieux existent par construction, et la liste entière ne coûte qu'une requête
+  // là où le mode IA en dépense sept. « Automatique » reste à un toucher pour ce
+  // que l'annuaire ne sait pas dire — un parking gratuit, une envie formulée — et
+  // « Manuel » garde la demande libre.
+  const [mode, setMode] = useState("gmaps");
   // Le champ est prérempli à l'ouverture seulement : ensuite il appartient à
   // l'utilisateur, qui peut l'effacer ou le réécrire sans qu'on y revienne.
   const [prompt, setPrompt] = useState(promptInitial);
@@ -3007,7 +3007,7 @@ function SuggestionsSheet({ trip, jour, onAdd, onRemove, onClose, canEdit, promp
     <div className="fixed inset-0 z-40 flex flex-col" style={{ background: C.paper }}>
       <TopBar
         left={<IconBtn onClick={onClose} label="Retour"><ChevronLeft size={22} /></IconBtn>}
-        title="Suggestions IA"
+        title="Suggestions"
         subtitle={jour ? fmtLong(jour) : trip.name}
       />
       <div className="flex-1 overflow-y-auto">
@@ -3015,14 +3015,14 @@ function SuggestionsSheet({ trip, jour, onAdd, onRemove, onClose, canEdit, promp
           {/* Choix du mode, même sélecteur à deux boutons que « Auto / Heure
               fixe » dans le formulaire d'activité. */}
           <div className="flex gap-2">
-            <button type="button" onClick={() => setMode("auto")}
-              aria-pressed={mode === "auto"}
-              style={{ background: mode === "auto" ? C.teal : "#fff", color: mode === "auto" ? "#fff" : C.ink, border: `1px solid ${mode === "auto" ? C.teal : C.line}` }}
-              className="flex-1 rounded-xl py-2 text-sm active:scale-95 transition">Automatique</button>
             <button type="button" onClick={() => setMode("gmaps")}
               aria-pressed={mode === "gmaps"}
               style={{ background: mode === "gmaps" ? C.teal : "#fff", color: mode === "gmaps" ? "#fff" : C.ink, border: `1px solid ${mode === "gmaps" ? C.teal : C.line}` }}
               className="flex-1 rounded-xl py-2 text-sm active:scale-95 transition">Google Maps</button>
+            <button type="button" onClick={() => setMode("auto")}
+              aria-pressed={mode === "auto"}
+              style={{ background: mode === "auto" ? C.teal : "#fff", color: mode === "auto" ? "#fff" : C.ink, border: `1px solid ${mode === "auto" ? C.teal : C.line}` }}
+              className="flex-1 rounded-xl py-2 text-sm active:scale-95 transition">Automatique</button>
             <button type="button" onClick={() => setMode("manuel")}
               aria-pressed={mode === "manuel"}
               style={{ background: mode === "manuel" ? C.teal : "#fff", color: mode === "manuel" ? "#fff" : C.ink, border: `1px solid ${mode === "manuel" ? C.teal : C.line}` }}
@@ -3291,7 +3291,7 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
   });
   const fermeTrajet = () => window.history.back();
   const choisitTrajet = (action) => { trajetChoisi.current = action; window.history.back(); };
-  // Ancre des ajouts venus de l'écran Suggestions IA. Une PILE, et non une seule
+  // Ancre des ajouts venus de l'écran Suggestions. Une PILE, et non une seule
   // valeur : elle avance à chaque ajout — sinon la deuxième proposition retenue
   // se glisserait AVANT la première et la liste sortirait à l'envers — mais un
   // retrait doit pouvoir la faire reculer. Sans cela, retirer la dernière étape
@@ -3300,7 +3300,7 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
   const pileAncres = useRef([]);
   const ancre = () => pileAncres.current[pileAncres.current.length - 1] || null;
 
-  // Demande préremplie à l'ouverture de l'écran Suggestions IA, à partir du lieu
+  // Demande préremplie à l'ouverture de l'écran Suggestions, à partir du lieu
   // qui précédera l'étape ajoutée : celui du trajet touché, ou la dernière étape
   // de la journée quand la demande vient du bouton flottant, qui ajoute en fin
   // de journée. L'amorce est écrite dans tous les cas : sans repère utilisable —
@@ -3574,7 +3574,7 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
                 <>
                   <button onClick={() => choisitAjout(() => ouvreSuggestions(null))} style={{ background: C.ink }}
                     className="pointer-events-auto text-white rounded-full pl-4 pr-5 py-3.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
-                    <Sparkles size={20} /> Suggestions IA
+                    <Sparkles size={20} /> Suggestions
                   </button>
                   <button onClick={() => choisitAjout(onAddStay)} style={{ background: STAY_COLOR }}
                     className="pointer-events-auto text-white rounded-full pl-4 pr-5 py-3.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
@@ -4794,7 +4794,7 @@ function SejourApp() {
       startTime: STAY_LEAVE_TIME, arriveTime: AUTO, arriveeSuggeree: STAY_ARRIVE_TIME, durationMin: 0, placeRaw: "", addressRaw: "", travelMode: MODE_AUTO,
       travelMinutes: "", notes: "", nights: 1, editingMorning: null, editingEvening: null, nightTimes: {}, nightArrivals: {} });
   };
-  // Proposition retenue dans l'écran Suggestions IA : elle rejoint directement la
+  // Proposition retenue dans l'écran Suggestions : elle rejoint directement la
   // journée affichée, sans passer par le formulaire. L'écran reste ouvert pour
   // en prendre plusieurs ; tout se corrige ensuite depuis la timeline.
   // Le lieu est déjà situé (Google l'a reconnu pour la photo) : on reprend ses
