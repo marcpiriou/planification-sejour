@@ -707,29 +707,35 @@ Trois pièges, et ce qui les évite :
   regroupées en un seul `go(-n)` — un `back()` par couche risquait d'être fusionné.
 
 ### Repère de l'heure actuelle
-Sur la journée du jour, un repère marque la place qu'occupe l'instant présent :
-**un point rose sur le rail des horaires, et l'heure juste dessous**, dans la
-colonne de gauche. Rien à droite.
+Sur la journée du jour, **l'heure qu'il est s'affiche en rose** dans la colonne des
+horaires, à gauche. Rien d'autre : ni point, ni trait.
 
-Une première version traversait aussi le contenu d'un point et d'un trait roses.
-Retiré : le trait redisait ce que la position du repère montrait déjà, et coupait
-la journée en deux au milieu des cartes. Ce qui donne la position exacte, c'est le
-point sur le rail — l'heure écrite dessous ne fait que la nommer.
+Deux emplacements, selon qu'une étape est en cours ou non.
 
-Le repère se glisse **juste avant la première étape non encore terminée**. L'invariant
-se lit donc sans explication : au-dessus de la ligne, tout est fini ; en dessous,
-rien ne l'est. Une étape en cours se trouve juste sous la ligne, et ses heures de
-début et de fin — affichées dans la colonne de gauche — encadrent celle du repère.
-Avant le début de la journée la ligne est tout en haut, après la dernière étape
-tout en bas.
+**Une étape est en cours** : la pastille rose se range **dans la colonne horaire de
+cette étape**, juste sous son heure de début. À 14:20, pendant une étape de 14:00 à
+15:30, la colonne se lit `14:00 · 14:20 · 1h30 · 15:30` : l'heure courante est à sa
+place dans la plage. La poser au-dessus de la carte, comme le faisait la première
+version, laissait croire que l'étape n'avait pas encore commencé.
+
+**Aucune étape en cours** : la pastille prend une ligne à elle, sur le rail, **juste
+avant la première étape non encore terminée** — dans un creux entre deux étapes,
+tout en haut avant le début de la journée, tout en bas après la dernière étape.
+L'invariant se lit alors sans explication : au-dessus, tout est fini ; en dessous,
+rien ne l'est.
+
+Deux états d'une minute, assumés : à la minute exacte du début d'une étape, la
+colonne montre l'heure deux fois — en gras l'horaire prévu, en rose l'instant
+présent —, et à la minute de sa fin la pastille passe sur sa propre ligne juste
+sous l'heure de fin. Les faire disparaître demanderait de mentir sur l'un des deux.
 
 Le **rose** de la palette est la seule couleur qui ne serve à rien d'autre sur la
 timeline : teal désigne les étapes, ambre les trajets, indigo les hébergements. Un
 repère de temps ne doit pas se confondre avec une étape.
 
-Deux détails d'implémentation : le trait vertical de la colonne passe **derrière**
-le point et la pastille, comme sous la pastille de durée, sans quoi la colonne se
-briserait à hauteur du repère ; et un intervalle d'une minute redessine la ligne, mais
+Deux détails d'implémentation : sur sa ligne à part, le trait vertical de la
+colonne passe **derrière** la pastille, comme sous la pastille de durée, sans quoi
+la colonne se briserait à hauteur du repère ; et un intervalle d'une minute redessine la ligne, mais
 **seulement sur la journée du jour** — ailleurs il n'y a rien à rafraîchir, et un
 repère de temps figé vaudrait moins que rien.
 

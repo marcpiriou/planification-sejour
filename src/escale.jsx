@@ -1620,7 +1620,9 @@ function DaySummary({ acts, totalTravel }) {
 // posée sur la carte. Le crayon lui servait déjà de modèle.
 const ICON_BTN = "h-9 w-9 shrink-0 flex items-center justify-center rounded-full active:scale-95 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300";
 
-function ActivityCard({ act, onEdit, onEditDuration, startMin, endMin, auto, prev, canEdit = true, onDragStart, dragging = false }) {
+// `maintenant` : la minute courante, quand cette étape est celle en cours. La
+// pastille rose se range alors dans sa colonne horaire, sous l'heure de début.
+function ActivityCard({ act, onEdit, onEditDuration, startMin, endMin, auto, prev, canEdit = true, onDragStart, dragging = false, maintenant = null }) {
   const navApp = useContext(NavAppContext);
   const longPress = useLongPress(onDragStart, !!onDragStart);
   const start = minToTime(startMin != null ? startMin : timeToMin(act.startTime));
@@ -1644,6 +1646,7 @@ function ActivityCard({ act, onEdit, onEditDuration, startMin, endMin, auto, pre
       <div className="shrink-0 flex flex-col items-center" style={{ width: 66 }}>
         <div style={{ color: C.ink, fontFamily: MONO }} className="text-sm font-semibold">{start}</div>
         {auto && <div style={{ color: C.inkSoft }} className="t10 leading-none">auto</div>}
+        {maintenant != null && <PastilleMaintenant minutes={maintenant} dansEtape />}
         <div style={{ background: accent, border: `3px solid ${C.paper}`, boxSizing: "content-box" }} className="mt-1 h-3.5 w-3.5 rounded-full"></div>
         {/* ligne verticale avec la durée centrée dessus (grande zone cliquable) */}
         <div className="relative w-full flex-1 flex items-center justify-center py-2" style={{ minHeight: 54 }}>
@@ -1963,25 +1966,32 @@ function TravelLeg({
 // La couleur est le rose de la palette, la seule qui ne serve à rien d'autre sur
 // la timeline : teal désigne les étapes, ambre les trajets, indigo les
 // hébergements. Un repère de temps ne doit pas se confondre avec une étape.
+// L'heure qu'il est, en rose. Une seule pastille, à deux emplacements possibles :
+// dans la colonne horaire de l'étape EN COURS, juste sous son heure de début — 14:20
+// se lit alors entre le 14:00 et le 15:30 de l'étape, à sa place dans la plage —
+// ou, faute d'étape en cours, sur sa propre ligne entre deux cartes.
+function PastilleMaintenant({ minutes, dansEtape = false }) {
+  return (
+    <span role="note" aria-label={`Heure actuelle : ${minToTime(minutes)}`}
+      style={{ background: C.rose, fontFamily: MONO }}
+      className={`relative text-white t10 font-semibold rounded-full px-1.5 py-0.5 shadow-sm ${dansEtape ? "mt-0.5" : ""}`}>
+      {minToTime(minutes)}
+    </span>
+  );
+}
+
 function MarqueurMaintenant({ minutes }) {
   return (
     <div className="flex gap-3 items-center" role="separator"
       aria-label={`Heure actuelle : ${minToTime(minutes)}`}>
-      {/* Tout se joue dans la colonne des horaires, à gauche : un point sur le
-          rail, puis l'heure. Le trait qui traversait le contenu à droite doublait
-          ce que la position du repère disait déjà, et coupait la journée en deux
-          au milieu des cartes.
+      {/* Tout se joue dans la colonne des horaires, à gauche. Le trait qui
+          traversait le contenu à droite doublait ce que la position du repère
+          disait déjà, et coupait la journée en deux au milieu des cartes.
           Le trait vertical passe derrière, comme sous la pastille de durée :
           sans cela la colonne se briserait à hauteur du repère. */}
-      <div className="shrink-0 relative flex flex-col justify-center items-center gap-1 py-1.5" style={{ width: 66 }}>
+      <div className="shrink-0 relative flex justify-center items-center py-1.5" style={{ width: 66 }}>
         <div style={{ background: C.line }} className="absolute inset-y-0 w-0.5" />
-        {/* Le point marque le rail lui-même : c'est lui qui donne la position
-            exacte, l'heure écrite juste dessous ne fait que la nommer. */}
-        <span style={{ background: C.rose }} className="relative h-2 w-2 rounded-full" />
-        <span style={{ background: C.rose, fontFamily: MONO }}
-          className="relative text-white t10 font-semibold rounded-full px-1.5 py-0.5 shadow-sm">
-          {minToTime(minutes)}
-        </span>
+        <PastilleMaintenant minutes={minutes} />
       </div>
     </div>
   );
@@ -3245,8 +3255,18 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
   // Rang de la ligne dans la séquence : juste avant la première étape non
   // terminée, ou tout en bas si la journée est finie. minuteTick n'est pas lu
   // ici mais provoque le rendu qui recalcule `maintenant`.
+  // L'étape en cours, s'il y en a une. Le repère se loge alors DANS sa colonne
+  // horaire, sous son heure de début : 14:20 se lit entre le 14:00 et le 15:30 de
+  // l'étape, à sa place dans la plage. Le poser au-dessus de la carte laissait
+  // croire que l'étape n'avait pas commencé.
+  // Un hébergement ne dure pas (début = fin) : il n'est jamais « en cours ».
+  const etapeEnCours = estAujourdhui
+    ? acts.find((a) => maintenant >= a._startMin && maintenant < a._endMin) || null
+    : null;
+  // Ligne à part, et seulement faute d'étape en cours : dans un creux entre deux
+  // étapes, avant la première, ou après la dernière.
   const rangMaintenant = (() => {
-    if (!estAujourdhui || !acts.length) return -1;
+    if (!estAujourdhui || !acts.length || etapeEnCours) return -1;
     const i = acts.findIndex((a) => a._endMin > maintenant);
     return i < 0 ? acts.length : i;
   })();
@@ -3505,6 +3525,7 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
                 >
                   <ActivityCard act={a} onEdit={onEditAct} onEditDuration={onEditDuration}
                     startMin={a._startMin} endMin={a._endMin} auto={a._auto}
+                    maintenant={etapeEnCours === a ? maintenant : null}
                     prev={i > 0 ? acts[i - 1] : null} canEdit={canEdit} dragging={!!isDragged}
                     onDragStart={canEdit && !isStay(a) && acts.filter((x) => !isStay(x)).length > 1 && !drag ? (y) => startDrag(i, a.id, y) : null} />
                 </div>
