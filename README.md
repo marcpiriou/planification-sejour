@@ -559,6 +559,34 @@ l'application vers un autre outil. Renseignée, c'est elle qu'ouvrent l'épingle
 l'itinéraire de la carte — un lien de réservation ne montre qu'un quartier, l'adresse
 de l'hôte mène à la porte.
 
+### Le trajet du matin, propre à chaque matin
+Un hébergement de plusieurs nuits n'est enregistré **qu'une fois**, et le trajet
+vers l'étape suivante est décrit par l'étape de départ : son mode, sa durée
+manuelle et son commentaire vivaient donc sur la réservation, donc sur **tous ses
+matins à la fois**. Or la destination change chaque jour.
+
+Le défaut était net : régler « 7 min » sur le trajet d'un matin l'imposait aux
+suivants — 7 min pour 5,8 km, puis pour 23 km, puis pour 66 km. Le mode subissait
+le même sort : choisir « à pied » un matin faisait partir à pied pour 66 km le
+surlendemain.
+
+Ces réglages se rangent désormais dans `night_travel`, par date ISO du matin
+concerné, comme `night_times` (départ du matin) et `night_arrivals` (arrivée du
+soir) le font déjà pour les heures :
+
+```json
+{ "2026-08-20": { "travelMode": "car", "travelMinutes": 7, "travelNotes": "" } }
+```
+
+Un matin absent de cette carte **retombe sur les champs de l'hébergement
+lui-même**. C'est ce qui préserve les réglages faits avant la migration 0011 :
+ils restent le défaut de tous les matins jusqu'à ce qu'on en règle un, plutôt
+que d'être silencieusement perdus.
+
+Le trajet automatique, lui, était déjà correct : il se calcule des coordonnées de
+l'hébergement à celles de la première étape du jour, qui diffèrent bien d'un jour
+à l'autre. Seules les valeurs saisies à la main étaient partagées.
+
 ### Checklist avant le départ
 Un encart au-dessus de la timeline du **premier jour** d'un séjour ouvre une page
 dédiée, plein écran, listant des éléments à cocher — papiers, valises, tout ce

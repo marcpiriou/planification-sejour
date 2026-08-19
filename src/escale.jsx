@@ -150,6 +150,20 @@ const STAY_AM = "am", STAY_PM = "pm";
 // défaut du séjour) puis, pour l'arrivée seulement, sur AUTO — calculée par
 // trajet, comme avant que cette heure devienne réglable : les hébergements
 // enregistrés avant cette carte gardent ce calcul tant qu'on n'y touche pas.
+// Réglages de trajet d'un matin donné. Un matin jamais réglé individuellement
+// retombe sur les champs de l'hébergement lui-même : c'est ce qui préserve les
+// réglages faits avant que ce trajet devienne quotidien — ils restent le défaut
+// de tous les matins jusqu'à ce qu'on en règle un.
+function trajetDuMatin(s, iso) {
+  const r = s.nightTravel && s.nightTravel[iso];
+  if (!r) return {};
+  return {
+    travelMode: r.travelMode !== undefined ? r.travelMode : s.travelMode,
+    travelMinutes: r.travelMinutes !== undefined ? r.travelMinutes : s.travelMinutes,
+    travelNotes: r.travelNotes !== undefined ? r.travelNotes : s.travelNotes,
+  };
+}
+
 const stayEntry = (s, iso, slot) => ({
   ...s,
   id: `${s.id}#${slot}`,
@@ -159,6 +173,12 @@ const stayEntry = (s, iso, slot) => ({
   startTime: slot === STAY_AM
     ? ((s.nightTimes && s.nightTimes[iso]) || s.startTime || STAY_LEAVE_TIME)
     : ((s.nightArrivals && s.nightArrivals[iso]) || s.arriveTime || AUTO),
+  // Le trajet part d'ici vers la première étape de la journée, qui n'est PAS la
+  // même d'un matin à l'autre : mode, durée manuelle et commentaire sont donc
+  // lus dans nightTravel[iso]. Sans cela, les champs uniques de l'hébergement
+  // s'appliquaient à tous ses matins — régler « 7 min » un jour imposait 7 min
+  // pour 5,8 km, puis pour 23 km, puis pour 66 km.
+  ...(slot === STAY_AM ? trajetDuMatin(s, iso) : {}),
   durationMin: 0,
   stayNight: Math.round((parseDate(iso) - parseDate(s.date)) / 86400000) + (slot === STAY_PM ? 1 : 0),
   stayArrivee: slot === STAY_PM && iso === s.date,
@@ -439,6 +459,7 @@ function rowToActivity(a) {
     nightTimes: a.night_times || {},
     arriveTime: a.arrive_time ?? null,
     nightArrivals: a.night_arrivals || {},
+    nightTravel: a.night_travel || {},
   };
 }
 
@@ -541,6 +562,7 @@ async function saveTrips(trips) {
     night_times: a.nightTimes || {},
     arrive_time: a.arriveTime ?? null,
     night_arrivals: a.nightArrivals || {},
+    night_travel: a.nightTravel || {},
   });
 
   try {
@@ -4761,7 +4783,7 @@ function SejourApp() {
     const day = curDay && days.includes(curDay) ? curDay : days[0];
     setEditor({ mode: "new", kind: "stay", id: uid(), date: day, name: "", category: "dormir",
       startTime: STAY_LEAVE_TIME, arriveTime: AUTO, arriveeSuggeree: STAY_ARRIVE_TIME, durationMin: 0, placeRaw: "", addressRaw: "", travelMode: MODE_AUTO,
-      travelMinutes: "", notes: "", nights: 1, editingMorning: null, editingEvening: null, nightTimes: {}, nightArrivals: {} });
+      travelMinutes: "", notes: "", nights: 1, editingMorning: null, editingEvening: null, nightTimes: {}, nightArrivals: {}, nightTravel: {} });
   };
   // Proposition retenue dans l'écran Suggestions : elle rejoint directement la
   // journée affichée, sans passer par le formulaire. L'écran reste ouvert pour
@@ -5049,6 +5071,21 @@ function SejourApp() {
     commit(next);
   };
 
+  // Trajet du matin d'un hébergement : rangé sous la date, à côté des autres
+  // réglages quotidiens (nightTimes, nightArrivals). Les autres matins ne sont pas
+  // touchés — c'est tout l'objet de cette carte.
+  const reglageTrajetMatin = (stayId, iso, patch) => {
+    if (!trip || !stayId || !iso) return;
+    commit(trips.map((t) => (t.id === trip.id
+      ? {
+        ...t,
+        activities: t.activities.map((a) => (a.id === stayId
+          ? { ...a, nightTravel: { ...(a.nightTravel || {}), [iso]: { ...(a.nightTravel && a.nightTravel[iso]), ...patch } } }
+          : a)),
+      }
+      : t)));
+  };
+
   // Checklist avant le départ : un tableau remplacé en bloc à chaque ajout,
   // coche ou suppression — pas de quoi justifier une comparaison fine.
   const updateChecklist = (items) => {
@@ -5134,9 +5171,15 @@ function SejourApp() {
           <TravelPicker
             from={from} to={to}
             onCancel={() => setTravelEdit(null)}
-            // Le mode et la durée se rangent sur l'activité enregistrée : pour un
-            // hébergement, c'est la réservation elle-même.
-            onValidate={(patch) => { updateActivity(from.stayOf || from.id, patch); setTravelEdit(null); }}
+            // Une activité ordinaire porte son trajet directement. Le matin d'un
+            // hébergement, non : la réservation est unique pour toutes ses nuits,
+            // alors que la destination change chaque jour. Le réglage se range
+            // donc sous la DATE de ce matin-là.
+            onValidate={(patch) => {
+              if (from.staySlot === STAY_AM) reglageTrajetMatin(from.stayOf, from.date, patch);
+              else updateActivity(from.id, patch);
+              setTravelEdit(null);
+            }}
           />
         );
       })()}
