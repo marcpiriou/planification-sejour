@@ -3449,7 +3449,14 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
         {acts.length === 0 ? (
           <div style={{ background: C.card, border: `1px dashed ${C.line}` }} className="rounded-2xl p-8 text-center">
             <div style={{ color: C.inkSoft }} className="text-sm">Aucune activité ce jour.</div>
-            {canEdit && <button onClick={onAddAct} style={{ color: C.teal }} className="mt-2 font-medium">Ajouter la première étape</button>}
+            {/* La consigne désigne le bouton flottant, qui n'existe qu'en écriture :
+                un invité en lecture seule n'a pas de « + » à toucher, et on ne lui
+                demande donc rien. */}
+            {canEdit && (
+              <div style={{ color: C.inkSoft }} className="text-sm mt-2">
+                Cliquez sur le bouton « + » en bas à droite pour commencer à remplir cette journée.
+              </div>
+            )}
           </div>
         ) : (
           <div>
