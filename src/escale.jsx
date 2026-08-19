@@ -1622,7 +1622,7 @@ const ICON_BTN = "h-9 w-9 shrink-0 flex items-center justify-center rounded-full
 
 // `maintenant` : la minute courante, quand cette étape est celle en cours. La
 // pastille rose se range alors dans sa colonne horaire, sous l'heure de début.
-function ActivityCard({ act, onEdit, onEditDuration, startMin, endMin, auto, prev, canEdit = true, onDragStart, dragging = false, maintenant = null }) {
+function ActivityCard({ act, onEdit, onEditDuration, startMin, endMin, prev, canEdit = true, onDragStart, dragging = false, maintenant = null }) {
   const navApp = useContext(NavAppContext);
   const longPress = useLongPress(onDragStart, !!onDragStart);
   const start = minToTime(startMin != null ? startMin : timeToMin(act.startTime));
@@ -1643,14 +1643,17 @@ function ActivityCard({ act, onEdit, onEditDuration, startMin, endMin, auto, pre
   return (
     <div className="flex gap-3">
       {/* Colonne horaire : un nœud plein à l'heure de début, le rail, la durée, et
-          l'heure de fin. Le nœud plein marque le DÉBUT de l'étape sur le rail —
+          l'heure de fin. Rien d'autre — la mention « auto » sous les heures
+          calculées a été retirée : elle apparaissait sous presque toutes les
+          étapes, puisque l'enchaînement automatique est la règle, et ne signalait
+          donc rien. Le réglage lui-même reste dans le formulaire de l'étape.
+          Le nœud plein marque le DÉBUT de l'étape sur le rail —
           c'est lui qui donne le point d'accroche de la carte. Le cercle qui
           marquait la fin, lui, a été retiré : posé au milieu, entre la durée et
           l'heure de fin, il ponctuait le rail sans rien ajouter à ce que l'heure
           écrite juste dessous disait déjà. */}
       <div className="shrink-0 flex flex-col items-center" style={{ width: 66 }}>
         <div style={{ color: C.ink, fontFamily: MONO }} className="text-sm font-semibold">{start}</div>
-        {auto && <div style={{ color: C.inkSoft }} className="t10 leading-none">auto</div>}
         {maintenant != null && <PastilleMaintenant minutes={maintenant} dansEtape />}
         <div style={{ background: accent, border: `3px solid ${C.paper}`, boxSizing: "content-box" }} className="mt-1 h-3.5 w-3.5 rounded-full"></div>
         {/* ligne verticale avec la durée centrée dessus (grande zone cliquable) */}
@@ -3528,7 +3531,7 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
                     : (drag ? { opacity: 0.55, transition: "opacity .15s" } : undefined)}
                 >
                   <ActivityCard act={a} onEdit={onEditAct} onEditDuration={onEditDuration}
-                    startMin={a._startMin} endMin={a._endMin} auto={a._auto}
+                    startMin={a._startMin} endMin={a._endMin}
                     maintenant={etapeEnCours === a ? maintenant : null}
                     prev={i > 0 ? acts[i - 1] : null} canEdit={canEdit} dragging={!!isDragged}
                     onDragStart={canEdit && !isStay(a) && acts.filter((x) => !isStay(x)).length > 1 && !drag ? (y) => startDrag(i, a.id, y) : null} />

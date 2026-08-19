@@ -750,6 +750,13 @@ pastille de durée et l'heure de fin, et ne disait rien de plus que cette heure
 écrite juste dessous. La colonne se lit donc : heure de début, nœud, durée, heure de
 fin — un seul point d'accroche par étape au lieu de deux.
 
+La mention **« auto »**, qui s'affichait en petit sous les heures de début
+calculées, a disparu avec eux. L'enchaînement automatique étant la règle — seule la
+première étape du jour porte une heure fixe —, elle apparaissait sous presque toutes
+les étapes et ne signalait donc rien. Le réglage lui-même n'a pas changé : il se lit
+et se modifie dans le formulaire de l'étape, où « Auto » et « Heure fixe » sont deux
+boutons explicites.
+
 ### Où la timeline se positionne
 Sur **aujourd'hui**, la journée s'ouvre cadrée sur **l'étape de l'heure qu'il
 est** : à 17 h, le haut de la matinée n'a plus d'intérêt, et c'est l'étape en
