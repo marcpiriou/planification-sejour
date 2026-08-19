@@ -1620,9 +1620,7 @@ function DaySummary({ acts, totalTravel }) {
 // posée sur la carte. Le crayon lui servait déjà de modèle.
 const ICON_BTN = "h-9 w-9 shrink-0 flex items-center justify-center rounded-full active:scale-95 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300";
 
-// `maintenant` : la minute courante, quand cette étape est celle en cours. La
-// pastille rose se range alors dans sa colonne horaire, sous l'heure de début.
-function ActivityCard({ act, onEdit, onEditDuration, startMin, endMin, prev, canEdit = true, onDragStart, dragging = false, maintenant = null }) {
+function ActivityCard({ act, onEdit, onEditDuration, startMin, endMin, prev, canEdit = true, onDragStart, dragging = false }) {
   const navApp = useContext(NavAppContext);
   const longPress = useLongPress(onDragStart, !!onDragStart);
   const start = minToTime(startMin != null ? startMin : timeToMin(act.startTime));
@@ -1643,10 +1641,10 @@ function ActivityCard({ act, onEdit, onEditDuration, startMin, endMin, prev, can
   return (
     <div className="flex gap-3">
       {/* Colonne horaire : un nœud plein à l'heure de début, le rail, la durée, et
-          l'heure de fin. Rien d'autre — la mention « auto » sous les heures
-          calculées a été retirée : elle apparaissait sous presque toutes les
-          étapes, puisque l'enchaînement automatique est la règle, et ne signalait
-          donc rien. Le réglage lui-même reste dans le formulaire de l'étape.
+          l'heure de fin. Rien d'autre. Y ont figuré, puis en ont été retirés, la
+          mention « auto » sous les heures calculées — elle apparaissait sous
+          presque toutes les étapes, l'enchaînement automatique étant la règle — et
+          l'heure courante en rose, dont on n'avait pas l'usage.
           Le nœud plein marque le DÉBUT de l'étape sur le rail —
           c'est lui qui donne le point d'accroche de la carte. Le cercle qui
           marquait la fin, lui, a été retiré : posé au milieu, entre la durée et
@@ -1654,7 +1652,6 @@ function ActivityCard({ act, onEdit, onEditDuration, startMin, endMin, prev, can
           écrite juste dessous disait déjà. */}
       <div className="shrink-0 flex flex-col items-center" style={{ width: 66 }}>
         <div style={{ color: C.ink, fontFamily: MONO }} className="text-sm font-semibold">{start}</div>
-        {maintenant != null && <PastilleMaintenant minutes={maintenant} dansEtape />}
         <div style={{ background: accent, border: `3px solid ${C.paper}`, boxSizing: "content-box" }} className="mt-1 h-3.5 w-3.5 rounded-full"></div>
         {/* ligne verticale avec la durée centrée dessus (grande zone cliquable) */}
         <div className="relative w-full flex-1 flex items-center justify-center py-2" style={{ minHeight: 54 }}>
@@ -1973,37 +1970,6 @@ function TravelLeg({
 // La couleur est le rose de la palette, la seule qui ne serve à rien d'autre sur
 // la timeline : teal désigne les étapes, ambre les trajets, indigo les
 // hébergements. Un repère de temps ne doit pas se confondre avec une étape.
-// L'heure qu'il est, en rose. Une seule pastille, à deux emplacements possibles :
-// dans la colonne horaire de l'étape EN COURS, juste sous son heure de début — 14:20
-// se lit alors entre le 14:00 et le 15:30 de l'étape, à sa place dans la plage —
-// ou, faute d'étape en cours, sur sa propre ligne entre deux cartes.
-function PastilleMaintenant({ minutes, dansEtape = false }) {
-  return (
-    <span role="note" aria-label={`Heure actuelle : ${minToTime(minutes)}`}
-      style={{ background: C.rose, fontFamily: MONO }}
-      className={`relative text-white t10 font-semibold rounded-full px-1.5 py-0.5 shadow-sm ${dansEtape ? "mt-0.5" : ""}`}>
-      {minToTime(minutes)}
-    </span>
-  );
-}
-
-function MarqueurMaintenant({ minutes }) {
-  return (
-    <div className="flex gap-3 items-center" role="separator"
-      aria-label={`Heure actuelle : ${minToTime(minutes)}`}>
-      {/* Tout se joue dans la colonne des horaires, à gauche. Le trait qui
-          traversait le contenu à droite doublait ce que la position du repère
-          disait déjà, et coupait la journée en deux au milieu des cartes.
-          Le trait vertical passe derrière, comme sous la pastille de durée :
-          sans cela la colonne se briserait à hauteur du repère. */}
-      <div className="shrink-0 relative flex justify-center items-center py-1.5" style={{ width: 66 }}>
-        <div style={{ background: C.line }} className="absolute inset-y-0 w-0.5" />
-        <PastilleMaintenant minutes={minutes} />
-      </div>
-    </div>
-  );
-}
-
 /* --- Carte de la journée : Google Maps interactif, plein écran ------ */
 // Une image ne se déplace pas et ses marqueurs ne se touchent pas : la carte
 // vient donc de l'API Maps JavaScript. Son chargeur réclame la clé dans le
@@ -3247,37 +3213,6 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
     [trip.activities, safeCurrent, trip.endDate, travelTick]
   );
 
-  // Repère de l'heure actuelle : seulement sur la journée du jour, et rafraîchi
-  // chaque minute — un repère de temps qui se figerait vaudrait moins que rien.
-  // L'intervalle n'existe que sur cette journée-là : ailleurs il n'y a rien à
-  // redessiner.
-  const estAujourdhui = safeCurrent === toISO(new Date());
-  const [minuteTick, setMinuteTick] = useState(0);
-  useEffect(() => {
-    if (!estAujourdhui) return;
-    const t = setInterval(() => setMinuteTick((n) => n + 1), 60000);
-    return () => clearInterval(t);
-  }, [estAujourdhui]);
-  const maintenant = minutesMaintenant();
-  // Rang de la ligne dans la séquence : juste avant la première étape non
-  // terminée, ou tout en bas si la journée est finie. minuteTick n'est pas lu
-  // ici mais provoque le rendu qui recalcule `maintenant`.
-  // L'étape en cours, s'il y en a une. Le repère se loge alors DANS sa colonne
-  // horaire, sous son heure de début : 14:20 se lit entre le 14:00 et le 15:30 de
-  // l'étape, à sa place dans la plage. Le poser au-dessus de la carte laissait
-  // croire que l'étape n'avait pas commencé.
-  // Un hébergement ne dure pas (début = fin) : il n'est jamais « en cours ».
-  const etapeEnCours = estAujourdhui
-    ? acts.find((a) => maintenant >= a._startMin && maintenant < a._endMin) || null
-    : null;
-  // Ligne à part, et seulement faute d'étape en cours : dans un creux entre deux
-  // étapes, avant la première, ou après la dernière.
-  const rangMaintenant = (() => {
-    if (!estAujourdhui || !acts.length || etapeEnCours) return -1;
-    const i = acts.findIndex((a) => a._endMin > maintenant);
-    return i < 0 ? acts.length : i;
-  })();
-
   const markers = useMemo(() => dayMarkers(acts), [acts]);
   const [mapOpen, setMapOpen] = useState(false);
   const [checklistOpen, setChecklistOpen] = useState(false);
@@ -3522,7 +3457,6 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
               const isDragged = drag && drag.id === a.id;
               return (
               <div key={a.id}>
-                {rangMaintenant === i && <MarqueurMaintenant minutes={maintenant} />}
                 {drag && drag.over === i && <InsertBar />}
                 <div
                   ref={(el) => { if (el) cardRefs.current.set(a.id, el); else cardRefs.current.delete(a.id); }}
@@ -3532,7 +3466,6 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
                 >
                   <ActivityCard act={a} onEdit={onEditAct} onEditDuration={onEditDuration}
                     startMin={a._startMin} endMin={a._endMin}
-                    maintenant={etapeEnCours === a ? maintenant : null}
                     prev={i > 0 ? acts[i - 1] : null} canEdit={canEdit} dragging={!!isDragged}
                     onDragStart={canEdit && !isStay(a) && acts.filter((x) => !isStay(x)).length > 1 && !drag ? (y) => startDrag(i, a.id, y) : null} />
                 </div>
@@ -3544,8 +3477,6 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
                   onAjoutActivite={canEdit && !drag ? () => choisitTrajet(() => onAddAct(a.id)) : undefined}
                   onAjoutSuggestion={() => choisitTrajet(() => ouvreSuggestions(a.id))} />}
                 {drag && drag.over === acts.length && i === acts.length - 1 && <InsertBar />}
-                {/* Journée finie : le repère se pose après la dernière étape. */}
-                {rangMaintenant === acts.length && i === acts.length - 1 && <MarqueurMaintenant minutes={maintenant} />}
               </div>
               );
             })}

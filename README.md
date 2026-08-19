@@ -706,39 +706,6 @@ Trois pièges, et ce qui les évite :
   le saut programmé, et l'écouteur l'ignore. Les fermetures simultanées sont
   regroupées en un seul `go(-n)` — un `back()` par couche risquait d'être fusionné.
 
-### Repère de l'heure actuelle
-Sur la journée du jour, **l'heure qu'il est s'affiche en rose** dans la colonne des
-horaires, à gauche. Rien d'autre : ni point, ni trait.
-
-Deux emplacements, selon qu'une étape est en cours ou non.
-
-**Une étape est en cours** : la pastille rose se range **dans la colonne horaire de
-cette étape**, juste sous son heure de début. À 14:20, pendant une étape de 14:00 à
-15:30, la colonne se lit `14:00 · 14:20 · 1h30 · 15:30` : l'heure courante est à sa
-place dans la plage. La poser au-dessus de la carte, comme le faisait la première
-version, laissait croire que l'étape n'avait pas encore commencé.
-
-**Aucune étape en cours** : la pastille prend une ligne à elle, sur le rail, **juste
-avant la première étape non encore terminée** — dans un creux entre deux étapes,
-tout en haut avant le début de la journée, tout en bas après la dernière étape.
-L'invariant se lit alors sans explication : au-dessus, tout est fini ; en dessous,
-rien ne l'est.
-
-Deux états d'une minute, assumés : à la minute exacte du début d'une étape, la
-colonne montre l'heure deux fois — en gras l'horaire prévu, en rose l'instant
-présent —, et à la minute de sa fin la pastille passe sur sa propre ligne juste
-sous l'heure de fin. Les faire disparaître demanderait de mentir sur l'un des deux.
-
-Le **rose** de la palette est la seule couleur qui ne serve à rien d'autre sur la
-timeline : teal désigne les étapes, ambre les trajets, indigo les hébergements. Un
-repère de temps ne doit pas se confondre avec une étape.
-
-Deux détails d'implémentation : sur sa ligne à part, le trait vertical de la
-colonne passe **derrière** la pastille, comme sous la pastille de durée, sans quoi
-la colonne se briserait à hauteur du repère ; et un intervalle d'une minute redessine la ligne, mais
-**seulement sur la journée du jour** — ailleurs il n'y a rien à rafraîchir, et un
-repère de temps figé vaudrait moins que rien.
-
 ### Un seul nœud par étape, à son début
 La colonne montrait deux nœuds par étape : un **plein** à son heure de début, un
 **cerclé** à son heure de fin — teal pour une activité, indigo pour un hébergement.
@@ -750,12 +717,25 @@ pastille de durée et l'heure de fin, et ne disait rien de plus que cette heure
 écrite juste dessous. La colonne se lit donc : heure de début, nœud, durée, heure de
 fin — un seul point d'accroche par étape au lieu de deux.
 
+Deux autres marques y ont figuré avant d'en être retirées.
+
 La mention **« auto »**, qui s'affichait en petit sous les heures de début
-calculées, a disparu avec eux. L'enchaînement automatique étant la règle — seule la
+calculées, a disparu avec le nœud de fin. L'enchaînement automatique étant la règle — seule la
 première étape du jour porte une heure fixe —, elle apparaissait sous presque toutes
 les étapes et ne signalait donc rien. Le réglage lui-même n'a pas changé : il se lit
 et se modifie dans le formulaire de l'étape, où « Auto » et « Heure fixe » sont deux
 boutons explicites.
+
+**L'heure courante en rose** a existé quelques heures, sous plusieurs formes : un
+trait en travers de la journée, puis un point et l'heure sur le rail, puis l'heure
+seule rangée dans la plage de l'étape en cours. Elle a été retirée faute d'usage :
+sur une journée qu'on lit de haut en bas, savoir où l'on en est se voit aux heures
+déjà écrites. Son retrait supprime au passage le seul **intervalle d'une minute** de
+l'écran, qui redessinait la timeline entière pour déplacer une pastille.
+
+Ce qui reste de cette idée, et qui sert vraiment : la timeline **s'ouvre cadrée sur
+l'étape de l'heure qu'il est** (section suivante). Le cadrage se calcule une fois, à
+l'arrivée.
 
 ### Où la timeline se positionne
 Sur **aujourd'hui**, la journée s'ouvre cadrée sur **l'étape de l'heure qu'il
