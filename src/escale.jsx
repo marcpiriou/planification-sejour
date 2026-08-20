@@ -3737,8 +3737,13 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
   const mine = dayOrdered.find((a) => a.id === draft.id);
   const suggestedTime = mine ? minToTime(mine._startMin)
     : (dayOrdered.length ? minToTime(dayOrdered[dayOrdered.length - 1]._endMin) : "09:00");
+  // Aucune durée n'est proposée d'office : la choisir est un acte, et 1 h par
+  // défaut se retrouvait sur des étapes qui duraient dix minutes ou la journée.
+  // `null` se distingue bien de 0, qui est une durée légitime — un passage, un
+  // rendez-vous à heure dite.
+  const sansDuree = !stay && draft.durationMin == null;
   const handleSave = async () => {
-    if (saving || nameError) return;
+    if (saving || nameError || sansDuree) return;
     setSaving(true);
     try { await onSave(); } catch { setSaving(false); }
   };
@@ -3767,19 +3772,19 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
 
         {/* contenu défilant */}
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-          {/* nom */}
-          <Field label={stay ? "Nom de l'hébergement" : "Nom de l'activité"}>
-            <input value={draft.name} onChange={(e) => upd("name", e.target.value)} placeholder={stay ? "Ex. Hôtel du Palais" : "Ex. Rocher de la Vierge"}
-              style={inputStyle} className="w-full rounded-xl px-3 py-2.5 outline-none" />
-          </Field>
-
-          {/* lieu (2e champ) — coller un lien Google Maps remplit le nom automatiquement */}
-          <div style={{ background: "#fff", border: `1px solid ${C.line}` }} className="rounded-2xl p-3 space-y-3">
-            <div style={{ color: C.ink }} className="text-sm font-medium flex items-center gap-1.5"><MapPin size={15} style={{ color: C.teal }} /> Lieu (facultatif)</div>
+          {/* Lieu, en PREMIER : c'est lui qui remplit le nom, estime les trajets et
+              place l'étape sur la carte — le saisir d'abord évite de taper un nom
+              que le lien allait donner. Présenté comme les autres champs, sans le
+              cadre blanc qui en faisait un bloc à part. */}
+          <Field label="Lieu (facultatif)">
+            <div className="space-y-3">
             <div className="flex gap-2">
               <input value={draft.placeRaw}
                 onChange={(e) => onPlaceRawChange(e.target.value)}
-                placeholder={stay ? "Lien Airbnb, Booking ou Google Maps" : "Lien Google Maps ou coordonnées (43.48, -1.56)"}
+                // Court : les deux boutons de presse-papier laissent peu de place, et
+                // l'ancien texte se coupait au milieu (« … coordonnées (4 »). Les deux
+                // formes acceptées sont détaillées sous le champ.
+                placeholder={stay ? "Lien Airbnb, Booking, Maps" : "Lien ou coordonnées GPS"}
                 style={inputStyle} className="flex-1 min-w-0 rounded-xl px-3 py-2.5 outline-none text-sm" />
               {lienLieu && (
                 <a href={lienLieu} target="_blank" rel="noopener noreferrer"
@@ -3843,10 +3848,17 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
             )}
             <div style={{ color: C.inkSoft }} className="t11">
               {stay
-                ? "Collez un lien Google Maps, Airbnb ou Booking : le nom, et les dates de réservation quand le lien les porte, se remplissent tout seuls."
-                : "Collez un lien Google Maps : le nom de l'activité se remplit tout seul, et l'itinéraire/les trajets sont estimés."}
+                ? "Deux formes acceptées : un lien (Google Maps, Airbnb, Booking) — le nom, et les dates de réservation quand le lien les porte, se remplissent tout seuls — ou des coordonnées GPS « latitude, longitude », par exemple 43.4816, -1.5665."
+                : "Deux formes acceptées : un lien Google Maps — le nom de l'activité se remplit tout seul, et les trajets sont estimés — ou des coordonnées GPS « latitude, longitude », par exemple 43.4816, -1.5665."}
             </div>
-          </div>
+            </div>
+          </Field>
+
+          {/* nom */}
+          <Field label={stay ? "Nom de l'hébergement" : "Nom de l'activité"}>
+            <input value={draft.name} onChange={(e) => upd("name", e.target.value)} placeholder={stay ? "Ex. Hôtel du Palais" : "Ex. Rocher de la Vierge"}
+              style={inputStyle} className="w-full rounded-xl px-3 py-2.5 outline-none" />
+          </Field>
 
           {/* durée */}
           {!stay && (
@@ -3865,9 +3877,12 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
                     className="rounded-full px-1 py-1 text-xs active:scale-95 transition">{compactDur(d)}</button>
                 );
               })}
+              {/* La pastille libre ne s'allume que si une durée hors liste a été
+                  saisie : quand rien n'est encore choisi, aucune ne doit paraître
+                  sélectionnée. */}
               <button onClick={openCustom}
-                style={{ background: !isPreset ? C.ink : "#fff", color: !isPreset ? "#fff" : C.ink, border: `1px solid ${!isPreset ? C.ink : C.line}`, fontFamily: MONO }}
-                className="rounded-full px-1 py-1 text-xs active:scale-95 transition">{!isPreset ? compactDur(draft.durationMin) : "…"}</button>
+                style={{ background: (!isPreset && !sansDuree) ? C.ink : "#fff", color: (!isPreset && !sansDuree) ? "#fff" : C.ink, border: `1px solid ${(!isPreset && !sansDuree) ? C.ink : C.line}`, fontFamily: MONO }}
+                className="rounded-full px-1 py-1 text-xs active:scale-95 transition">{(!isPreset && !sansDuree) ? compactDur(draft.durationMin) : "…"}</button>
             </div>
           </Field>
           )}
@@ -3991,12 +4006,13 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
 
         {/* barre d'action fixe en bas */}
         <div style={{ background: C.paper, borderColor: C.line, paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }} className="px-4 pt-3 border-t space-y-2">
-          <button onClick={handleSave} disabled={nameError || saving}
-            style={{ background: (nameError || saving) ? C.inkSoft : C.teal, opacity: (nameError || saving) ? 0.6 : 1 }}
+          <button onClick={handleSave} disabled={nameError || sansDuree || saving}
+            style={{ background: (nameError || sansDuree || saving) ? C.inkSoft : C.teal, opacity: (nameError || sansDuree || saving) ? 0.6 : 1 }}
             className="w-full text-white rounded-xl py-3 font-medium active:scale-95 transition">
             {saving ? "Enregistrement…" : (draft.mode === "new" ? (stay ? "Ajouter l'hébergement" : "Ajouter l'activité") : "Enregistrer")}
           </button>
           {nameError && <div style={{ color: C.warn }} className="text-xs">Le nom est requis.</div>}
+          {!nameError && sansDuree && <div style={{ color: C.warn }} className="text-xs">Choisissez une durée.</div>}
 
           {/* Suppression directe, sans confirmation : demandé explicitement.
               Celle d'un séjour en garde une — elle emporte toutes ses étapes. */}
@@ -4769,7 +4785,7 @@ function SejourApp() {
     // 1re activité du jour : heure fixe ; les suivantes : "auto" (calculées en
     // cascade). Un hébergement au petit matin compte comme première étape.
     const startTime = dayList(t.activities, day, t.endDate).length ? AUTO : "09:00";
-    setEditor({ mode: "new", kind: "act", id: uid(), date: day, name: "", category: "visite", startTime, durationMin: 60, placeRaw, addressRaw: "", travelMode: MODE_AUTO, travelMinutes: "", notes: "", nights: null, insererApres: apresId, insererJour: apresId ? day : null });
+    setEditor({ mode: "new", kind: "act", id: uid(), date: day, name: "", category: "visite", startTime, durationMin: null, placeRaw, addressRaw: "", travelMode: MODE_AUTO, travelMinutes: "", notes: "", nights: null, insererApres: apresId, insererJour: apresId ? day : null });
   };
   // `apresId` n'arrive que du « + » d'un trajet ; branché sur un onClick, le
   // premier argument serait l'événement de clic.

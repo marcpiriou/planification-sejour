@@ -626,6 +626,31 @@ Chaque nouveau séjour créé reprend ses éléments (nouveaux identifiants, tou
 décochés), qui deviennent alors propres à ce séjour — cocher ou modifier l'un
 n'affecte plus jamais l'autre.
 
+### Formulaire d'une étape : le lieu d'abord, la durée obligatoire
+Le champ **Lieu vient en premier**, avant le nom. C'est lui qui fait le travail :
+un lien Google Maps collé là remplit le nom tout seul, situe l'étape sur la carte
+et permet d'estimer les trajets. Le demander après le nom faisait taper à la main
+ce que le lien allait donner.
+
+Il accepte **deux formes**, dites sous le champ : un **lien** (Google Maps, et
+Airbnb ou Booking pour un hébergement) ou des **coordonnées GPS** « latitude,
+longitude » — `43.4816, -1.5665`. Le texte du champ est court (« Lien ou
+coordonnées GPS ») parce que les deux boutons de presse-papier lui laissent peu de
+place : l'ancien se coupait au milieu.
+
+Ce champ était présenté dans un cadre blanc arrondi qui en faisait un bloc à part.
+Il a maintenant la même forme que les autres — étiquette en petites capitales,
+champ au style commun.
+
+**Aucune durée n'est proposée d'office**, et l'enregistrement est refusé tant
+qu'aucune n'est choisie : le bouton reste éteint et l'écran écrit « Choisissez une
+durée. » Une heure par défaut se retrouvait sur des étapes qui duraient dix minutes
+comme sur d'autres qui prenaient la journée, sans que personne s'en aperçoive. La
+valeur non choisie est `null`, distincte de **0** qui reste une durée légitime — un
+passage, un rendez-vous à heure dite.
+
+Un hébergement n'est pas concerné : il n'a pas de durée, mais un nombre de nuits.
+
 ### Durées proposées
 Onze pastilles — `0, 15, 30, 45, 1h, 1h30, 2h, 2h30, 3h, 3h30, 4h` — plus le
 bouton `…` de saisie libre, soit douze, disposées en **grille de six colonnes
