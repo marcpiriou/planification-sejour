@@ -4899,11 +4899,14 @@ function SejourApp() {
       durationMin: a.durationMin,
       editingMorning, editingEvening, nightTimes: a.nightTimes || {}, nightArrivals: a.nightArrivals || {},
       nights: isStay(a) ? stayNights(a) : null,
-      // Pour un hébergement, le champ Lieu ne porte QUE le lien de réservation :
-      // son adresse a son propre champ, et ses coordonnées en découlent. Y afficher
-      // des coordonnées ne servait à rien et empêchait de rouvrir le lien.
+      // Le champ Lieu rend ce qui y a été SAISI : le lien s'il y en a un, sinon la
+      // saisie conservée telle quelle (`raw` — des coordonnées tapées).
+      // Ce qui n'est pas montré, en revanche, ce sont les coordonnées DÉDUITES :
+      // pour un hébergement, elles découlent du champ Adresse, et les afficher ici
+      // n'apprenait rien tout en empêchant de rouvrir le lien.
       placeRaw: !a.place ? ""
         : (a.place.url
+          || a.place.raw
           || (isStay(a)
             ? ""
             : (a.place.address || (a.place.lat != null ? `${a.place.lat}, ${a.place.lng}` : (a.place.name || ""))))),
@@ -4935,6 +4938,11 @@ function SejourApp() {
       // autorisée pour la photo.
       const mn = isUrl(raw) ? mapsPlaceName(raw) : null;
       place = { name: mn || null, mapsName: mn, lat: coords.lat, lng: coords.lng, url: isUrl(raw) ? raw : null };
+      // Coordonnées tapées à la main : on garde la saisie MOT POUR MOT (`raw`),
+      // pour la réafficher à l'identique. Sans elle, le champ se rouvrait vide
+      // pour un hébergement, et arrondi pour une activité — « -8.4270 » revenait
+      // en « -8.427 ». Un lien, lui, est déjà conservé dans `url`.
+      if (!isUrl(raw)) place.raw = raw;
     } else if (raw) {
       if (isUrl(raw)) {
         if (prevPlace && prevPlace.url === raw && (prevPlace.lat != null || prevPlace.mapsName)) {

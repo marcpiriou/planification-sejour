@@ -626,6 +626,25 @@ Chaque nouveau séjour créé reprend ses éléments (nouveaux identifiants, tou
 décochés), qui deviennent alors propres à ce séjour — cocher ou modifier l'un
 n'affecte plus jamais l'autre.
 
+### Le champ Lieu rend ce qui y a été saisi
+Des coordonnées GPS tapées dans le champ **Lieu** étaient bien prises en compte —
+`lat`/`lng` enregistrés, trajets estimés, étape placée sur la carte — mais le champ
+revenait **vide** à la réouverture pour un hébergement, et **reformaté** pour une
+activité : `41.5548,-8.3776` se relisait `41.5548, -8.3776`, espace ajouté et zéro
+final rogné.
+
+La saisie est donc conservée telle quelle dans `place.raw`, et c'est elle qu'on
+réaffiche. Aucune migration : `place` est déjà une colonne `jsonb`, la clé s'y ajoute.
+
+Ce qui reste **caché**, et c'est voulu : les coordonnées **déduites**. Pour un
+hébergement, elles découlent du champ Adresse ; les montrer dans le champ Lieu
+n'apprenait rien et empêchait de rouvrir le lien de réservation. La règle est donc
+« le champ Lieu montre ce qu'on y a tapé — un lien, ou des coordonnées », et rien
+d'autre.
+
+Vider le champ efface aussi la saisie conservée : pas de valeur fantôme. Un lien,
+lui, n'est pas dupliqué dans `raw`, il vit déjà dans `place.url`.
+
 ### Formulaire d'une étape : le lieu d'abord, la durée obligatoire
 Le champ **Lieu vient en premier**, avant le nom. C'est lui qui fait le travail :
 un lien Google Maps collé là remplit le nom tout seul, situe l'étape sur la carte
