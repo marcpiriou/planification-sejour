@@ -2,7 +2,7 @@ import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, createCon
 import {
   Landmark, UtensilsCrossed, Coffee, Waves, ShoppingBag, BedDouble,
   TrainFront, Sparkles, MapPin, Footprints, Car, Clock, Plus,
-  ChevronLeft, Trash2, Pencil, Navigation, Calendar, X, AlertTriangle,
+  ChevronLeft, Trash2, Pencil, Navigation, Calendar, X, AlertTriangle, Info,
   Check, ExternalLink, MoreVertical, Route, Mail, LogOut,
   Users, Share2, UserPlus, User, Home as HomeIcon, Building2, ClipboardPaste, Copy,
   ListChecks, ChevronRight, ChevronDown, Search, Loader2, Archive, ArchiveRestore,
@@ -939,6 +939,50 @@ function fetchAvis(placeId) {
   return p;
 }
 
+// Notice de guide touristique d'un lieu, écrite par Gemini. Demandée seulement
+// quand l'icône « i » d'une étape est touchée — jamais pour toute la journée :
+// chaque appel coûte une génération, et on n'en lit qu'une à la fois.
+// Le cache est indexé sur le couple nom + repère, si bien que refermer puis
+// rouvrir la notice d'une étape ne la repaie pas.
+const guideCache = new Map();
+function fetchGuide(nom, lieu) {
+  const n = (nom || "").trim();
+  const l = (lieu || "").trim();
+  if (!n && !l) return Promise.resolve({ erreur: "aucun lieu à décrire" });
+  const key = `${n}|${l}`;
+  if (guideCache.has(key)) return guideCache.get(key);
+  const p = (async () => {
+    try {
+      const { data, error } = await supabase.functions.invoke("place-guide", { body: { nom: n, lieu: l } });
+      if (error) return { erreur: (await messageFonction(error)) || "guide indisponible" };
+      if (!data) return { erreur: "guide indisponible" };
+      if (data.error) return { erreur: data.detail ? `${data.error} (${data.detail})` : data.error };
+      return {
+        resume: typeof data.resume === "string" ? data.resume : "",
+        sections: Array.isArray(data.sections) ? data.sections : [],
+      };
+    } catch (e) {
+      return { erreur: e?.message || String(e) };
+    }
+  })();
+  guideCache.set(key, p);
+  return p;
+}
+
+// Repère envoyé au guide avec le nom de l'étape : ce qui situe le lieu sans
+// ambiguïté. Le nom écrit par Google dans le lien d'abord — c'est sa
+// nomenclature, la plus reconnaissable — puis l'adresse saisie, puis les
+// coordonnées, qui à défaut de nom situent au moins la bonne ville.
+function repereGuide(place) {
+  if (!place) return "";
+  const mapsName = typeof place.mapsName === "string" && !isUrl(place.mapsName) ? place.mapsName.trim() : "";
+  if (mapsName) return mapsName;
+  const adresse = typeof place.address === "string" ? place.address.trim() : "";
+  if (adresse) return adresse;
+  if (place.lat != null && place.lng != null) return `${place.lat}, ${place.lng}`;
+  return typeof place.name === "string" ? place.name.trim() : "";
+}
+
 // Identifiants tirés du générateur cryptographique du navigateur. L'ancienne
 // forme, horodatage + Math.random(), était devinable : Math.random() n'est pas
 // imprévisible et l'horodatage se déduit. Deviner un identifiant ne donnait
@@ -1648,7 +1692,7 @@ function DaySummary({ acts, totalTravel }) {
 // posée sur la carte. Le crayon lui servait déjà de modèle.
 const ICON_BTN = "h-9 w-9 shrink-0 flex items-center justify-center rounded-full active:scale-95 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300";
 
-function ActivityCard({ act, onEdit, onEditDuration, startMin, endMin, prev, canEdit = true, onDragStart, dragging = false }) {
+function ActivityCard({ act, onEdit, onEditDuration, onGuide, startMin, endMin, prev, canEdit = true, onDragStart, dragging = false }) {
   const navApp = useContext(NavAppContext);
   const longPress = useLongPress(onDragStart, !!onDragStart);
   const start = minToTime(startMin != null ? startMin : timeToMin(act.startTime));
@@ -1729,10 +1773,12 @@ function ActivityCard({ act, onEdit, onEditDuration, startMin, endMin, prev, can
             )}
             {act.notes && <div style={{ color: C.inkSoft }} className="text-xs mt-1 clamp3">{act.notes}</div>}
           </div>
-          {/* Lieu, itinéraire et édition : trois icônes de même facture, sur une
-              seule ligne en bas à gauche. Sans libellé, l'intitulé passe par
-              aria-label et title — c'est lui que lit une aide technique et que
-              montre un appui prolongé. */}
+          {/* Lieu, itinéraire, édition et guide : quatre icônes de même facture,
+              sur une seule ligne en bas à gauche. Sans libellé, l'intitulé passe
+              par aria-label et title — c'est lui que lit une aide technique et
+              que montre un appui prolongé. La quatrième a coûté sa place à la
+              vignette, ramenée de 112 à 96 px : à largeur inchangée, la ligne
+              d'icônes serait passée au ras du bord sur un écran de 390 px. */}
           {(act.place || canEdit) && (
             <div className="mt-2 -ml-1 flex items-center gap-1">
               {(() => {
@@ -1766,6 +1812,16 @@ function ActivityCard({ act, onEdit, onEditDuration, startMin, endMin, prev, can
                   <Pencil size={16} style={{ color: C.inkSoft }} />
                 </button>
               )}
+              {/* Notice de guide touristique, écrite par l'IA à la demande. Sur
+                  une activité seulement : d'un hôtel il n'y a rien à visiter, et
+                  le lieu doit être renseigné — le seul nom d'une étape
+                  (« Déjeuner ») ne désigne aucun lieu à décrire. En lecture
+                  seule aussi : lire une notice ne modifie rien. */}
+              {!stay && act.place && onGuide && (
+                <button onClick={() => onGuide(act)} aria-label="Guide du lieu" title="Guide" className={ICON_BTN}>
+                  <Info size={16} style={{ color: C.inkSoft }} />
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -1778,7 +1834,7 @@ function ActivityCard({ act, onEdit, onEditDuration, startMin, endMin, prev, can
         {act.place && !stay && (
           canEdit ? (
             <button onClick={() => onEdit(act)} aria-label="Modifier l'activité"
-              className="shrink-0 w-28 self-stretch flex items-center justify-center active:scale-95 transition"
+              className="shrink-0 w-24 self-stretch flex items-center justify-center active:scale-95 transition"
               style={{
                 borderLeft: `1px solid ${C.line}`,
                 background: photo ? undefined : C.paper,
@@ -1787,7 +1843,7 @@ function ActivityCard({ act, onEdit, onEditDuration, startMin, endMin, prev, can
               {!photo && <Building2 size={22} style={{ color: C.inkSoft, opacity: 0.45 }} />}
             </button>
           ) : (
-            <div className="shrink-0 w-28 self-stretch flex items-center justify-center"
+            <div className="shrink-0 w-24 self-stretch flex items-center justify-center"
               style={{
                 borderLeft: `1px solid ${C.line}`,
                 background: photo ? undefined : C.paper,
@@ -2814,6 +2870,98 @@ function repereLieu(etape) {
   };
 }
 
+/* --- Guide du lieu : la notice écrite par l'IA -------------------- */
+// Ouverte par l'icône « i » d'une étape. Un écran plein, et non une fenêtre :
+// une notice fait plusieurs paragraphes, qu'une modale obligerait à lire par
+// une meurtrière.
+function GuideSheet({ act, onClose }) {
+  const [etat, setEtat] = useState({ chargement: true });
+  // Relance après un échec : Gemini saturé se contente souvent d'un second
+  // essai. Le compteur vide l'entrée du cache — sans quoi la relance
+  // rendrait l'échec déjà mémorisé, sans rien redemander.
+  const [essai, setEssai] = useState(0);
+  const lieu = repereGuide(act.place);
+
+  useEffect(() => {
+    let vivant = true;
+    setEtat({ chargement: true });
+    fetchGuide(act.name, lieu).then((r) => { if (vivant) setEtat({ chargement: false, ...r }); });
+    return () => { vivant = false; };
+  }, [act.name, lieu, essai]);
+
+  const relance = () => {
+    guideCache.delete(`${(act.name || "").trim()}|${(lieu || "").trim()}`);
+    setEssai((n) => n + 1);
+  };
+
+  const sections = Array.isArray(etat.sections) ? etat.sections : [];
+  // Le modèle a répondu, mais n'a rien à dire : il ne connaît pas ce lieu. La
+  // consigne lui demande précisément de se taire plutôt que d'inventer, donc ce
+  // vide est une réponse, pas une panne — et l'écran le dit comme telle.
+  const inconnu = !etat.chargement && !etat.erreur && !(etat.resume || "").trim() && !sections.length;
+
+  return (
+    <div className="fixed inset-0 z-40 flex flex-col" style={{ background: C.paper }}>
+      <TopBar
+        left={<IconBtn onClick={onClose} label="Retour"><ChevronLeft size={22} /></IconBtn>}
+        title={act.name}
+        subtitle="Guide du lieu"
+      />
+      <div className="flex-1 overflow-y-auto">
+        <div className="mx-auto max-w-md px-4 py-4">
+          {etat.chargement && (
+            <div style={{ color: C.inkSoft }} className="flex items-center gap-2 text-sm">
+              <Loader2 size={16} className="animate-spin" /> Rédaction de la notice…
+            </div>
+          )}
+
+          {!etat.chargement && etat.erreur && (
+            <div style={{ background: C.card, border: `1px solid ${C.line}` }} className="rounded-2xl p-4">
+              <div style={{ color: C.ink }} className="text-sm font-medium">Guide indisponible</div>
+              <div style={{ color: C.inkSoft }} className="text-xs mt-1">{etat.erreur}</div>
+              <button type="button" onClick={relance} style={{ background: C.teal }}
+                className="mt-3 text-white rounded-xl px-3 py-2 text-sm active:scale-95 transition">
+                Réessayer
+              </button>
+            </div>
+          )}
+
+          {inconnu && (
+            <div style={{ background: C.card, border: `1px dashed ${C.line}` }} className="rounded-2xl p-4">
+              <div style={{ color: C.ink }} className="text-sm font-medium">Rien à en dire</div>
+              <div style={{ color: C.inkSoft }} className="text-xs mt-1">
+                Ce lieu n'est pas connu du guide. Mieux vaut ce constat qu'une notice inventée :
+                un lien Google Maps dans le champ « Lieu » aide à l'identifier.
+              </div>
+            </div>
+          )}
+
+          {!etat.chargement && !etat.erreur && !inconnu && (
+            <>
+              {(etat.resume || "").trim() && (
+                <div style={{ color: C.ink }} className="text-sm leading-relaxed">{etat.resume}</div>
+              )}
+              {sections.map((s, i) => (
+                <div key={i} className="mt-4">
+                  <div style={{ color: C.teal }} className="t11 uppercase tracking-wider font-semibold">{s.titre}</div>
+                  <div style={{ color: C.ink }} className="text-sm leading-relaxed mt-1">{s.texte}</div>
+                </div>
+              ))}
+              {/* Dit d'où vient le texte. Une notice écrite par un modèle se lit
+                  autrement qu'une fiche d'office de tourisme : elle peut se
+                  tromper, et le lecteur doit le savoir sans avoir à le deviner. */}
+              <div style={{ color: C.inkSoft, borderTop: `1px solid ${C.line}` }} className="t11 mt-6 pt-3">
+                Notice écrite par l'IA à partir de ce qu'elle sait du lieu. Ni horaires ni tarifs :
+                ils changent trop vite pour être fiables ici.
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SuggestionsSheet({ trip, jour, onAdd, onRemove, onClose, canEdit, promptInitial = "", repereAttendu = null, repereInitial = null }) {
   // Trois façons de chercher, « Google Maps » par défaut : une pastille suffit, les
   // lieux existent par construction, et la liste entière ne coûte qu'une requête
@@ -3249,6 +3397,11 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
   useRetour(checklistOpen, () => setChecklistOpen(false));
   const [suggestionsOuvert, setSuggestionsOuvert] = useState(false);
   useRetour(suggestionsOuvert, () => setSuggestionsOuvert(false));
+  // Étape dont la notice de guide est ouverte. L'étape elle-même, et non son
+  // identifiant : l'écran n'a besoin que de son nom et de son lieu, et la garder
+  // évite d'aller la rechercher dans la journée à chaque rendu.
+  const [guideAct, setGuideAct] = useState(null);
+  useRetour(!!guideAct, () => setGuideAct(null));
 
   /* --- Menu d'ajout (bouton « + » flottant) ------------------------- */
   const [ajoutOuvert, setAjoutOuvert] = useState(false);
@@ -3500,6 +3653,7 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
                     : (drag ? { opacity: 0.55, transition: "opacity .15s" } : undefined)}
                 >
                   <ActivityCard act={a} onEdit={onEditAct} onEditDuration={onEditDuration}
+                    onGuide={setGuideAct}
                     startMin={a._startMin} endMin={a._endMin}
                     prev={i > 0 ? acts[i - 1] : null} canEdit={canEdit} dragging={!!isDragged}
                     onDragStart={canEdit && !isStay(a) && acts.filter((x) => !isStay(x)).length > 1 && !drag ? (y) => startDrag(i, a.id, y) : null} />
@@ -3531,6 +3685,8 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
       {checklistOpen && (
         <ChecklistSheet trip={trip} onUpdate={onUpdateChecklist} onClose={() => setChecklistOpen(false)} canEdit={canEdit} />
       )}
+
+      {guideAct && <GuideSheet act={guideAct} onClose={() => setGuideAct(null)} />}
 
       {suggestionsOuvert && (
         <SuggestionsSheet trip={trip} jour={safeCurrent} canEdit={canEdit}

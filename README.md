@@ -113,15 +113,17 @@ serveur — non restreignable — partait dans le navigateur. Mieux vaut une car
 erreur, visible, qu'un secret exposé en silence.
 
 Un troisième secret, sans rapport avec Google Maps, complète la liste :
-**`GEMINI_API_KEY`** pour les modes IA de l'écran Suggestions (voir plus bas), avec
-`GEMINI_MODEL` en option. `place-reviews` est la seule fonction à se servir des
-deux : `GOOGLE_PLACES_KEY` pour lire les avis, `GEMINI_API_KEY` pour les résumer.
+**`GEMINI_API_KEY`** pour les modes IA de l'écran Suggestions et pour le guide
+d'un lieu (voir plus bas), avec `GEMINI_MODEL` en option. `place-reviews` est la
+seule fonction à se servir des deux : `GOOGLE_PLACES_KEY` pour lire les avis,
+`GEMINI_API_KEY` pour les résumer.
 
 ### Accès aux Edge Functions
-Les sept fonctions (`maps-key`, `resolve-place`, `travel-time`, `place-photo`,
-`places-around`, `suggestions`, `place-reviews`) consomment un quota facturé — Google, Gemini, ou
-les deux pour la dernière : elles vérifient donc chacune, en première instruction,
-que l'appel vient d'une **session utilisateur** (`_shared/auth.ts`).
+Les huit fonctions (`maps-key`, `resolve-place`, `travel-time`, `place-photo`,
+`places-around`, `suggestions`, `place-reviews`, `place-guide`) consomment un quota
+facturé — Google, Gemini, ou les deux pour `place-reviews` : elles vérifient donc
+chacune, en première instruction, que l'appel vient d'une **session utilisateur**
+(`_shared/auth.ts`).
 
 `verify_jwt` ne suffisait pas : la passerelle Supabase accepte aussi la clé
 publiable comme jeton, et cette clé est dans le bundle public — les fonctions
@@ -466,9 +468,9 @@ la console Cloud impose sinon un `gcloud beta services api-keys create
 règle d'organisation, et dont on n'a pas besoin ici.
 
 L'appel à Gemini — liste de modèles, repli, sortie contrainte par un schéma —
-est mutualisé dans `_shared/gemini.ts` : `suggestions` et `place-reviews` s'en
-servent toutes deux, et une mise à la retraite de modèle ne se corrige qu'à un
-seul endroit.
+est mutualisé dans `_shared/gemini.ts` : `suggestions`, `place-reviews` et
+`place-guide` s'en servent, et une mise à la retraite de modèle ne se corrige
+qu'à un seul endroit.
 
 ### Le modèle, et pourquoi il y en a deux
 `gemini-3.5-flash`, avec `gemini-2.5-flash` en repli. Google retire ses modèles
@@ -804,6 +806,43 @@ Trois pièges, et ce qui les évite :
   main renvoyait ainsi à la liste au lieu de la timeline. Un marqueur signale
   le saut programmé, et l'écouteur l'ignore. Les fermetures simultanées sont
   regroupées en un seul `go(-n)` — un `back()` par couche risquait d'être fusionné.
+
+### Le guide du lieu, sous l'icône « i »
+Une quatrième icône sur la carte d'une activité, après l'épingle, l'itinéraire et
+le crayon : un **« i »** qui ouvre une notice de guide touristique sur le lieu,
+écrite par Gemini (Edge Function `place-guide`).
+
+Un écran plein, et non une fenêtre : la notice fait un résumé et jusqu'à quatre
+sections, qu'une modale obligerait à lire par une meurtrière.
+
+**Sur une activité seulement, et seulement si son lieu est renseigné.** D'un hôtel
+il n'y a rien à visiter, et le seul nom d'une étape — « Déjeuner » — ne désigne
+aucun lieu dont on puisse dire quoi que ce soit. Un invité en lecture seule y a
+accès comme les autres : lire une notice ne modifie rien.
+
+**Ce que la consigne interdit au modèle.** Deux règles, pour deux façons de nuire :
+
+- **Ne rien inventer.** Un lieu qu'il ne connaît pas doit ressortir *vide* —
+  l'écran affiche alors « Rien à en dire » plutôt qu'une notice plausible et
+  fausse, qui est le pire résultat possible pour quelqu'un qui prépare un
+  déplacement.
+- **Ni horaires, ni tarifs, ni téléphone.** Ces valeurs changent, et la
+  connaissance d'un modèle est datée : une valeur périmée envoie le voyageur
+  devant une porte close. La notice porte d'ailleurs cette mention en pied, avec
+  sa provenance — un texte écrit par un modèle ne se lit pas comme une fiche
+  d'office de tourisme.
+
+**Appelée au toucher, jamais en lot** — même règle que la synthèse des avis :
+écrire d'emblée la notice des huit étapes d'une journée coûterait huit
+générations dont on n'en lirait qu'une. Le résultat est mis en cache sur le
+couple nom + lieu, si bien que refermer puis rouvrir une notice ne la repaie
+pas. Le bouton **« Réessayer »**, lui, vide cette entrée avant de relancer —
+sinon il rendrait l'échec déjà mémorisé sans rien redemander.
+
+**La vignette a payé la place.** Quatre icônes de 36 px font 170 px dans une
+colonne qui en offrait 174 : la ligne serait passée au ras du bord sur un écran
+de 390 px. La vignette du lieu est donc ramenée de 112 à 96 px, ce qui porte la
+colonne à 190 px.
 
 ### Un seul nœud par étape, à son début
 La colonne montrait deux nœuds par étape : un **plein** à son heure de début, un
