@@ -1479,16 +1479,15 @@ function groupesDeSejours(trips, archives) {
   ].filter((g) => g.trips.length > 0);
 }
 
-// Barre de séparation en tête d'un groupe : le libellé, puis un filet qui court
-// jusqu'au bord de la liste. Un groupe repliable ajoute son compte et un chevron,
-// et toute la barre devient le bouton qui l'ouvre et le referme.
+// Barre de séparation en tête d'un groupe : juste le libellé. Un groupe
+// repliable ajoute son compte et un chevron, et toute la barre devient le
+// bouton qui l'ouvre et le referme.
 function SeparateurGroupe({ label, count, ouvert, onToggle }) {
   const contenu = (
     <>
-      <div style={{ color: C.inkSoft, fontFamily: MONO }} className="t11 uppercase tracking-wide font-semibold shrink-0">
+      <div style={{ color: C.inkSoft, fontFamily: MONO }} className="t11 uppercase tracking-wide font-semibold">
         {label}{onToggle ? ` · ${count}` : ""}
       </div>
-      <div style={{ background: C.line }} className="h-px flex-1" />
       {onToggle && (
         <span style={{ color: C.inkSoft }} className="shrink-0">
           {ouvert ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
@@ -1496,10 +1495,10 @@ function SeparateurGroupe({ label, count, ouvert, onToggle }) {
       )}
     </>
   );
-  if (!onToggle) return <div className="flex items-center gap-3 pt-2">{contenu}</div>;
+  if (!onToggle) return <div className="pt-2">{contenu}</div>;
   return (
     <button type="button" onClick={onToggle} aria-expanded={ouvert}
-      className="w-full flex items-center gap-3 pt-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 rounded">
+      className="w-full flex items-center justify-between pt-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 rounded">
       {contenu}
     </button>
   );
