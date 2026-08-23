@@ -626,6 +626,24 @@ Chaque nouveau séjour créé reprend ses éléments (nouveaux identifiants, tou
 décochés), qui deviennent alors propres à ce séjour — cocher ou modifier l'un
 n'affecte plus jamais l'autre.
 
+### Un seul champ Lieu, hébergement compris
+Un hébergement avait **deux** champs : « Lieu », réservé au lien de réservation, et
+« Adresse », qui portait l'adresse postale et, seule, situait la porte. Deux champs
+pour une même question, dont l'un rejetait en silence ce que l'autre acceptait —
+c'est ainsi que des coordonnées tapées au mauvais endroit disparaissaient.
+
+Il n'en reste qu'un, **« Lieu »**, au comportement identique à celui d'une
+activité : il accepte **un lien** (Google Maps, Airbnb, Booking), **une adresse
+postale** ou **des coordonnées GPS**. Le collage d'un lien continue de remplir le
+nom et les dates de réservation ; une adresse est géocodée ; des coordonnées sont
+prises telles quelles.
+
+Le recalage qui vivait à part — « l'adresse prime sur le lien pour situer la
+porte » — n'a plus d'objet : il n'y a plus qu'une saisie, et c'est elle qui situe
+le lieu. Les hébergements déjà enregistrés avec les deux valeurs **ne perdent
+rien** : le champ montre le lien, et réenregistrer sans y toucher conserve
+l'adresse (le lieu déjà résolu est réutilisé tel quel).
+
 ### Le champ Lieu rend ce qui y a été saisi
 Des coordonnées GPS tapées dans le champ **Lieu** étaient bien prises en compte —
 `lat`/`lng` enregistrés, trajets estimés, étape placée sur la carte — mais le champ

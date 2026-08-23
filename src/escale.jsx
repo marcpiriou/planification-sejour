@@ -3684,7 +3684,6 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const [adresseMsg, setAdresseMsg] = useState("");
 
   // Bouton « Coller » : la lecture du presse-papier est déclenchée par l'utilisateur,
   // et non à l'ouverture du formulaire — selon le navigateur elle demande une
@@ -3699,27 +3698,6 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
     }
     if (!txt) { setPasteError("Presse-papier vide."); return; }
     onPlaceRawChange(txt);
-  };
-
-  // Adresse : coller depuis le presse-papier, ou l'y copier. Une adresse se
-  // recopie souvent d'un e-mail de réservation vers l'application, et de
-  // l'application vers un autre outil — les deux sens servent.
-  const collerAdresse = async () => {
-    let txt = "";
-    try { txt = ((await navigator.clipboard?.readText?.()) || "").trim(); }
-    catch { setAdresseMsg("Presse-papier illisible : saisissez l'adresse à la main."); return; }
-    if (!txt) { setAdresseMsg("Presse-papier vide."); return; }
-    upd("addressRaw", txt);
-    setAdresseMsg("");
-  };
-  const copierAdresse = async () => {
-    const adr = (draft.addressRaw || "").trim();
-    if (!adr) { setAdresseMsg("Aucune adresse à copier."); return; }
-    try {
-      await navigator.clipboard.writeText(adr);
-      setAdresseMsg("Adresse copiée.");
-      setTimeout(() => setAdresseMsg(""), 2000);
-    } catch { setAdresseMsg("Copie impossible : sélectionnez l'adresse à la main."); }
   };
 
   // Heure : "auto" (calculée) ou fixe. La 1re activité du jour est forcément fixe.
@@ -3784,7 +3762,7 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
                 // Court : les deux boutons de presse-papier laissent peu de place, et
                 // l'ancien texte se coupait au milieu (« … coordonnées (4 »). Les deux
                 // formes acceptées sont détaillées sous le champ.
-                placeholder={stay ? "Lien Airbnb, Booking, Maps" : "Lien ou coordonnées GPS"}
+                placeholder="Lien, adresse ou GPS"
                 style={inputStyle} className="flex-1 min-w-0 rounded-xl px-3 py-2.5 outline-none text-sm" />
               {lienLieu && (
                 <a href={lienLieu} target="_blank" rel="noopener noreferrer"
@@ -3819,37 +3797,10 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
                 <BedDouble size={13} className="mt-0.5 shrink-0" /> {stayInfo}
               </div>
             )}
-            {/* Adresse de l'hébergement : sert d'itinéraire. Un lien de
-                réservation ne mène pas à la porte, l'adresse de l'hôte si. */}
-            {stay && (
-              <div className="pt-1">
-                <div style={{ color: C.inkSoft }} className="text-xs font-medium uppercase tracking-wide mb-1.5">Adresse</div>
-                <div className="flex gap-2">
-                  <input value={draft.addressRaw || ""} onChange={(e) => upd("addressRaw", e.target.value)}
-                    placeholder="Ex. 1 avenue de l'Impératrice, 64200 Biarritz"
-                    style={inputStyle} className="flex-1 min-w-0 rounded-xl px-3 py-2.5 outline-none text-sm" />
-                  <button type="button" onClick={collerAdresse} aria-label="Coller l'adresse depuis le presse-papier" title="Coller"
-                    style={{ border: `1px solid ${C.line}`, background: "#fff", color: C.teal }}
-                    className="shrink-0 w-11 rounded-xl flex items-center justify-center active:scale-95 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300">
-                    <ClipboardPaste size={18} />
-                  </button>
-                  <button type="button" onClick={copierAdresse} aria-label="Copier l'adresse dans le presse-papier" title="Copier"
-                    style={{ border: `1px solid ${C.line}`, background: "#fff", color: C.teal }}
-                    className="shrink-0 w-11 rounded-xl flex items-center justify-center active:scale-95 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300">
-                    <Copy size={18} />
-                  </button>
-                </div>
-                {adresseMsg && <div style={{ color: /copiée/i.test(adresseMsg) ? C.teal : C.amber }} className="text-xs mt-1.5">{adresseMsg}</div>}
-                <div style={{ color: C.inkSoft }} className="t11 mt-1.5">
-                  Renseignée, c'est elle qu'ouvrent l'épingle et l'itinéraire de la carte
-                  d'hébergement, et non le lien ci-dessus.
-                </div>
-              </div>
-            )}
             <div style={{ color: C.inkSoft }} className="t11">
               {stay
-                ? "Deux formes acceptées : un lien (Google Maps, Airbnb, Booking) — le nom, et les dates de réservation quand le lien les porte, se remplissent tout seuls — ou des coordonnées GPS « latitude, longitude », par exemple 43.4816, -1.5665."
-                : "Deux formes acceptées : un lien Google Maps — le nom de l'activité se remplit tout seul, et les trajets sont estimés — ou des coordonnées GPS « latitude, longitude », par exemple 43.4816, -1.5665."}
+                ? "Trois formes acceptées : un lien Google Maps, Airbnb ou Booking — le nom, et les dates de réservation quand le lien les porte, se remplissent tout seuls —, une adresse postale, ou des coordonnées GPS « latitude, longitude » (43.4816, -1.5665). C'est ce lieu qu'ouvrent l'épingle et l'itinéraire de la carte."
+                : "Trois formes acceptées : un lien Google Maps — le nom de l'activité se remplit tout seul, et les trajets sont estimés —, une adresse postale, ou des coordonnées GPS « latitude, longitude » (43.4816, -1.5665)."}
             </div>
             </div>
           </Field>
@@ -4785,7 +4736,7 @@ function SejourApp() {
     // 1re activité du jour : heure fixe ; les suivantes : "auto" (calculées en
     // cascade). Un hébergement au petit matin compte comme première étape.
     const startTime = dayList(t.activities, day, t.endDate).length ? AUTO : "09:00";
-    setEditor({ mode: "new", kind: "act", id: uid(), date: day, name: "", category: "visite", startTime, durationMin: null, placeRaw, addressRaw: "", travelMode: MODE_AUTO, travelMinutes: "", notes: "", nights: null, insererApres: apresId, insererJour: apresId ? day : null });
+    setEditor({ mode: "new", kind: "act", id: uid(), date: day, name: "", category: "visite", startTime, durationMin: null, placeRaw, travelMode: MODE_AUTO, travelMinutes: "", notes: "", nights: null, insererApres: apresId, insererJour: apresId ? day : null });
   };
   // `apresId` n'arrive que du « + » d'un trajet ; branché sur un onClick, le
   // premier argument serait l'événement de clic.
@@ -4798,7 +4749,7 @@ function SejourApp() {
   const newStay = () => {
     const day = curDay && days.includes(curDay) ? curDay : days[0];
     setEditor({ mode: "new", kind: "stay", id: uid(), date: day, name: "", category: "dormir",
-      startTime: STAY_LEAVE_TIME, arriveTime: AUTO, arriveeSuggeree: STAY_ARRIVE_TIME, durationMin: 0, placeRaw: "", addressRaw: "", travelMode: MODE_AUTO,
+      startTime: STAY_LEAVE_TIME, arriveTime: AUTO, arriveeSuggeree: STAY_ARRIVE_TIME, durationMin: 0, placeRaw: "", travelMode: MODE_AUTO,
       travelMinutes: "", notes: "", nights: 1, editingMorning: null, editingEvening: null, nightTimes: {}, nightArrivals: {}, nightTravel: {} });
   };
   // Proposition retenue dans l'écran Suggestions : elle rejoint directement la
@@ -4899,18 +4850,14 @@ function SejourApp() {
       durationMin: a.durationMin,
       editingMorning, editingEvening, nightTimes: a.nightTimes || {}, nightArrivals: a.nightArrivals || {},
       nights: isStay(a) ? stayNights(a) : null,
-      // Le champ Lieu rend ce qui y a été SAISI : le lien s'il y en a un, sinon la
-      // saisie conservée telle quelle (`raw` — des coordonnées tapées).
-      // Ce qui n'est pas montré, en revanche, ce sont les coordonnées DÉDUITES :
-      // pour un hébergement, elles découlent du champ Adresse, et les afficher ici
-      // n'apprenait rien tout en empêchant de rouvrir le lien.
+      // Le champ Lieu rend ce qui y a été SAISI, hébergement comme activité : le
+      // lien s'il y en a un, sinon la saisie conservée telle quelle (`raw` — des
+      // coordonnées tapées), sinon l'adresse, sinon les coordonnées connues.
       placeRaw: !a.place ? ""
         : (a.place.url
           || a.place.raw
-          || (isStay(a)
-            ? ""
-            : (a.place.address || (a.place.lat != null ? `${a.place.lat}, ${a.place.lng}` : (a.place.name || ""))))),
-      addressRaw: isStay(a) ? (a.place?.address || "") : "",
+          || a.place.address
+          || (a.place.lat != null ? `${a.place.lat}, ${a.place.lng}` : (a.place.name || ""))),
       travelMode: a.travelMode, travelMinutes: a.travelMinutes ?? "", notes: a.notes || "",
     });
   };
@@ -4966,37 +4913,11 @@ function SejourApp() {
       }
     }
     const isStayDraft = d.kind === "stay";
-    // Hébergement : dès qu'une adresse est saisie, ce sont SES coordonnées qui
-    // situent le lieu. Un lien de réservation ne désigne qu'un quartier, et le
-    // nom qu'on en tire tombe au mieux devant la façade : les temps de trajet
-    // calculés depuis ce point-là sont faux. L'adresse, elle, situe la porte.
-    // On garde par ailleurs le lien (bouton « Lieu ») et le nom du lieu Google
-    // (photo), que ce recalage ne concerne pas.
-    if (isStayDraft) {
-      const addr = (d.addressRaw || "").trim();
-      if (addr) {
-        const base = place || { name: d.name.trim() || addr, mapsName: null, url: null, lat: null, lng: null };
-        place = { ...base, address: addr };
-        // fromAddress marque des coordonnées déjà issues de l'adresse : inutile de
-        // regéocoder tant qu'elle ne change pas. Sans ce repère, un lieu enregistré
-        // avant cette règle garde les coordonnées du lien et se corrige au premier
-        // réenregistrement.
-        const dejaSituee = prevPlace && prevPlace.fromAddress && prevPlace.address === addr && prevPlace.lat != null;
-        if (dejaSituee) {
-          place = { ...place, lat: prevPlace.lat, lng: prevPlace.lng, fromAddress: true };
-        } else {
-          const g = await geocodeText(addr);
-          // Adresse introuvable : on conserve les coordonnées en place plutôt que
-          // de laisser le lieu sans point du tout.
-          if (g) place = { ...place, lat: g.lat, lng: g.lng, fromAddress: true };
-        }
-      } else if (place && (place.address || place.fromAddress)) {
-        // Adresse effacée : on ne la garde pas en base. Les coordonnées obtenues
-        // par son entremise restent, faute de mieux : elles situent l'hébergement.
-        const { address, fromAddress, ...reste } = place;
-        place = reste;
-      }
-    }
+    // Un hébergement n'a plus de champ « Adresse » à part : son champ « Lieu »
+    // accepte lien, adresse ou coordonnées, exactement comme celui d'une
+    // activité, et c'est le traitement commun ci-dessus qui s'en charge. Le
+    // recalage par l'adresse qui vivait ici n'a donc plus d'objet : quand la
+    // saisie EST une adresse, le géocodage lui donne déjà ses coordonnées.
     // Le point de départ/retour (zéro nuit) n'a ni matin ni soir réglables :
     // son "Départ"/"Retour" reste un rôle, pas une heure éditée créneau par
     // créneau ; on ne touche donc jamais ses heures d'arrivée par ce biais.
