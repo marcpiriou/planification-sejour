@@ -669,11 +669,14 @@ un lien Google Maps collé là remplit le nom tout seul, situe l'étape sur la c
 et permet d'estimer les trajets. Le demander après le nom faisait taper à la main
 ce que le lien allait donner.
 
-Il accepte **deux formes**, dites sous le champ : un **lien** (Google Maps, et
-Airbnb ou Booking pour un hébergement) ou des **coordonnées GPS** « latitude,
-longitude » — `43.4816, -1.5665`. Le texte du champ est court (« Lien ou
-coordonnées GPS ») parce que les deux boutons de presse-papier lui laissent peu de
-place : l'ancien se coupait au milieu.
+Il accepte **trois formes** : un **lien** (Google Maps, et Airbnb ou Booking pour
+un hébergement), une **adresse postale**, ou des **coordonnées GPS** « latitude,
+longitude ». C'est le texte d'invite qui le dit — « **Lien maps, adresse, gps** » —
+et rien d'autre : la phrase d'explication qui suivait le champ a été retirée. Elle
+faisait quatre lignes sous le premier champ du formulaire, pour redire ce que trois
+mots suffisent à annoncer. Le texte tient dans le champ (170 px pour 258
+disponibles) malgré les deux boutons de presse-papier, qui avaient fait couper un
+libellé plus long.
 
 Ce champ était présenté dans un cadre blanc arrondi qui en faisait un bloc à part.
 Il a maintenant la même forme que les autres — étiquette en petites capitales,

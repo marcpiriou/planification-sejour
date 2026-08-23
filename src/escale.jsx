@@ -3762,7 +3762,9 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
                 // Court : les deux boutons de presse-papier laissent peu de place, et
                 // l'ancien texte se coupait au milieu (« … coordonnées (4 »). Les deux
                 // formes acceptées sont détaillées sous le champ.
-                placeholder="Lien, adresse ou GPS"
+                // Seul indice de ce que le champ accepte, la phrase d'explication
+                // ayant été retirée : les trois formes y tiennent.
+                placeholder="Lien maps, adresse, gps"
                 style={inputStyle} className="flex-1 min-w-0 rounded-xl px-3 py-2.5 outline-none text-sm" />
               {lienLieu && (
                 <a href={lienLieu} target="_blank" rel="noopener noreferrer"
@@ -3797,11 +3799,6 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
                 <BedDouble size={13} className="mt-0.5 shrink-0" /> {stayInfo}
               </div>
             )}
-            <div style={{ color: C.inkSoft }} className="t11">
-              {stay
-                ? "Trois formes acceptées : un lien Google Maps, Airbnb ou Booking — le nom, et les dates de réservation quand le lien les porte, se remplissent tout seuls —, une adresse postale, ou des coordonnées GPS « latitude, longitude » (43.4816, -1.5665). C'est ce lieu qu'ouvrent l'épingle et l'itinéraire de la carte."
-                : "Trois formes acceptées : un lien Google Maps — le nom de l'activité se remplit tout seul, et les trajets sont estimés —, une adresse postale, ou des coordonnées GPS « latitude, longitude » (43.4816, -1.5665)."}
-            </div>
             </div>
           </Field>
 
