@@ -82,6 +82,12 @@ const fmtKm = (km) => {
 // Disposées en six colonnes, elles tiennent sur deux rangées.
 const DUREES = [0, 15, 30, 45, 60, 90, 120, 150, 180, 210, 240];
 
+// Nuits proposées pour un hébergement, sur la même grille que les durées : onze
+// pastilles plus le bouton « … », soit deux rangées pleines de six. Un séjour
+// dépasse rarement dix nuits au même endroit, et la quinzaine se prend d'un
+// toucher plutôt que par le clavier ; au-delà, le « … » ouvre le choix libre.
+const NUITS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 14];
+
 const parseDate = (s) => { if (!s || typeof s !== "string") return new Date(); const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
 const toISO = (dt) => `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
 const addDays = (dt, n) => new Date(dt.getFullYear(), dt.getMonth(), dt.getDate() + n);
@@ -3608,6 +3614,10 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
   const [customOpen, setCustomOpen] = useState(false);
   const [ch, setCh] = useState(0);
   const [cm, setCm] = useState(0);
+  // Même mécanique pour un nombre de nuits hors liste : une fenêtre à part, dont
+  // la valeur ne rejoint le brouillon qu'à la validation.
+  const [nuitsOpen, setNuitsOpen] = useState(false);
+  const [cn, setCn] = useState(1);
   const [saving, setSaving] = useState(false);
   const parsed = parseCoords(draft.placeRaw);
   const upd = (k, v) => setDraft({ ...draft, [k]: v });
@@ -3734,6 +3744,12 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
   const openCustom = () => { setCh(Math.floor((draft.durationMin || 0) / 60)); setCm((draft.durationMin || 0) % 60); setCustomOpen(true); };
   const applyCustom = () => { const total = Math.max(0, (Number(ch) || 0) * 60 + (Number(cm) || 0)); upd("durationMin", total); setCustomOpen(false); };
 
+  // Nuits : au moins une, et la même borne haute que l'ancien champ libre.
+  const nuits = Math.max(1, Number(draft.nights) || 1);
+  const nuitsPreset = NUITS.includes(nuits);
+  const openNuits = () => { setCn(nuits); setNuitsOpen(true); };
+  const applyNuits = () => { upd("nights", Math.max(1, Math.min(60, Number(cn) || 1))); setNuitsOpen(false); };
+
   return (
     <div className="fixed inset-0 z-40 flex justify-center">
       <div className="absolute inset-0 dim" onClick={onClose} />
@@ -3847,19 +3863,24 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
           )}
           {stay && !base && (
             <Field label="Nombre de nuits">
-              <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
-                {[1, 2, 3, 4, 5, 6, 7].map((n) => {
-                  const active = Math.max(1, Number(draft.nights) || 1) === n;
+              {/* Même grille que les durées d'une activité : six colonnes, deux
+                  rangées, la dernière pastille ouvrant le choix libre. Les
+                  pastilles défilaient horizontalement et un champ libre les
+                  doublait en dessous — deux façons de régler la même chose, dont
+                  l'une cachait ses valeurs hors de l'écran. */}
+              <div className="grid grid-cols-6 gap-1.5">
+                {NUITS.map((n) => {
+                  const active = nuits === n;
                   return (
                     <button key={n} type="button" onClick={() => upd("nights", n)}
                       style={{ background: active ? STAY_COLOR : "#fff", color: active ? "#fff" : C.ink, border: `1px solid ${active ? STAY_COLOR : C.line}`, fontFamily: MONO }}
-                      className="shrink-0 rounded-full px-3 py-1 text-xs active:scale-95 transition">{n}</button>
+                      className="rounded-full px-1 py-1 text-xs active:scale-95 transition">{n}</button>
                   );
                 })}
+                <button type="button" onClick={openNuits}
+                  style={{ background: !nuitsPreset ? STAY_COLOR : "#fff", color: !nuitsPreset ? "#fff" : C.ink, border: `1px solid ${!nuitsPreset ? STAY_COLOR : C.line}`, fontFamily: MONO }}
+                  className="rounded-full px-1 py-1 text-xs active:scale-95 transition">{!nuitsPreset ? nuits : "…"}</button>
               </div>
-              <input type="number" min="1" max="60" value={draft.nights ?? 1}
-                onChange={(e) => upd("nights", Math.max(1, Math.min(60, Number(e.target.value) || 1)))}
-                style={{ ...inputStyle, fontFamily: MONO }} className="w-full rounded-xl px-3 py-2.5 mt-2 outline-none" />
             </Field>
           )}
 
@@ -3968,6 +3989,29 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
             <div className="flex gap-2 mt-4">
               <button onClick={() => setCustomOpen(false)} style={{ border: `1px solid ${C.line}`, color: C.ink }} className="flex-1 rounded-xl py-2.5 bg-white">Annuler</button>
               <button onClick={applyCustom} style={{ background: C.teal }} className="flex-1 rounded-xl py-2.5 text-white font-medium">Valider</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {nuitsOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-6">
+          <div className="absolute inset-0 dim" onClick={() => setNuitsOpen(false)} />
+          <div style={{ background: C.card }} className="relative w-full max-w-xs rounded-2xl p-4">
+            <div style={{ color: C.ink }} className="font-semibold text-base">Nombre de nuits</div>
+            <label className="block mt-3">
+              <div style={{ color: C.inkSoft }} className="text-xs mb-1">Nuits</div>
+              <input type="number" min="1" max="60" value={cn} onChange={(e) => setCn(e.target.value)}
+                style={{ ...inputStyle, fontFamily: MONO }} className="w-full rounded-xl px-3 py-2 outline-none" />
+            </label>
+            {/* La date de départ, qui découlait de ce champ, se lit ici : c'est ce
+                que le nombre de nuits décide vraiment. */}
+            <div style={{ color: C.inkSoft }} className="text-xs mt-2">
+              Départ le {fmtShort(toISO(addDays(parseDate(draft.date), Math.max(1, Math.min(60, Number(cn) || 1)))))}
+            </div>
+            <div className="flex gap-2 mt-4">
+              <button onClick={() => setNuitsOpen(false)} style={{ border: `1px solid ${C.line}`, color: C.ink }} className="flex-1 rounded-xl py-2.5 bg-white">Annuler</button>
+              <button onClick={applyNuits} style={{ background: STAY_COLOR }} className="flex-1 rounded-xl py-2.5 text-white font-medium">Valider</button>
             </div>
           </div>
         </div>
