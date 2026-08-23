@@ -1800,9 +1800,16 @@ function ActivityCard({ act, onEdit, onEditDuration, onGuide, startMin, endMin, 
               par aria-label et title — c'est lui que lit une aide technique et
               que montre un appui prolongé. La quatrième a coûté sa place à la
               vignette, ramenée de 112 à 96 px : à largeur inchangée, la ligne
-              d'icônes serait passée au ras du bord sur un écran de 390 px. */}
+              d'icônes serait passée au ras du bord sur un écran de 390 px.
+
+              La marge négative aligne le PREMIER GLYPHE sur le texte au-dessus,
+              et non le bord de sa zone tactile. Un glyphe de 16 px centré dans
+              une cible de 36 px est en retrait de 10 px : à -4 px, la rangée
+              démarrait 6 px à droite du titre et de la note, décalage bien
+              visible sous deux lignes de texte alignées, elles, sur 12 px.
+              L'écart entre glyphes vaut alors 24 px partout (10 + 4 + 10). */}
           {(act.place || canEdit) && (
-            <div className="mt-2 -ml-1 flex items-center gap-1">
+            <div className="mt-2 -ml-2.5 flex items-center gap-1">
               {(() => {
                 // Sur un hébergement, l'épingle mène à son ADRESSE dès qu'elle est
                 // renseignée : un lien de réservation ne montre qu'un quartier,

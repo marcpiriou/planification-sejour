@@ -862,6 +862,14 @@ colonne qui en offrait 174 : la ligne serait passée au ras du bord sur un écra
 de 390 px. La vignette du lieu est donc ramenée de 112 à 96 px, ce qui porte la
 colonne à 190 px.
 
+**Alignement de la rangée.** La marge négative qui la décale doit compenser le
+retrait du GLYPHE dans sa cible tactile, et non le bord de cette cible : un
+glyphe de 16 px centré dans un rond de 36 px est en retrait de 10 px. À -4 px,
+la rangée démarrait donc 6 px à droite du titre et de la note — un décalage bien
+visible sous deux lignes de texte alignées, elles, sur les 12 px de marge de la
+carte. À -10 px, le premier glyphe tombe pile sur le texte, et l'écart entre
+glyphes vaut 24 px partout (10 + 4 + 10).
+
 ### Un seul nœud par étape, à son début
 La colonne montrait deux nœuds par étape : un **plein** à son heure de début, un
 **cerclé** à son heure de fin — teal pour une activité, indigo pour un hébergement.
