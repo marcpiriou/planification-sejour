@@ -4084,14 +4084,6 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
             </select>
           </Field>
 
-          {/* heure de départ le matin — propre au seul matin ouvert */}
-          {stay && (
-            <Field label="Heure de départ le matin">
-              <TimeFields value={draft.startTime} defaut={STAY_LEAVE_TIME}
-                onChange={(v) => upd("startTime", v)} />
-            </Field>
-          )}
-
           {/* heure d'arrivée le soir — propre au seul soir ouvert. Absente pour
               le point de départ/retour : « Départ »/« Retour » y suffit, pas
               d'heure d'arrivée à régler. */}
@@ -4109,6 +4101,14 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
                 <TimeFields value={draft.arriveTime} defaut={arriveeSuggeree}
                   onChange={(v) => upd("arriveTime", v)} className="mt-2" />
               )}
+            </Field>
+          )}
+
+          {/* heure de départ le matin — propre au seul matin ouvert */}
+          {stay && (
+            <Field label="Heure de départ le matin">
+              <TimeFields value={draft.startTime} defaut={STAY_LEAVE_TIME}
+                onChange={(v) => upd("startTime", v)} />
             </Field>
           )}
 
