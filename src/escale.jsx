@@ -3754,7 +3754,7 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
               place l'étape sur la carte — le saisir d'abord évite de taper un nom
               que le lien allait donner. Présenté comme les autres champs, sans le
               cadre blanc qui en faisait un bloc à part. */}
-          <Field label="Lieu (facultatif)">
+          <Field label="Lieu">
             <div className="space-y-3">
             <div className="flex gap-2">
               <input value={draft.placeRaw}
@@ -3860,10 +3860,6 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
               <input type="number" min="1" max="60" value={draft.nights ?? 1}
                 onChange={(e) => upd("nights", Math.max(1, Math.min(60, Number(e.target.value) || 1)))}
                 style={{ ...inputStyle, fontFamily: MONO }} className="w-full rounded-xl px-3 py-2.5 mt-2 outline-none" />
-              <div style={{ color: C.inkSoft }} className="t11 mt-1.5">
-                Départ le {fmtShort(toISO(addDays(parseDate(draft.date), Math.max(1, Number(draft.nights) || 1))))}.
-                L'hébergement clôt chaque journée et ouvre la suivante.
-              </div>
             </Field>
           )}
 
@@ -3879,11 +3875,6 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
             <Field label="Heure de départ le matin">
               <TimeFields value={draft.startTime} defaut={STAY_LEAVE_TIME}
                 onChange={(v) => upd("startTime", v)} />
-              <div style={{ color: C.inkSoft }} className="t11 mt-1">
-                {draft.editingMorning
-                  ? `Ne change que le départ du ${fmtShort(draft.editingMorning)} : les autres matins du séjour restent tels quels.`
-                  : "Heure à laquelle vous quittez les lieux le matin."}
-              </div>
             </Field>
           )}
 
@@ -3900,19 +3891,10 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
                   style={{ background: !arriveeAuto ? C.teal : "#fff", color: !arriveeAuto ? "#fff" : C.ink, border: `1px solid ${!arriveeAuto ? C.teal : C.line}` }}
                   className="flex-1 rounded-xl py-2 text-sm active:scale-95 transition">Heure fixe</button>
               </div>
-              {arriveeAuto ? (
-                <div style={{ color: C.inkSoft }} className="t11 mt-1.5">
-                  Calculée d'après la fin de l'étape précédente et le temps de trajet.
-                </div>
-              ) : (
+              {!arriveeAuto && (
                 <TimeFields value={draft.arriveTime} defaut={arriveeSuggeree}
                   onChange={(v) => upd("arriveTime", v)} className="mt-2" />
               )}
-              <div style={{ color: C.inkSoft }} className="t11 mt-1">
-                {draft.editingEvening
-                  ? `Ne change que l'arrivée du ${fmtShort(draft.editingEvening)} : les autres soirs du séjour restent tels quels.`
-                  : "Heure à laquelle vous arrivez sur place le soir."}
-              </div>
             </Field>
           )}
 
@@ -3946,7 +3928,7 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
           )}
 
           {/* notes */}
-          <Field label="Notes (facultatif)">
+          <Field label="Notes">
             <textarea value={draft.notes} onChange={(e) => upd("notes", e.target.value)} rows={2} placeholder="Réservation, adresse précise, remarque…"
               style={inputStyle} className="w-full rounded-xl px-3 py-2.5 outline-none resize-none" />
           </Field>
