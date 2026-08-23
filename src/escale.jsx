@@ -3902,10 +3902,7 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
           {!stay && (
           <Field label="Heure de début">
             {isFirstOfDay ? (
-              <>
-                <TimeFields value={draft.startTime} onChange={(v) => upd("startTime", v)} />
-                <div style={{ color: C.inkSoft }} className="t11 mt-1">Première activité du jour : heure de début fixe.</div>
-              </>
+              <TimeFields value={draft.startTime} onChange={(v) => upd("startTime", v)} />
             ) : (
               <>
                 <div className="flex gap-2">
@@ -3916,9 +3913,7 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
                     style={{ background: !timeAuto ? C.teal : "#fff", color: !timeAuto ? "#fff" : C.ink, border: `1px solid ${!timeAuto ? C.teal : C.line}` }}
                     className="flex-1 rounded-xl py-2 text-sm active:scale-95 transition">Heure fixe</button>
                 </div>
-                {timeAuto ? (
-                  <div style={{ color: C.inkSoft }} className="t11 mt-1.5">Calculée d'après la fin de l'activité précédente et le temps de trajet.</div>
-                ) : (
+                {!timeAuto && (
                   <TimeFields value={draft.startTime} defaut={suggestedTime}
                     onChange={(v) => upd("startTime", v)} className="mt-2" />
                 )}
