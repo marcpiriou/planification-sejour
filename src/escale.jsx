@@ -2990,8 +2990,7 @@ function GuideSheet({ act, onClose }) {
                   autrement qu'une fiche d'office de tourisme : elle peut se
                   tromper, et le lecteur doit le savoir sans avoir à le deviner. */}
               <div style={{ color: C.inkSoft, borderTop: `1px solid ${C.line}` }} className="t11 mt-6 pt-3">
-                Notice écrite par l'IA à partir de ce qu'elle sait du lieu. Ni horaires ni tarifs :
-                ils changent trop vite pour être fiables ici.
+                Notice écrite par l'IA à partir de ce qu'elle sait du lieu.
               </div>
             </>
           )}
