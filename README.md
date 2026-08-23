@@ -809,22 +809,22 @@ Trois pièges, et ce qui les évite :
 
 ### Le guide du lieu, sous l'icône « i »
 Une quatrième icône sur la carte d'une activité, après l'épingle, l'itinéraire et
-le crayon : un **« i »** qui ouvre une notice de guide touristique sur le lieu,
-écrite par Gemini (Edge Function `place-guide`).
+le crayon : un **« i »** qui ouvre le guide touristique du lieu, écrit par
+Gemini (Edge Function `place-guide`).
 
-Un écran plein, et non une fenêtre : la notice fait un résumé et jusqu'à quatre
+Un écran plein, et non une fenêtre : le guide fait un résumé et jusqu'à quatre
 sections, qu'une modale obligerait à lire par une meurtrière.
 
 **Sur une activité seulement, et seulement si son lieu est renseigné.** D'un hôtel
 il n'y a rien à visiter, et le seul nom d'une étape — « Déjeuner » — ne désigne
 aucun lieu dont on puisse dire quoi que ce soit. Un invité en lecture seule y a
-accès comme les autres : lire une notice ne modifie rien.
+accès comme les autres : lire un guide ne modifie rien.
 
 **L'adresse exacte, d'abord.** La première version n'envoyait que le **nom** du
 lieu — celui que Google écrit dans le lien collé. C'était trop peu : beaucoup de
 lieux partagent un nom, et le modèle décrivait alors l'**homonyme le plus
-célèbre**, à mille kilomètres du séjour. Deux symptômes pour une seule cause : la
-notice parlait d'ailleurs, ou bien elle se réduisait à un résumé sans aucune
+célèbre**, à mille kilomètres du séjour. Deux symptômes pour une seule cause : le
+guide parlait d'ailleurs, ou bien il se réduisait à un résumé sans aucune
 section, faute d'avoir de quoi identifier le lieu.
 
 Le lien Google Maps est donc **résolu** avant l'appel, pour en tirer l'adresse
@@ -837,23 +837,18 @@ grave ». Elle refuse aussi un résumé livré sans sections.
 Cette résolution **ne coûte rien** : la vignette de la timeline a déjà interrogé
 Google pour la même étape, et le cache de `fetchPlaceInfo` est partagé.
 
-**Ce que la consigne interdit au modèle.** Deux règles, pour deux façons de nuire :
+**Ce que la consigne interdit au modèle : ne rien inventer.** Un lieu qu'il ne
+connaît pas doit ressortir *vide* — l'écran affiche alors « Rien à en dire »
+plutôt qu'un guide plausible et faux, qui est le pire résultat possible pour
+quelqu'un qui prépare un déplacement. Aucun horaire, tarif ni numéro de
+téléphone non plus : ces valeurs changent, et la connaissance d'un modèle est
+datée — une valeur périmée envoie le voyageur devant une porte close.
 
-- **Ne rien inventer.** Un lieu qu'il ne connaît pas doit ressortir *vide* —
-  l'écran affiche alors « Rien à en dire » plutôt qu'une notice plausible et
-  fausse, qui est le pire résultat possible pour quelqu'un qui prépare un
-  déplacement.
-- **Ni horaires, ni tarifs, ni téléphone.** Ces valeurs changent, et la
-  connaissance d'un modèle est datée : une valeur périmée envoie le voyageur
-  devant une porte close. La notice porte d'ailleurs cette mention en pied, avec
-  sa provenance — un texte écrit par un modèle ne se lit pas comme une fiche
-  d'office de tourisme.
-
-**Appelée au toucher, jamais en lot** — même règle que la synthèse des avis :
-écrire d'emblée la notice des huit étapes d'une journée coûterait huit
+**Appelé au toucher, jamais en lot** — même règle que la synthèse des avis :
+écrire d'emblée le guide des huit étapes d'une journée coûterait huit
 générations dont on n'en lirait qu'une. Le résultat est mis en cache sur le nom
 et sur tout ce qui situe le lieu — adresse et coordonnées comprises : une adresse
-arrivée après coup doit produire une nouvelle notice, pas resservir celle écrite
+arrivée après coup doit produire un nouveau guide, pas resservir celui écrit
 quand on ne savait pas encore où l'on était. Le bouton **« Réessayer »**, lui, vide cette entrée avant de relancer —
 sinon il rendrait l'échec déjà mémorisé sans rien redemander.
 

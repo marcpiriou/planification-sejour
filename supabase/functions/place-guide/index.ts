@@ -1,4 +1,4 @@
-// Edge Function : notice de guide touristique d'un lieu, écrite par Gemini.
+// Edge Function : guide touristique d'un lieu, écrit par Gemini.
 // Reçoit { nom, nomCarte, adresse, lat, lng } et renvoie
 // { resume, sections: [{ titre, texte }] }.
 //
@@ -15,13 +15,13 @@
 // repli, vit dans _shared/gemini.ts.
 //
 // Appelée à la demande, jamais en lot : la timeline ne la sollicite que lorsque
-// l'icône « i » d'une étape est touchée. Écrire d'emblée la notice des huit
+// l'icône « i » d'une étape est touchée. Écrire d'emblée le guide des huit
 // étapes d'une journée coûterait huit appels dont on n'en lirait qu'un.
 //
-// Contrairement à place-reviews, aucune donnée Google n'entre ici : la notice
+// Contrairement à place-reviews, aucune donnée Google n'entre ici : le guide
 // vient de ce que le modèle sait du lieu. D'où la consigne qui lui interdit
 // d'écrire quand il ne le connaît pas — l'écran affiche alors qu'il n'a rien à
-// en dire, ce qui vaut mieux qu'une notice plausible et fausse.
+// en dire, ce qui vaut mieux qu'un guide plausible et faux.
 
 import { refusAuth, utilisateurConnecte } from "../_shared/auth.ts";
 import { demandeJson } from "../_shared/gemini.ts";
@@ -56,7 +56,7 @@ const coordOk = (v: unknown, max: number): v is number =>
   typeof v === "number" && Number.isFinite(v) && Math.abs(v) <= max;
 
 const CONSIGNE =
-  `Tu écris la notice d'un guide touristique pour un voyageur qui se rend sur ce lieu.
+  `Tu écris le guide touristique d'un lieu pour un voyageur qui s'y rend.
 
 IDENTIFIER LE BON LIEU, D'ABORD.
 L'adresse et les coordonnées qu'on te donne désignent UN lieu précis, et elles font foi. Beaucoup de lieux partagent un nom : décrire l'homonyme le plus célèbre au lieu de celui qui est situé à cette adresse est l'erreur la plus grave que tu puisses commettre ici. Si ce que tu sais d'un lieu de ce nom ne correspond pas à cette adresse ou à ce pays, c'est que tu penses à un autre lieu.
@@ -64,9 +64,9 @@ L'adresse et les coordonnées qu'on te donne désignent UN lieu précis, et elle
 Règles :
 - « resume » : deux à trois phrases qui situent le lieu et disent ce qu'on vient y voir ou y faire.
 - « sections » : deux à ${SECTIONS_MAX} entrées, chacune avec un « titre » de un à trois mots et un « texte » de deux à quatre phrases. Choisis les angles qui valent pour CE lieu — son histoire, ce qu'on y voit, la visite en pratique, les environs, le quartier où il se trouve — plutôt qu'une grille appliquée à tous.
-- Dès lors que tu identifies le lieu, écris la notice ENTIÈRE : un résumé suivi de ses sections. Un résumé seul, sans aucune section, n'est pas une réponse acceptable.
+- Dès lors que tu identifies le lieu, écris le guide ENTIER : un résumé suivi de ses sections. Un résumé seul, sans aucune section, n'est pas une réponse acceptable.
 - Français, ton factuel et concret. Pas de superlatif publicitaire, pas de « incontournable », pas d'injonction au lecteur.
-- N'invente rien. Si tu n'identifies pas ce lieu précis, renvoie « resume » vide et « sections » vide : ne rien dire vaut mieux qu'une notice plausible et fausse. Ce vide ne vaut QUE pour un lieu que tu ne reconnais pas — pas pour un lieu modeste, dont le quartier et les environs se décrivent très bien.
+- N'invente rien. Si tu n'identifies pas ce lieu précis, renvoie « resume » vide et « sections » vide : ne rien dire vaut mieux qu'un guide plausible et faux. Ce vide ne vaut QUE pour un lieu que tu ne reconnais pas — pas pour un lieu modeste, dont le quartier et les environs se décrivent très bien.
 - Aucun horaire d'ouverture, aucun tarif, aucun numéro de téléphone : ces valeurs changent, et une valeur périmée envoie le voyageur devant une porte close.`;
 
 const SCHEMA = {

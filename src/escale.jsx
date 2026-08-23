@@ -968,12 +968,12 @@ async function repereGuide(place) {
   return { nomCarte, adresse, lat, lng };
 }
 
-// Notice de guide touristique d'un lieu, écrite par Gemini. Demandée seulement
+// Guide touristique d'un lieu, écrit par Gemini. Demandé seulement
 // quand l'icône « i » d'une étape est touchée — jamais pour toute la journée :
 // chaque appel coûte une génération, et on n'en lit qu'une à la fois.
 // Le cache est indexé sur le nom ET sur tout ce qui situe le lieu : une adresse
-// arrivée après coup doit produire une nouvelle notice, pas resservir celle
-// écrite quand on ne savait pas encore où l'on était.
+// arrivée après coup doit produire un nouveau guide, pas resservir celui
+// écrit quand on ne savait pas encore où l'on était.
 const guideCache = new Map();
 const cleGuide = (nom, r) =>
   `${(nom || "").trim()}|${r.nomCarte}|${r.adresse}|${r.lat ?? ""},${r.lng ?? ""}`;
@@ -1841,11 +1841,11 @@ function ActivityCard({ act, onEdit, onEditDuration, onGuide, startMin, endMin, 
                   <Pencil size={16} style={{ color: C.inkSoft }} />
                 </button>
               )}
-              {/* Notice de guide touristique, écrite par l'IA à la demande. Sur
+              {/* Guide touristique, écrit par l'IA à la demande. Sur
                   une activité seulement : d'un hôtel il n'y a rien à visiter, et
                   le lieu doit être renseigné — le seul nom d'une étape
                   (« Déjeuner ») ne désigne aucun lieu à décrire. En lecture
-                  seule aussi : lire une notice ne modifie rien. */}
+                  seule aussi : lire un guide ne modifie rien. */}
               {!stay && act.place && onGuide && (
                 <button onClick={() => onGuide(act)} aria-label="Guide du lieu" title="Guide" className={ICON_BTN}>
                   <Info size={16} style={{ color: C.inkSoft }} />
@@ -2899,9 +2899,9 @@ function repereLieu(etape) {
   };
 }
 
-/* --- Guide du lieu : la notice écrite par l'IA -------------------- */
+/* --- Guide du lieu : le texte écrit par l'IA -------------------- */
 // Ouverte par l'icône « i » d'une étape. Un écran plein, et non une fenêtre :
-// une notice fait plusieurs paragraphes, qu'une modale obligerait à lire par
+// un guide fait plusieurs paragraphes, qu'une modale obligerait à lire par
 // une meurtrière.
 function GuideSheet({ act, onClose }) {
   const [etat, setEtat] = useState({ chargement: true });
@@ -2918,7 +2918,7 @@ function GuideSheet({ act, onClose }) {
     setEtat({ chargement: true });
     (async () => {
       // L'adresse exacte d'abord — sans elle le modèle décrit l'homonyme le
-      // plus célèbre — puis la notice.
+      // plus célèbre — puis le guide.
       const r = await repereGuide(act.place);
       if (!vivant) return;
       cleRef.current = cleGuide(act.name, r);
@@ -2950,7 +2950,7 @@ function GuideSheet({ act, onClose }) {
         <div className="mx-auto max-w-md px-4 py-4">
           {etat.chargement && (
             <div style={{ color: C.inkSoft }} className="flex items-center gap-2 text-sm">
-              <Loader2 size={16} className="animate-spin" /> Rédaction de la notice…
+              <Loader2 size={16} className="animate-spin" /> Rédaction du guide…
             </div>
           )}
 
@@ -2969,7 +2969,7 @@ function GuideSheet({ act, onClose }) {
             <div style={{ background: C.card, border: `1px dashed ${C.line}` }} className="rounded-2xl p-4">
               <div style={{ color: C.ink }} className="text-sm font-medium">Rien à en dire</div>
               <div style={{ color: C.inkSoft }} className="text-xs mt-1">
-                Ce lieu n'est pas connu du guide. Mieux vaut ce constat qu'une notice inventée :
+                Ce lieu n'est pas connu du guide. Mieux vaut ce constat qu'un guide inventé :
                 un lien Google Maps dans le champ « Lieu » aide à l'identifier.
               </div>
             </div>
@@ -2986,11 +2986,11 @@ function GuideSheet({ act, onClose }) {
                   <div style={{ color: C.ink }} className="text-sm leading-relaxed mt-1">{s.texte}</div>
                 </div>
               ))}
-              {/* Dit d'où vient le texte. Une notice écrite par un modèle se lit
-                  autrement qu'une fiche d'office de tourisme : elle peut se
+              {/* Dit d'où vient le texte. Un guide écrit par un modèle se lit
+                  autrement qu'une fiche d'office de tourisme : il peut se
                   tromper, et le lecteur doit le savoir sans avoir à le deviner. */}
               <div style={{ color: C.inkSoft, borderTop: `1px solid ${C.line}` }} className="t11 mt-6 pt-3">
-                Notice écrite par l'IA à partir de ce qu'elle sait du lieu.
+                Guide écrit par l'IA à partir de ce qu'elle sait du lieu.
               </div>
             </>
           )}
@@ -3435,7 +3435,7 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
   useRetour(checklistOpen, () => setChecklistOpen(false));
   const [suggestionsOuvert, setSuggestionsOuvert] = useState(false);
   useRetour(suggestionsOuvert, () => setSuggestionsOuvert(false));
-  // Étape dont la notice de guide est ouverte. L'étape elle-même, et non son
+  // Étape dont le guide est ouvert. L'étape elle-même, et non son
   // identifiant : l'écran n'a besoin que de son nom et de son lieu, et la garder
   // évite d'aller la rechercher dans la journée à chaque rendu.
   const [guideAct, setGuideAct] = useState(null);
