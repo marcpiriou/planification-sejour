@@ -820,6 +820,23 @@ il n'y a rien à visiter, et le seul nom d'une étape — « Déjeuner » — ne
 aucun lieu dont on puisse dire quoi que ce soit. Un invité en lecture seule y a
 accès comme les autres : lire une notice ne modifie rien.
 
+**L'adresse exacte, d'abord.** La première version n'envoyait que le **nom** du
+lieu — celui que Google écrit dans le lien collé. C'était trop peu : beaucoup de
+lieux partagent un nom, et le modèle décrivait alors l'**homonyme le plus
+célèbre**, à mille kilomètres du séjour. Deux symptômes pour une seule cause : la
+notice parlait d'ailleurs, ou bien elle se réduisait à un résumé sans aucune
+section, faute d'avoir de quoi identifier le lieu.
+
+Le lien Google Maps est donc **résolu** avant l'appel, pour en tirer l'adresse
+postale complète (`repereGuide` côté client). Partent alors : le nom Google, le
+libellé du carnet s'il diffère, l'**adresse exacte** et les **coordonnées**. La
+consigne dit que l'adresse fait foi, et nomme le piège : « décrire l'homonyme le
+plus célèbre au lieu de celui qui est situé à cette adresse est l'erreur la plus
+grave ». Elle refuse aussi un résumé livré sans sections.
+
+Cette résolution **ne coûte rien** : la vignette de la timeline a déjà interrogé
+Google pour la même étape, et le cache de `fetchPlaceInfo` est partagé.
+
 **Ce que la consigne interdit au modèle.** Deux règles, pour deux façons de nuire :
 
 - **Ne rien inventer.** Un lieu qu'il ne connaît pas doit ressortir *vide* —
@@ -834,9 +851,10 @@ accès comme les autres : lire une notice ne modifie rien.
 
 **Appelée au toucher, jamais en lot** — même règle que la synthèse des avis :
 écrire d'emblée la notice des huit étapes d'une journée coûterait huit
-générations dont on n'en lirait qu'une. Le résultat est mis en cache sur le
-couple nom + lieu, si bien que refermer puis rouvrir une notice ne la repaie
-pas. Le bouton **« Réessayer »**, lui, vide cette entrée avant de relancer —
+générations dont on n'en lirait qu'une. Le résultat est mis en cache sur le nom
+et sur tout ce qui situe le lieu — adresse et coordonnées comprises : une adresse
+arrivée après coup doit produire une nouvelle notice, pas resservir celle écrite
+quand on ne savait pas encore où l'on était. Le bouton **« Réessayer »**, lui, vide cette entrée avant de relancer —
 sinon il rendrait l'échec déjà mémorisé sans rien redemander.
 
 **La vignette a payé la place.** Quatre icônes de 36 px font 170 px dans une

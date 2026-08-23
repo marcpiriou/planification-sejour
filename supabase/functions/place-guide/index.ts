@@ -1,5 +1,11 @@
 // Edge Function : notice de guide touristique d'un lieu, écrite par Gemini.
-// Reçoit { nom, lieu } et renvoie { resume, sections: [{ titre, texte }] }.
+// Reçoit { nom, nomCarte, adresse, lat, lng } et renvoie
+// { resume, sections: [{ titre, texte }] }.
+//
+// L'ADRESSE EST CE QUI COMPTE. La première version n'envoyait que le nom, et le
+// modèle décrivait alors l'homonyme le plus célèbre — un autre lieu du même nom,
+// à mille kilomètres du séjour. Le client résout donc le lien Google Maps pour
+// en tirer l'adresse exacte avant d'appeler (voir repereGuide côté client).
 //
 // La clé Gemini reste secrète côté serveur (secret Supabase GEMINI_API_KEY),
 // jamais exposée au navigateur ni au dépôt. Réservée aux utilisateurs
@@ -33,24 +39,34 @@ function json(obj: unknown, status = 200): Response {
   });
 }
 
-// Garde-fous : un nom d'étape et un repère de lieu, pas un récit. Quatre
+// Garde-fous : un nom d'étape et de quoi situer le lieu, pas un récit. Quatre
 // sections tiennent dans un écran de téléphone sans qu'on ait à faire défiler
 // trois fois pour atteindre la fin.
 const NOM_MAX = 120;
 const LIEU_MAX = 200;
+const ADRESSE_MAX = 300;
 const SECTIONS_MAX = 4;
 const RESUME_MAX = 600;
 const TITRE_MAX = 40;
 const TEXTE_MAX = 700;
 
+// Une coordonnée hors de ces bornes n'est pas une position : on l'écarte plutôt
+// que de l'écrire dans le prompt.
+const coordOk = (v: unknown, max: number): v is number =>
+  typeof v === "number" && Number.isFinite(v) && Math.abs(v) <= max;
+
 const CONSIGNE =
   `Tu écris la notice d'un guide touristique pour un voyageur qui se rend sur ce lieu.
 
+IDENTIFIER LE BON LIEU, D'ABORD.
+L'adresse et les coordonnées qu'on te donne désignent UN lieu précis, et elles font foi. Beaucoup de lieux partagent un nom : décrire l'homonyme le plus célèbre au lieu de celui qui est situé à cette adresse est l'erreur la plus grave que tu puisses commettre ici. Si ce que tu sais d'un lieu de ce nom ne correspond pas à cette adresse ou à ce pays, c'est que tu penses à un autre lieu.
+
 Règles :
 - « resume » : deux à trois phrases qui situent le lieu et disent ce qu'on vient y voir ou y faire.
-- « sections » : au plus ${SECTIONS_MAX} entrées, chacune avec un « titre » de un à trois mots et un « texte » de deux à quatre phrases. Choisis les angles qui valent pour CE lieu — son histoire, ce qu'on y voit, la visite en pratique, les environs — plutôt qu'une grille appliquée à tous.
+- « sections » : deux à ${SECTIONS_MAX} entrées, chacune avec un « titre » de un à trois mots et un « texte » de deux à quatre phrases. Choisis les angles qui valent pour CE lieu — son histoire, ce qu'on y voit, la visite en pratique, les environs, le quartier où il se trouve — plutôt qu'une grille appliquée à tous.
+- Dès lors que tu identifies le lieu, écris la notice ENTIÈRE : un résumé suivi de ses sections. Un résumé seul, sans aucune section, n'est pas une réponse acceptable.
 - Français, ton factuel et concret. Pas de superlatif publicitaire, pas de « incontournable », pas d'injonction au lecteur.
-- N'invente rien. Si tu ne connais pas ce lieu précis, renvoie « resume » vide et « sections » vide : ne rien dire vaut mieux qu'une notice plausible et fausse.
+- N'invente rien. Si tu n'identifies pas ce lieu précis, renvoie « resume » vide et « sections » vide : ne rien dire vaut mieux qu'une notice plausible et fausse. Ce vide ne vaut QUE pour un lieu que tu ne reconnais pas — pas pour un lieu modeste, dont le quartier et les environs se décrivent très bien.
 - Aucun horaire d'ouverture, aucun tarif, aucun numéro de téléphone : ces valeurs changent, et une valeur périmée envoie le voyageur devant une porte close.`;
 
 const SCHEMA = {
@@ -82,16 +98,31 @@ Deno.serve(async (req: Request) => {
   try {
     const payload = await req.json().catch(() => ({}));
     const nom = (typeof payload?.nom === "string" ? payload.nom : "").trim().slice(0, NOM_MAX);
-    const lieu = (typeof payload?.lieu === "string" ? payload.lieu : "").trim().slice(0, LIEU_MAX);
-    if (!nom && !lieu) return json({ error: "aucun lieu à décrire" }, 400);
+    // Nom que Google donne au lieu (tiré du lien collé) : sa nomenclature, plus
+    // reconnaissable que le libellé libre de l'étape (« Visite de la cathédrale »).
+    const nomCarte = (typeof payload?.nomCarte === "string" ? payload.nomCarte : "").trim().slice(0, LIEU_MAX);
+    const adresse = (typeof payload?.adresse === "string" ? payload.adresse : "").trim().slice(0, ADRESSE_MAX);
+    const lat = coordOk(payload?.lat, 90) ? payload.lat : null;
+    const lng = coordOk(payload?.lng, 180) ? payload.lng : null;
+    if (!nom && !nomCarte && !adresse && lat === null) {
+      return json({ error: "aucun lieu à décrire" }, 400);
+    }
 
-    // Le nom de l'étape est saisi par l'utilisateur : il entre dans le prompt,
-    // jamais dans la consigne, qui reste en systemInstruction. Un nom qui
-    // contiendrait des instructions n'a ainsi rien à détourner, et le schéma
-    // borne la forme de la réponse.
-    const prompt = lieu && lieu !== nom
-      ? `Lieu : ${nom || lieu}\nSitué à : ${lieu}`
-      : `Lieu : ${nom || lieu}`;
+    // Tout ce qui situe le lieu part dans le prompt, ligne par ligne : c'est
+    // l'adresse qui départage deux homonymes, et sans elle le modèle décrivait
+    // le plus célèbre des deux.
+    //
+    // Ces valeurs sont saisies par l'utilisateur (ou tirées de son lien) : elles
+    // entrent dans le prompt, jamais dans la consigne, qui reste en
+    // systemInstruction. Un nom qui contiendrait des instructions n'a ainsi rien
+    // à détourner, et le schéma borne la forme de la réponse.
+    const lignes = [`Lieu : ${nomCarte || nom}`];
+    // Le libellé de l'étape n'est repris que s'il apporte autre chose que le nom
+    // Google : « Bom Jesus do Monte » deux fois n'aide personne.
+    if (nomCarte && nom && nom !== nomCarte) lignes.push(`Nommé « ${nom} » dans le carnet de voyage`);
+    if (adresse) lignes.push(`Adresse exacte : ${adresse}`);
+    if (lat !== null && lng !== null) lignes.push(`Coordonnées : ${lat}, ${lng}`);
+    const prompt = lignes.join("\n");
 
     const r = await demandeJson({
       cle: KEY,

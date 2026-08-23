@@ -939,21 +939,57 @@ function fetchAvis(placeId) {
   return p;
 }
 
+// Ce qui identifie le lieu auprès du guide. Un nom seul ne suffit pas : la
+// première version n'envoyait que le nom écrit par Google dans le lien, et le
+// modèle décrivait alors l'homonyme le plus célèbre — un autre lieu du même nom,
+// à mille kilomètres de celui du séjour.
+//
+// On résout donc le lien Google Maps pour en tirer l'ADRESSE EXACTE, qui est ce
+// qui départage deux homonymes. La requête ne coûte rien : la vignette de la
+// timeline l'a déjà lancée pour la même étape, et son résultat est en cache
+// (voir fetchPlaceInfo).
+async function repereGuide(place) {
+  const vide = { nomCarte: "", adresse: "", lat: null, lng: null };
+  if (!place) return vide;
+  const nomCarte = typeof place.mapsName === "string" && !isUrl(place.mapsName) ? place.mapsName.trim() : "";
+  let adresse = typeof place.address === "string" ? place.address.trim() : "";
+  let lat = place.lat != null ? place.lat : null;
+  let lng = place.lng != null ? place.lng : null;
+  // Résoluble chez Google : on demande l'adresse officielle même si une adresse
+  // est déjà saisie — celle de Google est complète (rue, code postal, ville,
+  // pays) là où une saisie à la main s'arrête souvent au nom de la rue.
+  if (nomCarte) {
+    const info = await fetchPlaceInfo(place);
+    if (info) {
+      if (info.adresse) adresse = info.adresse;
+      if (lat == null && info.lat != null) { lat = info.lat; lng = info.lng; }
+    }
+  }
+  return { nomCarte, adresse, lat, lng };
+}
+
 // Notice de guide touristique d'un lieu, écrite par Gemini. Demandée seulement
 // quand l'icône « i » d'une étape est touchée — jamais pour toute la journée :
 // chaque appel coûte une génération, et on n'en lit qu'une à la fois.
-// Le cache est indexé sur le couple nom + repère, si bien que refermer puis
-// rouvrir la notice d'une étape ne la repaie pas.
+// Le cache est indexé sur le nom ET sur tout ce qui situe le lieu : une adresse
+// arrivée après coup doit produire une nouvelle notice, pas resservir celle
+// écrite quand on ne savait pas encore où l'on était.
 const guideCache = new Map();
-function fetchGuide(nom, lieu) {
+const cleGuide = (nom, r) =>
+  `${(nom || "").trim()}|${r.nomCarte}|${r.adresse}|${r.lat ?? ""},${r.lng ?? ""}`;
+
+function fetchGuide(nom, r) {
   const n = (nom || "").trim();
-  const l = (lieu || "").trim();
-  if (!n && !l) return Promise.resolve({ erreur: "aucun lieu à décrire" });
-  const key = `${n}|${l}`;
+  if (!n && !r.nomCarte && !r.adresse && r.lat == null) {
+    return Promise.resolve({ erreur: "aucun lieu à décrire" });
+  }
+  const key = cleGuide(n, r);
   if (guideCache.has(key)) return guideCache.get(key);
   const p = (async () => {
     try {
-      const { data, error } = await supabase.functions.invoke("place-guide", { body: { nom: n, lieu: l } });
+      const { data, error } = await supabase.functions.invoke("place-guide", {
+        body: { nom: n, nomCarte: r.nomCarte, adresse: r.adresse, lat: r.lat, lng: r.lng },
+      });
       if (error) return { erreur: (await messageFonction(error)) || "guide indisponible" };
       if (!data) return { erreur: "guide indisponible" };
       if (data.error) return { erreur: data.detail ? `${data.error} (${data.detail})` : data.error };
@@ -967,20 +1003,6 @@ function fetchGuide(nom, lieu) {
   })();
   guideCache.set(key, p);
   return p;
-}
-
-// Repère envoyé au guide avec le nom de l'étape : ce qui situe le lieu sans
-// ambiguïté. Le nom écrit par Google dans le lien d'abord — c'est sa
-// nomenclature, la plus reconnaissable — puis l'adresse saisie, puis les
-// coordonnées, qui à défaut de nom situent au moins la bonne ville.
-function repereGuide(place) {
-  if (!place) return "";
-  const mapsName = typeof place.mapsName === "string" && !isUrl(place.mapsName) ? place.mapsName.trim() : "";
-  if (mapsName) return mapsName;
-  const adresse = typeof place.address === "string" ? place.address.trim() : "";
-  if (adresse) return adresse;
-  if (place.lat != null && place.lng != null) return `${place.lat}, ${place.lng}`;
-  return typeof place.name === "string" ? place.name.trim() : "";
 }
 
 // Identifiants tirés du générateur cryptographique du navigateur. L'ancienne
@@ -2880,17 +2902,27 @@ function GuideSheet({ act, onClose }) {
   // essai. Le compteur vide l'entrée du cache — sans quoi la relance
   // rendrait l'échec déjà mémorisé, sans rien redemander.
   const [essai, setEssai] = useState(0);
-  const lieu = repereGuide(act.place);
+  // Clé retenue au moment de la demande : c'est celle-là que la relance doit
+  // vider, et elle ne se recalcule pas sans refaire la résolution d'adresse.
+  const cleRef = useRef("");
 
   useEffect(() => {
     let vivant = true;
     setEtat({ chargement: true });
-    fetchGuide(act.name, lieu).then((r) => { if (vivant) setEtat({ chargement: false, ...r }); });
+    (async () => {
+      // L'adresse exacte d'abord — sans elle le modèle décrit l'homonyme le
+      // plus célèbre — puis la notice.
+      const r = await repereGuide(act.place);
+      if (!vivant) return;
+      cleRef.current = cleGuide(act.name, r);
+      const g = await fetchGuide(act.name, r);
+      if (vivant) setEtat({ chargement: false, ...g });
+    })();
     return () => { vivant = false; };
-  }, [act.name, lieu, essai]);
+  }, [act.id, act.name, essai]);
 
   const relance = () => {
-    guideCache.delete(`${(act.name || "").trim()}|${(lieu || "").trim()}`);
+    guideCache.delete(cleRef.current);
     setEssai((n) => n + 1);
   };
 
