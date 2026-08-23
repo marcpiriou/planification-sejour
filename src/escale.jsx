@@ -3887,7 +3887,7 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
           {/* jour */}
           <Field label={stay ? "Arrivée" : "Jour"}>
             <select value={draft.date} onChange={(e) => upd("date", e.target.value)} style={inputStyle} className="w-full rounded-xl px-3 py-2.5 outline-none capitalize">
-              {days.map((d, i) => <option key={d} value={d}>J{i + 1} · {fmtShort(d)}</option>)}
+              {days.map((d) => <option key={d} value={d}>{fmtShort(d)}</option>)}
             </select>
           </Field>
 

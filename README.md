@@ -691,6 +691,12 @@ passage, un rendez-vous à heure dite.
 
 Un hébergement n'est pas concerné : il n'a pas de durée, mais un nombre de nuits.
 
+### Liste des jours, sans le rang « J1 »
+La liste déroulante « Jour » d'une activité, comme « Arrivée » d'un hébergement,
+n'affichait plus que la date une fois le rang retiré : « J2 · dim. 16 août » est
+devenu « dim. 16 août ». Le rang dans le séjour ne disait rien que la date ne
+dise déjà, et créait deux façons de repérer le même jour dans le formulaire.
+
 ### Durées proposées
 Onze pastilles — `0, 15, 30, 45, 1h, 1h30, 2h, 2h30, 3h, 3h30, 4h` — plus le
 bouton `…` de saisie libre, soit douze, disposées en **grille de six colonnes
