@@ -857,13 +857,25 @@ colonne qui en offrait 174 : la ligne serait passée au ras du bord sur un écra
 de 390 px. La vignette du lieu est donc ramenée de 112 à 96 px, ce qui porte la
 colonne à 190 px.
 
-**Alignement de la rangée.** La marge négative qui la décale doit compenser le
-retrait du GLYPHE dans sa cible tactile, et non le bord de cette cible : un
-glyphe de 16 px centré dans un rond de 36 px est en retrait de 10 px. À -4 px,
-la rangée démarrait donc 6 px à droite du titre et de la note — un décalage bien
-visible sous deux lignes de texte alignées, elles, sur les 12 px de marge de la
-carte. À -10 px, le premier glyphe tombe pile sur le texte, et l'écart entre
-glyphes vaut 24 px partout (10 + 4 + 10).
+**La rangée est répartie, pas alignée à gauche.** Elle l'a d'abord été, avec une
+marge négative qui posait le premier glyphe sur le texte au-dessus. Deux défauts,
+qu'une mesure a révélés : la rangée gardait zéro marge à gauche mais collait la
+photo à droite, et sur un écran de **360 px** — largeur des plus courantes sur
+Android — les quatre cibles de 36 px réclamaient 144 px pour une colonne qui n'en
+offre que 130 : elles **débordaient**.
+
+Deux corrections vont ensemble. La cible passe à 32 px pour la seule rangée d'une
+étape (`ICON_BTN_ETAPE` ; ailleurs, une icône seule dans son coin garde ses
+36 px), ce qui libère la place ; et `justify-evenly` répartit les quatre, laissant
+au navigateur le calcul d'une marge égale de chaque côté et d'un écart égal entre
+elles, à toute largeur de colonne — là où une valeur en dur ne vaudrait que sur un
+téléphone. Mesuré : 8 px de marge et 16 px d'écart à 360, 14 et 22 à 390, 18 et 26
+à 412 — symétrique partout.
+
+Leçon de méthode : le premier banc rendait la carte **sans la gouttière horaire ni
+le `px-4` de la timeline**, donc 32 px trop large. Il annonçait 62 px de reste à
+droite là où l'écran du téléphone n'en montrait que quelques-uns. Un banc qui
+mesure une marge doit reproduire le conteneur réel, pas seulement le composant.
 
 ### Un seul nœud par étape, à son début
 La colonne montrait deux nœuds par étape : un **plein** à son heure de début, un

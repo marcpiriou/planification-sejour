@@ -1711,7 +1711,16 @@ function DaySummary({ acts, totalTravel }) {
 /* --- Carte d'une activité ----------------------------------------- */
 // Facture commune des icônes d'action d'une carte : ronde, sans cadre ni fond,
 // posée sur la carte. Le crayon lui servait déjà de modèle.
-const ICON_BTN = "h-9 w-9 shrink-0 flex items-center justify-center rounded-full active:scale-95 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300";
+const ICON_BTN_BASE = "shrink-0 flex items-center justify-center rounded-full active:scale-95 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300";
+// Icône seule dans son coin : elle a toute la place, 36 px de cible.
+const ICON_BTN = `h-9 w-9 ${ICON_BTN_BASE}`;
+// Les QUATRE icônes d'une étape, elles, se partagent la colonne de texte, que
+// la vignette du lieu ampute déjà de 96 px. Cette colonne ne mesure que 158 px
+// sur un écran de 390, et 130 px sur un écran de 360 — largeur des plus
+// courantes sur Android : à 36 px la cible, les quatre réclamaient 144 px et
+// débordaient sur la photo. À 32 px elles tiennent, et il reste de quoi leur
+// donner une marge de part et d'autre.
+const ICON_BTN_ETAPE = `h-8 w-8 ${ICON_BTN_BASE}`;
 
 function ActivityCard({ act, onEdit, onEditDuration, onGuide, startMin, endMin, prev, canEdit = true, onDragStart, dragging = false }) {
   const navApp = useContext(NavAppContext);
@@ -1801,14 +1810,17 @@ function ActivityCard({ act, onEdit, onEditDuration, onGuide, startMin, endMin, 
               vignette, ramenée de 112 à 96 px : à largeur inchangée, la ligne
               d'icônes serait passée au ras du bord sur un écran de 390 px.
 
-              La marge négative aligne le PREMIER GLYPHE sur le texte au-dessus,
-              et non le bord de sa zone tactile. Un glyphe de 16 px centré dans
-              une cible de 36 px est en retrait de 10 px : à -4 px, la rangée
-              démarrait 6 px à droite du titre et de la note, décalage bien
-              visible sous deux lignes de texte alignées, elles, sur 12 px.
-              L'écart entre glyphes vaut alors 24 px partout (10 + 4 + 10). */}
+              RÉPARTIES, et non alignées à gauche. Elles l'étaient, avec une
+              marge négative qui posait le premier glyphe sur le texte au-dessus :
+              la rangée collait alors la photo à droite tout en gardant zéro marge
+              à gauche, et sur un écran de 360 px elle débordait carrément. Le
+              space-evenly leur donne la même marge de chaque côté et le même
+              écart entre elles, à toute largeur de colonne — c'est le calcul du
+              navigateur, non une valeur en dur qui ne vaudrait que sur un
+              téléphone. La cible resserrée d'ICON_BTN_ETAPE fournit la place
+              que cette répartition demande. */}
           {(act.place || canEdit) && (
-            <div className="mt-2 -ml-2.5 flex items-center gap-1">
+            <div className="mt-2 flex items-center justify-evenly">
               {(() => {
                 // Sur un hébergement, l'épingle mène à son ADRESSE dès qu'elle est
                 // renseignée : un lien de réservation ne montre qu'un quartier,
@@ -1819,7 +1831,7 @@ function ActivityCard({ act, onEdit, onEditDuration, onGuide, startMin, endMin, 
                 return (
                   <a href={url} target="_blank" rel="noopener noreferrer"
                     aria-label={adresse ? "Voir l'adresse" : "Voir le lieu"} title={adresse ? "Adresse" : "Lieu"}
-                    className={ICON_BTN}>
+                    className={ICON_BTN_ETAPE}>
                     <MapPin size={16} style={{ color: C.inkSoft }} />
                   </a>
                 );
@@ -1830,13 +1842,13 @@ function ActivityCard({ act, onEdit, onEditDuration, onGuide, startMin, endMin, 
                 const mode = prev ? resolveTravelMode(prev, act) : "car";
                 return (
                   <a href={dirUrl(null, act.place, mode, navApp, stay)} target="_blank" rel="noopener noreferrer"
-                    aria-label="Itinéraire vers ce lieu" title="Itinéraire" className={ICON_BTN}>
+                    aria-label="Itinéraire vers ce lieu" title="Itinéraire" className={ICON_BTN_ETAPE}>
                     <Navigation size={16} style={{ color: C.inkSoft }} />
                   </a>
                 );
               })()}
               {canEdit && (
-                <button onClick={() => onEdit(act)} aria-label="Modifier l'activité" title="Modifier" className={ICON_BTN}>
+                <button onClick={() => onEdit(act)} aria-label="Modifier l'activité" title="Modifier" className={ICON_BTN_ETAPE}>
                   <Pencil size={16} style={{ color: C.inkSoft }} />
                 </button>
               )}
@@ -1846,7 +1858,7 @@ function ActivityCard({ act, onEdit, onEditDuration, onGuide, startMin, endMin, 
                   (« Déjeuner ») ne désigne aucun lieu à décrire. En lecture
                   seule aussi : lire un guide ne modifie rien. */}
               {!stay && act.place && onGuide && (
-                <button onClick={() => onGuide(act)} aria-label="Guide du lieu" title="Guide" className={ICON_BTN}>
+                <button onClick={() => onGuide(act)} aria-label="Guide du lieu" title="Guide" className={ICON_BTN_ETAPE}>
                   <Info size={16} style={{ color: C.inkSoft }} />
                 </button>
               )}
