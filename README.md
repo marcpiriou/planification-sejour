@@ -807,6 +807,25 @@ Trois pièges, et ce qui les évite :
   le saut programmé, et l'écouteur l'ignore. Les fermetures simultanées sont
   regroupées en un seul `go(-n)` — un `back()` par couche risquait d'être fusionné.
 
+### Le « + » de fin de journée
+Les « + » qui intercalent une étape vivent dans `TravelLeg`, lequel n'est rendu
+**qu'entre** deux étapes. Après la dernière il n'y a pas de trajet, donc il n'y
+avait aucun « + » : la timeline s'arrêtait sur sa dernière carte. Allonger la
+journée supposait alors le bouton flottant, dont l'ancre est le jour et non le
+bout de la liste.
+
+`AjoutFinJournee` comble ce trou avec la **même pastille** que ses sœurs —
+blanche cerclée, « + » teal de 30 px, posée sur la colonne des commandes de
+largeur 66 — et les deux mêmes choix, Suggestions ou Activité. Elle s'appuie sur
+le même état `ajoutTrajet`, ce qui lui donne gratuitement le voile de fermeture
+et le bouton « retour » du téléphone. La clé est l'identifiant de la dernière
+étape, que nul `TravelLeg` n'utilise (ils emploient ceux des étapes 0 à n-2) :
+aucun risque que deux menus s'ouvrent ensemble.
+
+Le trait vertical s'arrête au centre de la pastille : il conduit l'œil de la
+dernière carte au « + », et rien au-delà. Masqué pendant un déplacement, où la
+liste bouge sous le doigt.
+
 ### Le guide du lieu, sous l'icône « i »
 Une quatrième icône sur la carte d'une activité, après l'épingle, l'itinéraire et
 le crayon : un **« i »** qui ouvre le guide touristique du lieu, écrit par

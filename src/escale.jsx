@@ -2094,6 +2094,55 @@ function TravelLeg({
   );
 }
 
+/* --- Le « + » de fin de journée ------------------------------------ */
+// Les « + » qui intercalent une étape vivent dans TravelLeg, lequel n'est rendu
+// QU'ENTRE deux étapes. Après la dernière il n'y a pas de trajet, donc il n'y
+// avait aucun « + » : la timeline s'arrêtait sur sa dernière carte, et allonger
+// la journée supposait de passer par le bouton flottant — dont l'ancre est le
+// jour, non le bout de la liste.
+//
+// Même pastille que ses sœurs, pour qu'on la reconnaisse sans l'apprendre :
+// blanche cerclée, « + » teal de 30 px, posée sur la colonne des commandes de
+// largeur 66. Elle ouvre les deux mêmes choix, et s'appuie sur le même état
+// `ajoutTrajet` — d'où lui viennent gratuitement le voile de fermeture et le
+// bouton « retour » du téléphone.
+function AjoutFinJournee({ apres, ouvert, onOuvrir, onFermer, onActivite, onSuggestion }) {
+  return (
+    <div className="flex gap-3" style={ouvert ? { position: "relative", zIndex: 30 } : undefined}>
+      <div className="shrink-0 relative flex justify-center items-start" style={{ width: 66 }}>
+        {/* Le trait s'arrête au centre de la pastille (6 de marge + 15 de rayon) :
+            il conduit l'œil de la dernière carte au « + », et rien au-delà —
+            après, la journée n'a plus d'étape. */}
+        <div style={{ background: C.line, height: 21 }} className="absolute top-0 w-0.5" />
+        <button onClick={() => (ouvert ? onFermer() : onOuvrir())} aria-expanded={ouvert}
+          aria-label={ouvert
+            ? "Fermer le menu d'ajout en fin de journée"
+            : `Ajouter une étape après ${apres || "la dernière étape"}`}
+          style={{ background: "#fff", border: `1px solid ${C.line}`, color: C.teal, height: 30, width: 30, marginTop: 6 }}
+          className="relative rounded-full shadow-sm flex items-center justify-center active:scale-95 transition shrink-0">
+          <Plus size={16} style={{ transform: ouvert ? "rotate(45deg)" : "none", transition: "transform .18s" }} />
+        </button>
+      </div>
+      <div className="flex-1 mt-2">
+        {/* Deux choix, les mêmes qu'entre deux étapes : un hébergement ne s'ajoute
+            pas ici, sa place se déduit de ses nuits. */}
+        {ouvert && (
+          <div className="flex flex-col items-start gap-2">
+            <button onClick={onSuggestion} style={{ background: C.ink }}
+              className="text-white rounded-full pl-4 pr-5 py-2.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
+              <Sparkles size={18} /> Suggestions
+            </button>
+            <button onClick={onActivite} style={{ background: C.teal }}
+              className="text-white rounded-full pl-4 pr-5 py-2.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
+              <Plus size={18} /> Activité
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* --- Repère de l'heure actuelle ------------------------------------ */
 // Une ligne en travers de la timeline, à la place qu'occupe l'instant présent.
 // Elle se glisse juste avant la première étape non encore terminée : au-dessus,
@@ -3760,6 +3809,17 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
               </div>
               );
             })}
+            {/* Le « + » du bout, que nul trajet ne portait. Masqué pendant un
+                déplacement : la liste bouge alors sous le doigt, et une cible
+                d'ajout n'y a pas sa place. */}
+            {canEdit && !drag && acts.length > 0 && (
+              <AjoutFinJournee apres={acts[acts.length - 1].name}
+                ouvert={ajoutTrajet === acts[acts.length - 1].id}
+                onOuvrir={() => setAjoutTrajet(acts[acts.length - 1].id)}
+                onFermer={fermeTrajet}
+                onActivite={() => choisitTrajet(() => onAddAct(acts[acts.length - 1].id))}
+                onSuggestion={() => choisitTrajet(() => ouvreSuggestions(acts[acts.length - 1].id))} />
+            )}
             {canEdit && acts.filter((a) => !isStay(a)).length > 1 && (
               <div style={{ color: C.inkSoft }} className="t11 mt-5 flex items-center gap-1">
                 <MoreVertical size={12} /> Appui long sur une activité pour la déplacer
