@@ -902,34 +902,33 @@ colonne qui en offrait 174 : la ligne serait passée au ras du bord sur un écra
 de 390 px. La vignette du lieu est donc ramenée de 112 à 96 px, ce qui porte la
 colonne à 190 px.
 
-**La rangée est répartie, pas alignée à gauche.** Elle l'a d'abord été, avec une
-marge négative qui posait le premier glyphe sur le texte au-dessus. Deux défauts,
-qu'une mesure a révélés : la rangée gardait zéro marge à gauche mais collait la
-photo à droite, et sur un écran de **360 px** — largeur des plus courantes sur
-Android — les quatre cibles de 36 px réclamaient 144 px pour une colonne qui n'en
-offre que 130 : elles **débordaient**.
+**Le crayon a quitté les cartes.** La vignette d'une activité et l'icône d'un
+hébergement ouvrent déjà l'édition complète : une seconde cible pour le même
+geste n'apportait rien. Il survit dans **un seul cas** — une activité sans lieu,
+donc sans vignette : « Déjeuner » n'aurait sinon plus aucune façon d'être
+modifiée, ni supprimée. La rangée compte ainsi trois icônes pour une activité
+située, deux pour un hébergement, une pour une activité sans lieu.
 
-Deux corrections vont ensemble. La cible passe à 32 px pour la seule rangée d'une
-étape (`ICON_BTN_ETAPE` ; ailleurs, une icône seule dans son coin garde ses
-36 px), ce qui libère la place ; et `justify-evenly` répartit les quatre, laissant
-au navigateur le calcul d'une marge égale de chaque côté et d'un écart égal entre
-elles, à toute largeur de colonne — là où une valeur en dur ne vaudrait que sur un
-téléphone.
+**Alignées à gauche, et groupées.** Elles ont été RÉPARTIES par `space-evenly`,
+du temps où elles étaient quatre dans une colonne saturée — 144 px de cibles pour
+les 130 px qu'offre un écran de 360, elles débordaient, et il fallait leur
+trouver de l'air en les resserrant à 32 px. Ce calcul se retourne dès qu'elles
+sont moins nombreuses : distribuant tout l'espace libre, il écartait les deux
+icônes d'un hébergement de plus de 50 px, ce qui se lit comme une erreur de mise
+en page. Groupées, l'écart ne dépend plus du nombre — mesuré à 24 px partout, sur
+une, deux ou trois icônes, à 360 comme à 390 px. La cible retrouve du même coup
+ses 36 px standard, la contrainte qui l'avait rabotée ayant disparu avec la
+quatrième icône.
 
-**Desserrer demande de trouver les pixels.** Un `gap` de 2 px, seul, n'en donne
-que 0,8 : `space-evenly` réabsorbe les trois cinquièmes de tout écart ajouté, en
-le prenant sur les espaces qu'il distribue. Et sur un écran de 360 px, où la
-colonne est pleine au pixel, ces 2 px débordaient. La rangée porte donc une marge
-négative de 4 px : les CIBLES mordent sur la marge intérieure de la carte, ce qui
-élargit leur piste, sans que les GLYPHES en sortent — ils gardent 4 px de recul à
-360 px, 10 à 390. Mesuré, écart et marge : **18,4 / 4,4 px à 360 ; 24,4 / 10,4 à
-390 ; 28,8 / 14,8 à 412** — symétrique partout, et +2,4 px d'écart par rapport à
-la version sans gap.
+La marge négative aligne le **premier glyphe** sur le texte au-dessus, et non le
+bord de sa zone tactile : un glyphe de 16 px centré dans une cible de 36 est en
+retrait de 10 px, d'où `-ml-2.5` et non `-ml-1`.
 
-Leçon de méthode : le premier banc rendait la carte **sans la gouttière horaire ni
-le `px-4` de la timeline**, donc 32 px trop large. Il annonçait 62 px de reste à
-droite là où l'écran du téléphone n'en montrait que quelques-uns. Un banc qui
-mesure une marge doit reproduire le conteneur réel, pas seulement le composant.
+Leçon de méthode, laissée ici car elle a coûté un aller-retour : un banc d'essai
+qui mesure une marge doit reproduire le **conteneur réel**. Le premier rendait la
+carte sans la gouttière horaire ni le `px-4` de la timeline, donc 32 px trop
+large, et annonçait 62 px de reste à droite là où le téléphone n'en montrait que
+quelques-uns.
 
 ### Un seul nœud par étape, à son début
 La colonne montrait deux nœuds par étape : un **plein** à son heure de début, un
