@@ -807,6 +807,34 @@ Trois pièges, et ce qui les évite :
   le saut programmé, et l'écouteur l'ignore. Les fermetures simultanées sont
   regroupées en un seul `go(-n)` — un `back()` par couche risquait d'être fusionné.
 
+### Le partage a quitté la timeline pour la carte du séjour
+Gérer qui accède à un séjour est une décision qui porte sur le **séjour**, non
+sur la journée qu'on avait sous les yeux au moment d'y penser. L'icône est donc
+partie de la barre du haut de la timeline pour rejoindre la carte, à l'accueil,
+là où le séjour se choisit.
+
+Le déplacement n'a rien coûté en câblage : `ShareModal` était déjà rendu **au
+niveau de la racine**, piloté par un `shareTripId` que `trips.find` résout sur la
+liste complète — et non sur le séjour ouvert. Il suffisait donc de passer
+`onShare` à `Home`. Le calque étant en `fixed inset-0 z-50` et rendu hors de la
+branche `Home`/`TripView`, il se superpose à l'accueil sans qu'aucun séjour soit
+ouvert. Le bouton « retour » du téléphone était déjà géré par le `useRetour` en
+place.
+
+**Crayon en haut, partage en bas, même axe.** La colonne de droite passe en
+`items-stretch` pour courir sur toute la hauteur de la carte, et le partage porte
+un `mt-auto` : sans lui, la carte d'un séjour partagé en lecture seule — où le
+crayon n'a pas lieu d'être — l'aurait laissé remonter tout en haut.
+
+Le partage reste offert **à tous**, propriétaire ou non, comme il l'était sur la
+timeline : l'un y gère les accès, l'autre y trouve de quoi quitter le séjour.
+
+### Un livre pour le guide, plutôt qu'un « i »
+Le « i » annonçait « information », mot qui vaut pour n'importe quel écran. Un
+guide touristique se reconnaît à son livre : `BookOpen`, choisi parmi les
+candidats pour sa lisibilité à 16 px — `BookOpenText` y aurait réduit ses lignes
+de texte à une bouillie.
+
 ### L'heure d'arrivée d'un hébergement, sur une seule ligne
 Le bloc coûtait **134 px** pour une information qui se dit en « Heure fixe ·
 17:28 » : le libellé, deux boutons étirés sur toute la largeur, puis les cases

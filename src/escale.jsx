@@ -2,7 +2,7 @@ import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, createCon
 import {
   Landmark, UtensilsCrossed, Coffee, Waves, ShoppingBag, BedDouble,
   TrainFront, Sparkles, MapPin, Footprints, Car, Clock, Plus,
-  ChevronLeft, Trash2, Pencil, Navigation, Calendar, X, AlertTriangle, Info,
+  ChevronLeft, Trash2, Pencil, Navigation, Calendar, X, AlertTriangle, BookOpen,
   Check, MoreVertical, Route, Mail, LogOut,
   Users, Share2, UserPlus, User, Home as HomeIcon, Building2, ClipboardPaste, Copy,
   ListChecks, ChevronRight, ChevronDown, Search, Loader2, Archive, ArchiveRestore,
@@ -1535,15 +1535,25 @@ function SeparateurGroupe({ label, count, ouvert, onToggle }) {
 // terminé ou archivé reste ouvrable, mais il ne doit plus tirer l'œil : fond du
 // papier, texte adouci et couleurs d'accent éteintes.
 //
-// Le crayon ouvre l'édition du séjour, comme sur une activité. Il vit hors du
-// bouton qui ouvre le séjour — un bouton dans un bouton n'est pas du HTML
-// valable, et le clic irait de toute façon aux deux.
-function CarteSejour({ trip: t, passe, onOpen, onEdit }) {
+// Le crayon ouvre l'édition du séjour, le partage sa gestion des accès. Tous
+// deux vivent hors du bouton qui ouvre le séjour — un bouton dans un bouton
+// n'est pas du HTML valable, et le clic irait de toute façon aux deux.
+//
+// Le partage a quitté la timeline pour venir ici : gérer qui accède à un séjour
+// est une décision qui porte sur le SÉJOUR, et non sur la journée qu'on avait
+// sous les yeux au moment d'y penser. Sa place est donc sur la carte, où le
+// séjour se choisit.
+//
+// Il reste offert à tous, propriétaire ou non, comme il l'était sur la timeline :
+// l'un y gère les accès, l'autre y trouve de quoi quitter le séjour.
+function CarteSejour({ trip: t, passe, onOpen, onEdit, onShare }) {
   const days = daysInRange(t.startDate, t.endDate);
   const modifiable = t.role !== "viewer";
   return (
+    // items-stretch, et non items-start : la colonne de droite doit courir sur
+    // toute la hauteur de la carte pour que le partage tombe vraiment en bas.
     <div style={{ background: passe ? C.paper : C.card, border: `1px solid ${C.line}`, opacity: passe ? 0.75 : 1 }}
-      className="rounded-2xl flex items-start">
+      className="rounded-2xl flex items-stretch">
       <button onClick={() => onOpen(t.id)}
         className="flex-1 min-w-0 text-left p-4 active:scale-95 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 rounded-2xl">
         <div style={{ color: passe ? C.inkSoft : C.ink }} className="font-semibold text-lg leading-tight">{t.name}</div>
@@ -1566,18 +1576,29 @@ function CarteSejour({ trip: t, passe, onOpen, onEdit }) {
           )}
         </div>
       </button>
-      {modifiable && (
-        <button onClick={() => onEdit(t.id)} aria-label="Modifier le séjour" title="Modifier"
-          className={`${ICON_BTN} mt-3 mr-2`}>
-          <Pencil size={16} style={{ color: C.inkSoft }} />
+      {/* Crayon en haut, partage en bas, dans la même colonne : ils se retrouvent
+          ainsi alignés sur un même axe vertical. Le `mt-auto` pousse le partage
+          au fond quoi qu'il arrive — sans lui, la carte d'un séjour partagé en
+          lecture seule, où le crayon n'a pas lieu d'être, l'aurait laissé
+          remonter tout en haut. */}
+      <div className="shrink-0 flex flex-col items-center my-3 mr-2">
+        {modifiable && (
+          <button onClick={() => onEdit(t.id)} aria-label="Modifier le séjour" title="Modifier"
+            className={ICON_BTN}>
+            <Pencil size={16} style={{ color: C.inkSoft }} />
+          </button>
+        )}
+        <button onClick={() => onShare(t.id)} aria-label="Partager / gérer l'accès" title="Partager"
+          className={`${ICON_BTN} mt-auto`}>
+          <Share2 size={16} style={{ color: C.inkSoft }} />
         </button>
-      )}
+      </div>
     </div>
   );
 }
 
 /* --- Accueil : liste des séjours + navigation ---------------------- */
-function Home({ trips, archives, onOpen, onEdit, onNew, onExample, userEmail, onSignOut, home, onSaveHome, sharedLink, onDismissShared, navApp, onSaveNavApp, defaultChecklist, onSaveDefaultChecklist }) {
+function Home({ trips, archives, onOpen, onEdit, onShare, onNew, onExample, userEmail, onSignOut, home, onSaveHome, sharedLink, onDismissShared, navApp, onSaveNavApp, defaultChecklist, onSaveDefaultChecklist }) {
   const [tab, setTab] = useState("trips");
   const [archivesOuvertes, setArchivesOuvertes] = useState(false);
   return (
@@ -1636,7 +1657,7 @@ function Home({ trips, archives, onOpen, onEdit, onNew, onExample, userEmail, on
               <div key={g.key} className="space-y-3">
                 <SeparateurGroupe label={g.label}
                   {...(g.repliable ? { count: g.trips.length, ouvert: deplie, onToggle: () => setArchivesOuvertes((v) => !v) } : {})} />
-                {deplie && g.trips.map((t) => <CarteSejour key={t.id} trip={t} passe={g.passe} onOpen={onOpen} onEdit={onEdit} />)}
+                {deplie && g.trips.map((t) => <CarteSejour key={t.id} trip={t} passe={g.passe} onOpen={onOpen} onEdit={onEdit} onShare={onShare} />)}
               </div>
             );
           })}
@@ -1910,9 +1931,12 @@ function ActivityCard({ act, onEdit, onEditDuration, onGuide, startMin, endMin, 
                   le lieu doit être renseigné — le seul nom d'une étape
                   (« Déjeuner ») ne désigne aucun lieu à décrire. En lecture
                   seule aussi : lire un guide ne modifie rien. */}
+              {/* Un livre ouvert, et non le « i » qui y figurait : celui-ci
+                  annonçait « information », mot qui vaut pour n'importe quel
+                  écran. Un guide touristique, lui, se reconnaît à son livre. */}
               {!stay && act.place && onGuide && (
                 <button onClick={() => onGuide(act)} aria-label="Guide du lieu" title="Guide" className={ICON_BTN}>
-                  <Info size={16} style={{ color: C.inkSoft }} />
+                  <BookOpen size={16} style={{ color: C.inkSoft }} />
                 </button>
               )}
             </div>
@@ -3532,7 +3556,7 @@ function SuggestionsSheet({ trip, jour, onAdd, onRemove, onClose, canEdit, promp
 }
 
 /* --- Vue d'un séjour ---------------------------------------------- */
-function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onAddSuggestion, onRemoveSuggestion, onEditAct, onEditTrip, onUpdateChecklist, onEditDuration, onEditTravel, onReorder, canEdit = true, canShare = false, onShare }) {
+function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onAddSuggestion, onRemoveSuggestion, onEditAct, onEditTrip, onUpdateChecklist, onEditDuration, onEditTravel, onReorder, canEdit = true }) {
   const days = daysInRange(trip.startDate, trip.endDate);
   const safeCurrent = current && days.includes(current) ? current : days[0];
   // L'en-tête est collant : sa hauteur sert de décalage pour ne pas glisser une
@@ -3769,7 +3793,10 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
           subtitle={fmtRange(trip.startDate, trip.endDate)}
           right={
             <div className="flex items-center">
-              {/* Carte des étapes de la journée, à gauche du partage. */}
+              {/* Carte des étapes de la journée. Le partage figurait ici, entre
+                  elle et le menu du séjour : il est parti sur la carte du séjour,
+                  à l'accueil — gérer qui accède à un séjour ne regarde pas la
+                  journée qu'on avait sous les yeux au moment d'y penser. */}
               {markers.length ? (
                 <IconBtn onClick={() => setMapOpen(true)} label="Voir la carte de la journée"><MapIcon size={19} /></IconBtn>
               ) : (
@@ -3778,7 +3805,6 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
                   <MapIcon size={19} />
                 </span>
               )}
-              <IconBtn onClick={onShare} label="Partager / gérer l'accès"><Share2 size={19} /></IconBtn>
               {canEdit && <IconBtn onClick={onEditTrip} label="Modifier le séjour"><MoreVertical size={20} /></IconBtn>}
             </div>
           }
@@ -5477,6 +5503,7 @@ function SejourApp() {
       )}
       {!trip ? (
         <Home trips={trips} archives={archivesSet} onOpen={openTrip} onEdit={editTripFromList} onNew={newTrip} onExample={loadExample}
+          onShare={(id) => setShareTripId(id)}
           userEmail={userEmail} onSignOut={signOut} home={home} onSaveHome={saveHome}
           sharedLink={sharedLink} onDismissShared={() => setSharedLink(null)}
           navApp={navApp} onSaveNavApp={saveNavApp}
@@ -5488,7 +5515,7 @@ function SejourApp() {
           onUpdateChecklist={updateChecklist} onReorder={reorderActivities}
           onEditDuration={(a) => setDurEdit({ id: a.id, durationMin: a.durationMin })}
           onEditTravel={(from, to) => setTravelEdit({ date: from.date, fromId: from.id, toId: to.id })}
-          canEdit={canEditTrip} onShare={() => setShareTripId(trip.id)}
+          canEdit={canEditTrip}
         />
       )}
 
