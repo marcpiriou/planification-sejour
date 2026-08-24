@@ -869,8 +869,17 @@ Deux corrections vont ensemble. La cible passe à 32 px pour la seule rangée d'
 36 px), ce qui libère la place ; et `justify-evenly` répartit les quatre, laissant
 au navigateur le calcul d'une marge égale de chaque côté et d'un écart égal entre
 elles, à toute largeur de colonne — là où une valeur en dur ne vaudrait que sur un
-téléphone. Mesuré : 8 px de marge et 16 px d'écart à 360, 14 et 22 à 390, 18 et 26
-à 412 — symétrique partout.
+téléphone.
+
+**Desserrer demande de trouver les pixels.** Un `gap` de 2 px, seul, n'en donne
+que 0,8 : `space-evenly` réabsorbe les trois cinquièmes de tout écart ajouté, en
+le prenant sur les espaces qu'il distribue. Et sur un écran de 360 px, où la
+colonne est pleine au pixel, ces 2 px débordaient. La rangée porte donc une marge
+négative de 4 px : les CIBLES mordent sur la marge intérieure de la carte, ce qui
+élargit leur piste, sans que les GLYPHES en sortent — ils gardent 4 px de recul à
+360 px, 10 à 390. Mesuré, écart et marge : **18,4 / 4,4 px à 360 ; 24,4 / 10,4 à
+390 ; 28,8 / 14,8 à 412** — symétrique partout, et +2,4 px d'écart par rapport à
+la version sans gap.
 
 Leçon de méthode : le premier banc rendait la carte **sans la gouttière horaire ni
 le `px-4` de la timeline**, donc 32 px trop large. Il annonçait 62 px de reste à

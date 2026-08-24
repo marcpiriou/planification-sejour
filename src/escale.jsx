@@ -1818,9 +1818,19 @@ function ActivityCard({ act, onEdit, onEditDuration, onGuide, startMin, endMin, 
               écart entre elles, à toute largeur de colonne — c'est le calcul du
               navigateur, non une valeur en dur qui ne vaudrait que sur un
               téléphone. La cible resserrée d'ICON_BTN_ETAPE fournit la place
-              que cette répartition demande. */}
+              que cette répartition demande.
+
+              Le gap de 2 px desserre l'ensemble, et la marge négative lui trouve
+              les pixels. Le gap seul n'y suffisait pas : space-evenly réabsorbe
+              les trois cinquièmes de tout écart ajouté, si bien que 2 px n'en
+              donnaient que 0,8 — et sur un écran de 360 px, où la colonne est
+              pleine au pixel, ils débordaient. Les cibles mordent donc de 4 px
+              sur la marge intérieure de la carte, ce qui élargit d'autant leur
+              piste sans que les GLYPHES en sortent : ils gardent 4 px de recul à
+              360, 10 à 390. Mesuré : 18,4 px d'écart à 360, 24,4 à 390, 28,8 à
+              412 — soit +2,4 partout. */}
           {(act.place || canEdit) && (
-            <div className="mt-2 flex items-center justify-evenly">
+            <div className="mt-2 -mx-1 flex items-center justify-evenly gap-0.5">
               {(() => {
                 // Sur un hébergement, l'épingle mène à son ADRESSE dès qu'elle est
                 // renseignée : un lien de réservation ne montre qu'un quartier,
