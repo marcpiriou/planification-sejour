@@ -1737,6 +1737,29 @@ function ActivityCard({ act, onEdit, onEditDuration, onGuide, startMin, endMin, 
     return () => { alive = false; };
   }, [stay, act.place?.mapsName, act.place?.lat, act.place?.lng]);
   const accent = stay ? STAY_COLOR : C.teal;
+
+  // Le bloc de texte — nom, mention de nuit, notes — ouvre l'édition. C'est ce
+  // qui a permis de retirer le crayon pour de bon : la vignette et l'icône d'un
+  // hébergement y menaient déjà, mais une activité SANS lieu n'a ni l'une ni
+  // l'autre, et n'aurait plus eu aucune porte d'entrée.
+  //
+  // Un élément dont la balise change plutôt qu'un contenu dupliqué : en lecture
+  // seule il n'y a rien à ouvrir, et un bouton inerte s'annoncerait à tort comme
+  // touchable aux aides techniques.
+  //
+  // Pas de `active:scale-95` ici, contrairement aux pastilles : sur un bloc large
+  // la mise à l'échelle décale visiblement le texte de ses voisins. L'opacité
+  // donne le même retour sans rien déplacer.
+  const BlocTexte = canEdit ? "button" : "div";
+  const propsBlocTexte = canEdit
+    ? {
+      type: "button",
+      onClick: () => onEdit(act),
+      "aria-label": `Modifier ${act.name || "cette étape"}`,
+      className: "flex-1 min-w-0 text-left active:opacity-60 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 rounded-lg",
+    }
+    : { className: "flex-1 min-w-0" };
+
   return (
     <div className="flex gap-3">
       {/* Colonne horaire : un nœud plein à l'heure de début, le rail, la durée, et
@@ -1778,9 +1801,9 @@ function ActivityCard({ act, onEdit, onEditDuration, onGuide, startMin, endMin, 
         }}
         className="flex-1 rounded-2xl mb-1 overflow-hidden flex items-stretch">
         <div className="flex-1 min-w-0 p-3 flex flex-col">
-          <div className="flex-1 min-w-0">
-            {/* Le nom ne s'édite plus ici : la photo (ou l'icône d'un hébergement)
-                ouvre désormais l'édition complète, comme le crayon. */}
+          <BlocTexte {...propsBlocTexte}>
+            {/* Le nom ne s'édite plus en ligne : toucher ce bloc — nom ou notes —
+                ouvre l'édition complète, comme la vignette à droite. */}
             <div style={{ color: C.ink }} className="font-semibold leading-tight">{act.name}</div>
             {/* Le numéro de la nuit s'affiche matin et soir. Arrivée/Départ ne
                 marquent que les deux bornes du séjour dans cet hébergement — le
@@ -1799,13 +1822,17 @@ function ActivityCard({ act, onEdit, onEditDuration, onGuide, startMin, endMin, 
               </div>
             )}
             {act.notes && <div style={{ color: C.inkSoft }} className="text-xs mt-1 clamp3">{act.notes}</div>}
-          </div>
+          </BlocTexte>
           {/* Lieu, itinéraire et guide, sur une seule ligne en bas à gauche.
               Sans libellé, l'intitulé passe par aria-label et title — c'est lui
               que lit une aide technique et que montre un appui prolongé. Le
               nombre varie selon l'étape : trois pour une activité située, deux
-              pour un hébergement, une seule (le crayon) pour une activité sans
-              lieu.
+              pour un hébergement.
+
+              La rangée ne s'affiche QUE si l'étape a un lieu : les trois icônes
+              en dépendent toutes. Sans cette condition, une activité sans lieu
+              rendait une rangée vide, dont la marge haute creusait un blanc au
+              bas de la carte.
 
               ALIGNÉES À GAUCHE, et groupées. Elles ont été réparties par
               space-evenly, du temps où elles étaient quatre dans une colonne
@@ -1820,7 +1847,7 @@ function ActivityCard({ act, onEdit, onEditDuration, onGuide, startMin, endMin, 
               et non le bord de sa zone tactile : un glyphe de 16 px centré dans
               une cible de 36 est en retrait de 10 px, d'où les -10 et non -4.
               L'écart entre glyphes vaut alors 24 px partout (10 + 4 + 10). */}
-          {(act.place || canEdit) && (
+          {act.place && (
             <div className="mt-2 -ml-2.5 flex items-center gap-1">
               {(() => {
                 // Sur un hébergement, l'épingle mène à son ADRESSE dès qu'elle est
@@ -1848,17 +1875,6 @@ function ActivityCard({ act, onEdit, onEditDuration, onGuide, startMin, endMin, 
                   </a>
                 );
               })()}
-              {/* Le crayon a disparu des cartes : la vignette d'une activité et
-                  l'icône d'un hébergement ouvrent déjà l'édition complète, et
-                  une seconde cible pour le même geste n'apportait rien.
-                  Il SURVIT dans un seul cas — une activité sans lieu, qui n'a
-                  donc pas de vignette : « Déjeuner » ou « Sieste » n'aurait
-                  sinon plus aucune façon d'être modifiée, ni supprimée. */}
-              {canEdit && !stay && !act.place && (
-                <button onClick={() => onEdit(act)} aria-label="Modifier l'activité" title="Modifier" className={ICON_BTN}>
-                  <Pencil size={16} style={{ color: C.inkSoft }} />
-                </button>
-              )}
               {/* Guide touristique, écrit par l'IA à la demande. Sur
                   une activité seulement : d'un hôtel il n'y a rien à visiter, et
                   le lieu doit être renseigné — le seul nom d'une étape

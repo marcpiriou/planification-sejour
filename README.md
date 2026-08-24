@@ -902,12 +902,25 @@ colonne qui en offrait 174 : la ligne serait passée au ras du bord sur un écra
 de 390 px. La vignette du lieu est donc ramenée de 112 à 96 px, ce qui porte la
 colonne à 190 px.
 
-**Le crayon a quitté les cartes.** La vignette d'une activité et l'icône d'un
-hébergement ouvrent déjà l'édition complète : une seconde cible pour le même
-geste n'apportait rien. Il survit dans **un seul cas** — une activité sans lieu,
-donc sans vignette : « Déjeuner » n'aurait sinon plus aucune façon d'être
-modifiée, ni supprimée. La rangée compte ainsi trois icônes pour une activité
-située, deux pour un hébergement, une pour une activité sans lieu.
+**Le crayon a quitté les cartes, définitivement.** Trois cibles y menaient au
+même écran : la vignette d'une activité, l'icône d'un hébergement, et lui. Une
+seule manquait pour qu'il devienne superflu — le **bloc de texte** lui-même, nom
+et notes comprises, qui ouvre désormais l'édition. C'est cela qui a permis de le
+retirer sans laisser d'étape orpheline : une activité SANS lieu n'a ni vignette
+ni icône de lit, et le crayon avait dû y survivre un temps faute d'autre porte
+d'entrée. La rangée compte donc trois icônes pour une activité située, deux pour
+un hébergement, aucune sans lieu.
+
+Le bloc change de balise plutôt que de dupliquer son contenu : `<button>` quand
+l'édition est permise, `<div>` en lecture seule — un bouton inerte s'annoncerait
+à tort comme touchable. Et pas de `active:scale-95` comme sur les pastilles :
+sur un bloc large, la mise à l'échelle décale visiblement le texte de ses
+voisins ; l'opacité donne le même retour sans rien déplacer.
+
+Conséquence à ne pas manquer : la rangée d'icônes n'est plus rendue que si
+l'étape a un lieu, ses trois icônes en dépendant toutes. Sans ce resserrement,
+une activité sans lieu produisait une rangée **vide** dont la marge haute creusait
+un blanc au bas de la carte.
 
 **Alignées à gauche, et groupées.** Elles ont été RÉPARTIES par `space-evenly`,
 du temps où elles étaient quatre dans une colonne saturée — 144 px de cibles pour
