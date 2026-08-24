@@ -837,6 +837,21 @@ grave ». Elle refuse aussi un résumé livré sans sections.
 Cette résolution **ne coûte rien** : la vignette de la timeline a déjà interrogé
 Google pour la même étape, et le cache de `fetchPlaceInfo` est partagé.
 
+**Le guide se clôt sur ses anecdotes.** Une dernière section, titrée
+« Anecdotes » : deux ou trois faits curieux et précis — un épisode du passé du
+lieu, un détail que le visiteur ne remarquerait pas seul. La consigne interdit le
+générique qui vaudrait pour n'importe quel lieu du même genre, et y redouble
+l'interdiction d'inventer : une anecdote se fabrique plus facilement qu'une
+description et se démasque moins vite, donc le modèle a l'autorisation explicite
+d'omettre la section plutôt que d'en inventer une.
+
+Le plafond de sections a dû monter de 4 à 5 **en même temps** que cette consigne.
+Le tri final coupe par la fin (`slice(0, SECTIONS_MAX)`) — c'est exactement la
+place des anecdotes : à plafond inchangé, la section demandée aurait été
+supprimée, et elle seule, dès que le modèle aurait rempli ses quatre entrées
+thématiques. D'où les deux constantes, `SECTIONS_THEME_MAX` pour la consigne et
+`SECTIONS_MAX = SECTIONS_THEME_MAX + 1` pour le garde-fou.
+
 **Ce que la consigne interdit au modèle : ne rien inventer.** Un lieu qu'il ne
 connaît pas doit ressortir *vide* — l'écran affiche alors « Rien à en dire »
 plutôt qu'un guide plausible et faux, qui est le pire résultat possible pour

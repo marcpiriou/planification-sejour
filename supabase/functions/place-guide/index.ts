@@ -40,12 +40,17 @@ function json(obj: unknown, status = 200): Response {
 }
 
 // Garde-fous : un nom d'étape et de quoi situer le lieu, pas un récit. Quatre
-// sections tiennent dans un écran de téléphone sans qu'on ait à faire défiler
-// trois fois pour atteindre la fin.
+// sections thématiques tiennent dans un écran de téléphone sans qu'on ait à
+// faire défiler trois fois pour atteindre la fin.
 const NOM_MAX = 120;
 const LIEU_MAX = 200;
 const ADRESSE_MAX = 300;
-const SECTIONS_MAX = 4;
+const SECTIONS_THEME_MAX = 4;
+// Le plafond réel en compte une de plus : les anecdotes, qui closent le guide.
+// Il DOIT les inclure — le tri final coupe par la fin, si bien qu'un plafond à
+// quatre aurait supprimé la section d'anecdotes, et elle seule, dès que le
+// modèle aurait rempli ses quatre entrées thématiques.
+const SECTIONS_MAX = SECTIONS_THEME_MAX + 1;
 const RESUME_MAX = 600;
 const TITRE_MAX = 40;
 const TEXTE_MAX = 700;
@@ -63,7 +68,8 @@ L'adresse et les coordonnées qu'on te donne désignent UN lieu précis, et elle
 
 Règles :
 - « resume » : deux à trois phrases qui situent le lieu et disent ce qu'on vient y voir ou y faire.
-- « sections » : deux à ${SECTIONS_MAX} entrées, chacune avec un « titre » de un à trois mots et un « texte » de deux à quatre phrases. Choisis les angles qui valent pour CE lieu — son histoire, ce qu'on y voit, la visite en pratique, les environs, le quartier où il se trouve — plutôt qu'une grille appliquée à tous.
+- « sections » : deux à ${SECTIONS_THEME_MAX} entrées, chacune avec un « titre » de un à trois mots et un « texte » de deux à quatre phrases. Choisis les angles qui valent pour CE lieu — son histoire, ce qu'on y voit, la visite en pratique, les environs, le quartier où il se trouve — plutôt qu'une grille appliquée à tous.
+- TERMINE par une entrée de plus, titrée « Anecdotes », après toutes les autres : deux ou trois faits curieux et précis sur ce lieu — un épisode de son passé, une histoire attachée à ses murs, un détail que le visiteur ne remarquerait pas de lui-même. Rien de générique qui vaudrait pour n'importe quel lieu du même genre. La règle de n'inventer rien vaut ici doublement : une anecdote s'invente plus facilement qu'une description, et se démasque moins vite. Si tu n'en connais aucune dont tu sois sûr pour CE lieu précis, omets cette entrée plutôt que d'en fabriquer une.
 - Dès lors que tu identifies le lieu, écris le guide ENTIER : un résumé suivi de ses sections. Un résumé seul, sans aucune section, n'est pas une réponse acceptable.
 - Français, ton factuel et concret. Pas de superlatif publicitaire, pas de « incontournable », pas d'injonction au lecteur.
 - N'invente rien. Si tu n'identifies pas ce lieu précis, renvoie « resume » vide et « sections » vide : ne rien dire vaut mieux qu'un guide plausible et faux. Ce vide ne vaut QUE pour un lieu que tu ne reconnais pas — pas pour un lieu modeste, dont le quartier et les environs se décrivent très bien.
