@@ -65,6 +65,23 @@ const TEXTE_MAX = 1000;
 const coordOk = (v: unknown, max: number): v is number =>
   typeof v === "number" && Number.isFinite(v) && Math.abs(v) <= max;
 
+// La section que la consigne réclame en dernier, reconnue à son titre.
+const TITRE_ANECDOTES = "anecdotes";
+
+// Une anecdote par ligne, chacune ouverte par LA MÊME puce. C'est le serveur qui
+// la pose, et non le modèle : livré à lui-même, celui-ci en met tantôt un tiret,
+// tantôt une étoile, tantôt rien — et le lecteur verrait alors trois anecdotes
+// ponctuées de trois façons. On retire donc d'abord la marque qu'il aurait
+// posée, sans quoi elle doublerait la nôtre.
+function enPuces(texte: string): string {
+  return texte
+    .split("\n")
+    .map((l) => l.trim().replace(/^\s*(?:[-*•·–—]|\d+[.)])\s*/, "").trim())
+    .filter(Boolean)
+    .map((l) => `• ${l}`)
+    .join("\n");
+}
+
 const CONSIGNE =
   `Tu écris le guide touristique d'un lieu pour un voyageur qui s'y rend.
 
@@ -75,6 +92,7 @@ Règles :
 - « resume » : deux à trois phrases qui situent le lieu et disent ce qu'on vient y voir ou y faire.
 - « sections » : deux à ${SECTIONS_THEME_MAX} entrées, chacune avec un « titre » de un à trois mots et un « texte » de deux à quatre phrases. Choisis les angles qui valent pour CE lieu — son histoire, ce qu'on y voit, la visite en pratique, les environs, le quartier où il se trouve — plutôt qu'une grille appliquée à tous.
 - TERMINE par une entrée de plus, titrée « Anecdotes », après toutes les autres : VISE TROIS faits curieux et précis sur ce lieu, d'une ou deux phrases chacun — un épisode de son passé, une histoire attachée à ses murs, un détail que le visiteur ne remarquerait pas de lui-même. Rien de générique qui vaudrait pour n'importe quel lieu du même genre.
+- Dans cette entrée, écris UNE ANECDOTE PAR LIGNE, séparées par un retour à la ligne. N'ouvre aucune ligne par une puce, un tiret ou un numéro : l'application pose la puce elle-même. Une seule ligne portant les trois anecdotes à la suite les afficherait comme un bloc, et non comme trois.
 - Ces anecdotes doivent être VRAIES, et cela primera toujours sur leur nombre : ne complète JAMAIS jusqu'à trois pour atteindre le compte. Si tu n'en tiens que deux pour sûres, n'en donne que deux ; une seule, n'en donne qu'une ; aucune, omets l'entrée entière. Une anecdote s'invente plus facilement qu'une description et se démasque moins vite : trois dont une inventée valent moins que deux vraies.
 - Dès lors que tu identifies le lieu, écris le guide ENTIER : un résumé suivi de ses sections. Un résumé seul, sans aucune section, n'est pas une réponse acceptable.
 - Français, ton factuel et concret. Pas de superlatif publicitaire, pas de « incontournable », pas d'injonction au lecteur.
@@ -156,7 +174,11 @@ Deno.serve(async (req: Request) => {
       .map((s) => {
         const o = s as Record<string, unknown>;
         const titre = typeof o?.titre === "string" ? o.titre.trim().slice(0, TITRE_MAX) : "";
-        const texte = typeof o?.texte === "string" ? o.texte.trim().slice(0, TEXTE_MAX) : "";
+        const recu = typeof o?.texte === "string" ? o.texte.trim() : "";
+        // La puce est posée AVANT le tronquage : l'inverse pourrait couper une
+        // ligne juste après sa puce, et laisser une puce vide en dernier.
+        const pose = titre.toLowerCase() === TITRE_ANECDOTES ? enPuces(recu) : recu;
+        const texte = pose.slice(0, TEXTE_MAX);
         return titre && texte ? { titre, texte } : null;
       })
       .filter((s): s is { titre: string; texte: string } => s !== null)

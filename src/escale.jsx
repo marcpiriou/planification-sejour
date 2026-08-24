@@ -2921,6 +2921,13 @@ function repereLieu(etape) {
 }
 
 /* --- Guide du lieu : le texte écrit par l'IA -------------------- */
+// La puce que la fonction place-guide pose devant chaque anecdote, et le retrait
+// qui aligne les lignes suivantes sur le texte plutôt que sous elle. En « em »
+// pour suivre la taille du texte : à valeur fixe, un lecteur qui grossit la
+// police verrait le retrait se décrocher de la puce.
+const PUCE = "• ";
+const RETRAIT_PUCE = "1.05em";
+
 // Ouverte par l'icône « i » d'une étape. Un écran plein, et non une fenêtre :
 // un guide fait plusieurs paragraphes, qu'une modale obligerait à lire par
 // une meurtrière.
@@ -3001,12 +3008,37 @@ function GuideSheet({ act, onClose }) {
               {(etat.resume || "").trim() && (
                 <div style={{ color: C.ink }} className="text-sm leading-relaxed">{etat.resume}</div>
               )}
-              {sections.map((s, i) => (
-                <div key={i} className="mt-4">
-                  <div style={{ color: C.teal }} className="t11 uppercase tracking-wider font-semibold">{s.titre}</div>
-                  <div style={{ color: C.ink }} className="text-sm leading-relaxed mt-1">{s.texte}</div>
-                </div>
-              ))}
+              {/* Deux mises en forme, selon ce que la fonction a renvoyé.
+                  Les anecdotes arrivent à raison d'une par ligne, ouverte par
+                  une puce : chacune prend son propre bloc, avec un RETRAIT
+                  PENDANT — ses lignes suivantes s'alignent sur le texte, non
+                  sous la puce, seule façon de voir où une anecdote finit et où
+                  la suivante commence. Il fallait des blocs distincts pour
+                  l'obtenir : text-indent ne mord que sur la première ligne d'un
+                  bloc, et un simple whitespace-pre-line, dont les « \n » ne
+                  créent pas de bloc, l'aurait laissé sans effet sur les autres.
+                  Le reste — les sections thématiques, de la prose — garde son
+                  paragraphe unique, où pre-line respecte les retours s'il en
+                  vient. */}
+              {sections.map((s, i) => {
+                const lignes = (s.texte || "").split("\n");
+                const enPuces = lignes.length > 1 && lignes.every((l) => l.startsWith(PUCE));
+                return (
+                  <div key={i} className="mt-4">
+                    <div style={{ color: C.teal }} className="t11 uppercase tracking-wider font-semibold">{s.titre}</div>
+                    {enPuces ? (
+                      <div className="mt-1 space-y-1.5">
+                        {lignes.map((l, j) => (
+                          <div key={j} style={{ color: C.ink, paddingLeft: RETRAIT_PUCE, textIndent: `-${RETRAIT_PUCE}` }}
+                            className="text-sm leading-relaxed">{l}</div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div style={{ color: C.ink }} className="text-sm leading-relaxed mt-1 whitespace-pre-line">{s.texte}</div>
+                    )}
+                  </div>
+                );
+              })}
               {/* Dit d'où vient le texte. Un guide écrit par un modèle se lit
                   autrement qu'une fiche d'office de tourisme : il peut se
                   tromper, et le lecteur doit le savoir sans avoir à le deviner. */}
