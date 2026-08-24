@@ -53,7 +53,12 @@ const SECTIONS_THEME_MAX = 4;
 const SECTIONS_MAX = SECTIONS_THEME_MAX + 1;
 const RESUME_MAX = 600;
 const TITRE_MAX = 40;
-const TEXTE_MAX = 700;
+// Une section thématique de deux à quatre phrases tient largement là-dedans.
+// C'est l'entrée d'anecdotes qui fixe le plafond : elle en porte TROIS dans un
+// seul « texte », et trois anecdotes de deux phrases mesurent ~610 caractères.
+// À 700, il ne restait que 88 de marge — un modèle un peu plus disert se faisait
+// couper en pleine phrase, la coupe étant franche et sans ellipse.
+const TEXTE_MAX = 1000;
 
 // Une coordonnée hors de ces bornes n'est pas une position : on l'écarte plutôt
 // que de l'écrire dans le prompt.
@@ -69,7 +74,8 @@ L'adresse et les coordonnées qu'on te donne désignent UN lieu précis, et elle
 Règles :
 - « resume » : deux à trois phrases qui situent le lieu et disent ce qu'on vient y voir ou y faire.
 - « sections » : deux à ${SECTIONS_THEME_MAX} entrées, chacune avec un « titre » de un à trois mots et un « texte » de deux à quatre phrases. Choisis les angles qui valent pour CE lieu — son histoire, ce qu'on y voit, la visite en pratique, les environs, le quartier où il se trouve — plutôt qu'une grille appliquée à tous.
-- TERMINE par une entrée de plus, titrée « Anecdotes », après toutes les autres : deux ou trois faits curieux et précis sur ce lieu — un épisode de son passé, une histoire attachée à ses murs, un détail que le visiteur ne remarquerait pas de lui-même. Rien de générique qui vaudrait pour n'importe quel lieu du même genre. La règle de n'inventer rien vaut ici doublement : une anecdote s'invente plus facilement qu'une description, et se démasque moins vite. Si tu n'en connais aucune dont tu sois sûr pour CE lieu précis, omets cette entrée plutôt que d'en fabriquer une.
+- TERMINE par une entrée de plus, titrée « Anecdotes », après toutes les autres : VISE TROIS faits curieux et précis sur ce lieu, d'une ou deux phrases chacun — un épisode de son passé, une histoire attachée à ses murs, un détail que le visiteur ne remarquerait pas de lui-même. Rien de générique qui vaudrait pour n'importe quel lieu du même genre.
+- Ces anecdotes doivent être VRAIES, et cela primera toujours sur leur nombre : ne complète JAMAIS jusqu'à trois pour atteindre le compte. Si tu n'en tiens que deux pour sûres, n'en donne que deux ; une seule, n'en donne qu'une ; aucune, omets l'entrée entière. Une anecdote s'invente plus facilement qu'une description et se démasque moins vite : trois dont une inventée valent moins que deux vraies.
 - Dès lors que tu identifies le lieu, écris le guide ENTIER : un résumé suivi de ses sections. Un résumé seul, sans aucune section, n'est pas une réponse acceptable.
 - Français, ton factuel et concret. Pas de superlatif publicitaire, pas de « incontournable », pas d'injonction au lecteur.
 - N'invente rien. Si tu n'identifies pas ce lieu précis, renvoie « resume » vide et « sections » vide : ne rien dire vaut mieux qu'un guide plausible et faux. Ce vide ne vaut QUE pour un lieu que tu ne reconnais pas — pas pour un lieu modeste, dont le quartier et les environs se décrivent très bien.

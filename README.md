@@ -838,12 +838,23 @@ Cette résolution **ne coûte rien** : la vignette de la timeline a déjà inter
 Google pour la même étape, et le cache de `fetchPlaceInfo` est partagé.
 
 **Le guide se clôt sur ses anecdotes.** Une dernière section, titrée
-« Anecdotes » : deux ou trois faits curieux et précis — un épisode du passé du
-lieu, un détail que le visiteur ne remarquerait pas seul. La consigne interdit le
-générique qui vaudrait pour n'importe quel lieu du même genre, et y redouble
-l'interdiction d'inventer : une anecdote se fabrique plus facilement qu'une
-description et se démasque moins vite, donc le modèle a l'autorisation explicite
-d'omettre la section plutôt que d'en inventer une.
+« Anecdotes », qui en **vise trois** — un épisode du passé du lieu, un détail que
+le visiteur ne remarquerait pas seul. La consigne interdit le générique qui
+vaudrait pour n'importe quel lieu du même genre, et y redouble l'interdiction
+d'inventer : une anecdote se fabrique plus facilement qu'une description et se
+démasque moins vite.
+
+Surtout, **la vérité primera sur le nombre**, et le repli est écrit pas à pas
+plutôt que laissé à l'interprétation : trois si trois sont sûres, sinon deux,
+sinon une, sinon la section entière est omise. « Ne complète JAMAIS jusqu'à trois
+pour atteindre le compte » — un objectif chiffré, sans cette clause, est une
+invitation à combler le manque. « Trois dont une inventée valent moins que deux
+vraies » lui en donne la raison.
+
+Le plafond de longueur d'un texte a suivi, de 700 à 1000 caractères. C'est cette
+seule section qui le fixe : elle porte ses trois anecdotes dans **un seul** champ,
+et trois anecdotes de deux phrases mesurent ~610 caractères — à 700 il ne restait
+que 88 de marge, or la coupe est franche et sans ellipse.
 
 Le plafond de sections a dû monter de 4 à 5 **en même temps** que cette consigne.
 Le tri final coupe par la fin (`slice(0, SECTIONS_MAX)`) — c'est exactement la
