@@ -807,6 +807,29 @@ Trois pièges, et ce qui les évite :
   le saut programmé, et l'écouteur l'ignore. Les fermetures simultanées sont
   regroupées en un seul `go(-n)` — un `back()` par couche risquait d'être fusionné.
 
+### L'épingle : même dessin, même geste, partout
+Ouvrir un lieu dans Google Maps se fait à deux endroits — la rangée d'une étape
+sur la timeline, et le champ **Lieu** de son formulaire. Le second portait une
+flèche « lien externe », qui nommait le moyen (on sort de l'application) plutôt
+que la destination. C'est **la même épingle** aux deux endroits désormais.
+
+**Trois façons d'être situé, une seule épingle.** Le champ Lieu accepte un lien
+Maps, une adresse ou des coordonnées — mais l'icône ne s'affichait que sur un
+lien. `lieuSaisiUrl` traite les trois : le lien s'ouvre tel quel, l'adresse et
+les coordonnées passent par une recherche Maps.
+
+**Le trou côté timeline.** `placeDirectUrl` ne rend une URL que d'un lien collé ;
+d'un lieu connu par ses **seules coordonnées**, il rend `null`. Or c'est le cas
+courant d'un hébergement, dont on saisit volontiers le point GPS : la carte
+restait sans épingle alors que Google savait parfaitement l'ouvrir.
+`placeOuvrableUrl` ajoute donc le repli — lien, puis adresse, puis coordonnées.
+Une étape qu'aucun des trois ne situe n'a toujours pas d'épingle, et c'est juste :
+il n'y aurait rien à ouvrir.
+
+L'ordre reste inversé sur un hébergement, où l'**adresse passe devant le lien** :
+un lien de réservation ne montre qu'un quartier, l'adresse de l'hôte mène à la
+porte.
+
 ### Le « + » de fin de journée
 Les « + » qui intercalent une étape vivent dans `TravelLeg`, lequel n'est rendu
 **qu'entre** deux étapes. Après la dernière il n'y a pas de trajet, donc il n'y

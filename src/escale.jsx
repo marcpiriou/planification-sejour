@@ -3,7 +3,7 @@ import {
   Landmark, UtensilsCrossed, Coffee, Waves, ShoppingBag, BedDouble,
   TrainFront, Sparkles, MapPin, Footprints, Car, Clock, Plus,
   ChevronLeft, Trash2, Pencil, Navigation, Calendar, X, AlertTriangle, Info,
-  Check, ExternalLink, MoreVertical, Route, Mail, LogOut,
+  Check, MoreVertical, Route, Mail, LogOut,
   Users, Share2, UserPlus, User, Home as HomeIcon, Building2, ClipboardPaste, Copy,
   ListChecks, ChevronRight, ChevronDown, Search, Loader2, Archive, ArchiveRestore,
   // Alias obligatoire : « Map » masquerait le constructeur Map de JavaScript,
@@ -441,6 +441,33 @@ const placeDirectUrl = (p) => {
   if (p.url && isUrl(p.url)) return p.url.trim();
   if (p.lat == null && isUrl(p.name)) return p.name.trim();
   return null;
+};
+
+// Ce que l'épingle d'une étape doit ouvrir. placeDirectUrl seul ne rendait rien
+// d'un lieu connu par ses SEULES coordonnées — le cas courant d'un hébergement,
+// dont on saisit le point GPS plutôt qu'un lien : l'étape restait sans épingle
+// alors que Google savait parfaitement l'ouvrir. Les coordonnées ferment donc la
+// marche, après le lien et l'adresse.
+const placeOuvrableUrl = (p) => {
+  if (!p) return null;
+  const direct = placeDirectUrl(p);
+  if (direct) return direct;
+  const adresse = typeof p.address === "string" ? p.address.trim() : "";
+  if (adresse) return adresseUrl(adresse);
+  if (p.lat != null && p.lng != null) return mapsPlaceUrl(p);
+  return null;
+};
+
+// Même chose depuis la SAISIE brute du champ Lieu, qui n'est pas encore un lieu
+// résolu : un lien s'ouvre tel quel, des coordonnées et une adresse passent par
+// une recherche. Sans ce repli, le champ n'offrait son icône que sur un lien —
+// une adresse ou des coordonnées, tout aussi ouvrables, n'en avaient aucune.
+const lieuSaisiUrl = (raw) => {
+  const v = (raw || "").trim();
+  if (!v) return "";
+  if (isUrl(v)) return v;
+  const c = parseCoords(v);
+  return c ? mapsPlaceUrl(c) : adresseUrl(v);
 };
 
 /* ------------------------------------------------------------------ */
@@ -1852,9 +1879,12 @@ function ActivityCard({ act, onEdit, onEditDuration, onGuide, startMin, endMin, 
               {(() => {
                 // Sur un hébergement, l'épingle mène à son ADRESSE dès qu'elle est
                 // renseignée : un lien de réservation ne montre qu'un quartier,
-                // l'adresse de l'hôte mène à la porte.
+                // l'adresse de l'hôte mène à la porte. À défaut d'adresse,
+                // placeOuvrableUrl suit le lien, puis les coordonnées — sans ce
+                // dernier repli, un hébergement situé au seul point GPS restait
+                // sans épingle.
                 const adresse = stay && act.place && typeof act.place.address === "string" ? act.place.address.trim() : "";
-                const url = adresse ? adresseUrl(adresse) : placeDirectUrl(act.place);
+                const url = adresse ? adresseUrl(adresse) : placeOuvrableUrl(act.place);
                 if (!act.place || !url) return null;
                 return (
                   <a href={url} target="_blank" rel="noopener noreferrer"
@@ -3963,7 +3993,10 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
   const [pasteError, setPasteError] = useState("");
   // Le champ Lieu porte un lien dès qu'il commence par http : c'est lui que le
   // bouton « Ouvrir » lance, et il n'a rien à ouvrir sur des coordonnées.
-  const lienLieu = isUrl((draft.placeRaw || "").trim()) ? draft.placeRaw.trim() : "";
+  // Ce que l'épingle du champ Lieu ouvrira. Elle ne s'affichait que sur un lien
+  // collé ; les coordonnées et l'adresse, pourtant tout aussi ouvrables dans
+  // Google Maps, n'y donnaient droit à rien.
+  const lienLieu = lieuSaisiUrl(draft.placeRaw);
   const copierLieu = async () => {
     const v = (draft.placeRaw || "").trim();
     if (!v) { setPasteError("Aucun lieu à copier."); return; }
@@ -4102,12 +4135,16 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
                 // ayant été retirée : les trois formes y tiennent.
                 placeholder="Lien maps, adresse, gps"
                 style={inputStyle} className="flex-1 min-w-0 rounded-xl px-3 py-2.5 outline-none text-sm" />
+              {/* L'ÉPINGLE, comme sur la timeline : c'est le même geste — ouvrir
+                  ce lieu dans Google Maps — et il doit donc porter le même
+                  dessin. Une flèche « lien externe » y figurait, qui disait le
+                  moyen (on sort de l'application) plutôt que la destination. */}
               {lienLieu && (
                 <a href={lienLieu} target="_blank" rel="noopener noreferrer"
-                  aria-label="Ouvrir le lien du lieu" title="Ouvrir"
+                  aria-label="Ouvrir ce lieu dans Google Maps" title="Ouvrir dans Google Maps"
                   style={{ border: `1px solid ${C.line}`, background: "#fff", color: C.teal }}
                   className="shrink-0 w-11 rounded-xl flex items-center justify-center active:scale-95 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300">
-                  <ExternalLink size={18} />
+                  <MapPin size={18} />
                 </a>
               )}
               <button type="button" onClick={pasteFromClipboard} aria-label="Coller depuis le presse-papier" title="Coller"
