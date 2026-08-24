@@ -807,6 +807,33 @@ Trois pièges, et ce qui les évite :
   le saut programmé, et l'écouteur l'ignore. Les fermetures simultanées sont
   regroupées en un seul `go(-n)` — un `back()` par couche risquait d'être fusionné.
 
+### L'heure d'arrivée d'un hébergement, sur une seule ligne
+Le bloc coûtait **134 px** pour une information qui se dit en « Heure fixe ·
+17:28 » : le libellé, deux boutons étirés sur toute la largeur, puis les cases
+« Heure » et « Minute » avec leurs légendes, empilées dessous. Sur un formulaire
+d'hébergement déjà long, c'était le poste le plus cher de l'écran.
+
+Il en fait **56** — mesuré avant et après, en remettant la version précédente le
+temps de la relever. Trois changements : les boutons perdent leur `flex-1` et ne
+prennent plus que la largeur de leur texte ; les cases se resserrent à 48 px et
+passent **à droite des boutons**, sur la même ligne ; et les légendes cèdent la
+place à un **deux-points**, qui dit la même chose sans coûter une ligne.
+
+`TimeFields` gagne donc une forme `compact`, la logique d'émission et de bornage
+restant partagée : elles sont trop faciles à faire diverger pour être écrites
+deux fois. Le champ y est rendu par une **fonction**, et non par un composant
+local — celui-ci serait remonté à chaque rendu et perdrait le focus sous les
+doigts de l'utilisateur.
+
+Un détail qui ne se voit que sur écran large : à 48 px, les flèches d'un
+`input[type=number]` prendraient le tiers du champ. La classe `sansfleches` les
+retire — et il fallait une règle CSS, ces pseudo-éléments ne s'atteignant pas en
+style inline. Sur mobile, où le clavier numérique fait le travail, elles
+n'apparaissaient de toute façon pas.
+
+L'heure de **départ le matin** garde sa forme large : sans boutons Auto/fixe à
+loger, sa ligne n'était pas encombrée.
+
 ### L'épingle : même dessin, même geste, partout
 Ouvrir un lieu dans Google Maps se fait à deux endroits — la rangée d'une étape
 sur la timeline, et le champ **Lieu** de son formulaire. Le second portait une

@@ -4250,21 +4250,29 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
 
           {/* heure d'arrivée le soir — propre au seul soir ouvert. Absente pour
               le point de départ/retour : « Départ »/« Retour » y suffit, pas
-              d'heure d'arrivée à régler. */}
+              d'heure d'arrivée à régler.
+
+              TOUT SUR UNE LIGNE : les deux choix, puis l'heure à leur droite
+              quand elle est fixe. Empilés, et les boutons étirés sur toute la
+              largeur, ils occupaient trois hauteurs de champ — le libellé, la
+              paire de boutons, puis « Heure »/« Minute » et leurs cases — pour
+              une information qui tient en « Heure fixe · 17:28 ». Les boutons
+              perdent leur flex-1 : à contenu, ils ne prennent plus que la
+              largeur de leur texte, et l'heure se pose au bout de la ligne. */}
           {stay && !base && (
             <Field label="Heure d'arrivée le soir">
-              <div className="flex gap-2">
+              <div className="flex items-center gap-2">
                 <button type="button" onClick={() => upd("arriveTime", AUTO)}
                   style={{ background: arriveeAuto ? C.teal : "#fff", color: arriveeAuto ? "#fff" : C.ink, border: `1px solid ${arriveeAuto ? C.teal : C.line}` }}
-                  className="flex-1 rounded-xl py-2 text-sm active:scale-95 transition">Auto</button>
+                  className="shrink-0 rounded-xl px-3 py-1.5 text-sm active:scale-95 transition">Auto</button>
                 <button type="button" onClick={() => { if (arriveeAuto) upd("arriveTime", arriveeSuggeree); }}
                   style={{ background: !arriveeAuto ? C.teal : "#fff", color: !arriveeAuto ? "#fff" : C.ink, border: `1px solid ${!arriveeAuto ? C.teal : C.line}` }}
-                  className="flex-1 rounded-xl py-2 text-sm active:scale-95 transition">Heure fixe</button>
+                  className="shrink-0 rounded-xl px-3 py-1.5 text-sm active:scale-95 transition">Heure fixe</button>
+                {!arriveeAuto && (
+                  <TimeFields value={draft.arriveTime} defaut={arriveeSuggeree}
+                    onChange={(v) => upd("arriveTime", v)} compact className="ml-auto" />
+                )}
               </div>
-              {!arriveeAuto && (
-                <TimeFields value={draft.arriveTime} defaut={arriveeSuggeree}
-                  onChange={(v) => upd("arriveTime", v)} className="mt-2" />
-              )}
             </Field>
           )}
 
@@ -4387,7 +4395,7 @@ const inputStyle = { background: "#fff", border: `1px solid ${C.line}`, color: C
 const deuxChiffres = (n) => String(n).padStart(2, "0");
 const borne = (v, max) => Math.min(max, Math.max(0, parseInt(v, 10) || 0));
 
-function TimeFields({ value, defaut = "09:00", onChange, className = "" }) {
+function TimeFields({ value, defaut = "09:00", onChange, className = "", compact = false }) {
   const affiche = isAutoTime(value) || !value ? defaut : value;
   const [h, setH] = useState(affiche.split(":")[0]);
   const [m, setM] = useState(affiche.split(":")[1]);
@@ -4406,21 +4414,44 @@ function TimeFields({ value, defaut = "09:00", onChange, className = "" }) {
     onChange(s);
   };
   const champ = { ...inputStyle, fontFamily: MONO };
+  // Un seul rendu de champ pour les deux formes : la normalisation à la sortie
+  // et le bornage sont trop faciles à faire diverger pour être écrits deux fois.
+  // Une fonction, et non un composant local : celui-ci serait remonté à chaque
+  // rendu et perdrait le focus sous les doigts de l'utilisateur.
+  const champHeure = (val, set, max, onEmet, libelle) => (
+    <input type="number" inputMode="numeric" min="0" max={String(max)} value={val}
+      aria-label={libelle}
+      onChange={(e) => { set(e.target.value); onEmet(e.target.value); }}
+      onBlur={() => set(deuxChiffres(borne(val, max)))}
+      style={champ}
+      className={compact
+        ? "sansfleches w-12 rounded-xl px-1 py-1.5 text-center text-sm outline-none"
+        : "w-full rounded-xl px-3 py-2.5 outline-none"} />
+  );
+  const heures = champHeure(h, setH, 23, (v) => emet(v, m), "Heure");
+  const minutes = champHeure(m, setM, 59, (v) => emet(h, v), "Minute");
+
+  // Forme resserrée : « 17 : 28 », sans libellé au-dessus. Les deux-points
+  // disent ce qu'un « Heure »/« Minute » disait en prenant une ligne de plus, et
+  // laissent le tout tenir sur la même ligne que les boutons Auto/Heure fixe.
+  if (compact) {
+    return (
+      <div className={`flex items-center gap-1 ${className}`}>
+        {heures}
+        <span style={{ color: C.inkSoft, fontFamily: MONO }} className="text-sm">:</span>
+        {minutes}
+      </div>
+    );
+  }
   return (
     <div className={`flex items-end gap-2 ${className}`}>
       <label className="flex-1">
         <div style={{ color: C.inkSoft }} className="text-xs mb-1">Heure</div>
-        <input type="number" inputMode="numeric" min="0" max="23" value={h}
-          onChange={(e) => { setH(e.target.value); emet(e.target.value, m); }}
-          onBlur={() => setH(deuxChiffres(borne(h, 23)))}
-          style={champ} className="w-full rounded-xl px-3 py-2.5 outline-none" />
+        {heures}
       </label>
       <label className="flex-1">
         <div style={{ color: C.inkSoft }} className="text-xs mb-1">Minute</div>
-        <input type="number" inputMode="numeric" min="0" max="59" value={m}
-          onChange={(e) => { setM(e.target.value); emet(h, e.target.value); }}
-          onBlur={() => setM(deuxChiffres(borne(m, 59)))}
-          style={champ} className="w-full rounded-xl px-3 py-2.5 outline-none" />
+        {minutes}
       </label>
     </div>
   );
@@ -5689,6 +5720,14 @@ function FontInject() {
     .noscrollbar::-webkit-scrollbar{display:none;width:0;height:0}
     /* Notes tronquées à trois lignes, les points de suspension venant du clamp
        lui-même. Au-delà, la carte volerait la place de la timeline. */
-    .clamp3{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}`}</style>
+    .clamp3{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+    /* Champ d'heure resserré : les flèches d'un input[type=number] prendraient
+       le tiers d'un champ de 48 px. Invisibles sur mobile, où le clavier
+       numérique fait le travail, elles n'ont rien à y faire sur écran large non
+       plus. Une règle CSS est obligatoire : ces pseudo-éléments ne s'atteignent
+       pas en style inline. */
+    .sansfleches{-moz-appearance:textfield;appearance:textfield}
+    .sansfleches::-webkit-outer-spin-button,
+    .sansfleches::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}`}</style>
   );
 }
