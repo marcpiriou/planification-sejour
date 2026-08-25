@@ -829,6 +829,33 @@ crayon n'a pas lieu d'être — l'aurait laissé remonter tout en haut.
 Le partage reste offert **à tous**, propriétaire ou non, comme il l'était sur la
 timeline : l'un y gère les accès, l'autre y trouve de quoi quitter le séjour.
 
+### Août 2026 : le modèle Gemini coupé, et un message trompeur
+L'écran affichait « Gemini a refusé la demande » suivi d'un 404 sur
+`gemini-2.5-flash`. Les **journaux de la fonction** ont montré que ce n'était pas
+une panne mais **deux**, et que le message remonté désignait la moins pertinente :
+
+| Modèle | Rôle | Réponse de Google |
+|---|---|---|
+| `gemini-3.5-flash` | principal | **503** « experiencing high demand » — il existe, il était saturé |
+| `gemini-2.5-flash` | repli | **404** « no longer available to new users… use `models/gemini-3.6-flash` » |
+
+La boucle ne rapporte que le **dernier** échec. Le 404 du repli écrasait donc le
+503 du principal, et le lecteur voyait « modèle supprimé » là où « réessayez »
+était la bonne conduite.
+
+La liste devient `["gemini-3.6-flash", "gemini-3.5-flash"]`. Le 3.6 prend la tête
+parce que Google le nomme lui-même dans son 404 — c'est l'API qui le dit, pour la
+clé de ce projet, et non une supposition. Le 3.5 reste en repli : son 503 prouve
+qu'il répond encore. Le 2.5 est **retiré** et non relégué : mort pour ce projet,
+il ne coûtait pas qu'un aller-retour inutile, il faussait aussi le diagnostic.
+
+Le module `_shared/gemini.ts` est recopié dans chaque bundle : les **trois**
+fonctions qui l'importent — `place-guide`, `suggestions`, `place-reviews` — ont
+dû être redéployées. En oublier une l'aurait laissée sur l'ancienne liste.
+
+Les journaux ont aussi confirmé, au passage, que le secret `GEMINI_MODEL` n'est
+pas posé : les modèles essayés étaient exactement ceux de `MODELES_DEFAUT`.
+
 ### Un jour passé sélectionné : la police se grise
 Le bandeau des jours grisait déjà un jour révolu — fond pâle, texte `inkSoft`,
 opacité 0,55 — mais SEULEMENT tant qu'il n'était pas sélectionné. Le choisir lui

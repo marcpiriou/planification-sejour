@@ -1,5 +1,5 @@
 // Appel à l'API Gemini, partagé par les fonctions qui s'en servent
-// (`suggestions`, `place-reviews`).
+// (`suggestions`, `place-reviews`, `place-guide`).
 //
 // La clé vit dans le secret Supabase GEMINI_API_KEY, jamais dans le dépôt ni
 // dans le bundle. Depuis 2026 c'est une « auth key » liée à un compte de
@@ -13,7 +13,20 @@
 // service. Un second nom en repli transforme cette coupure en simple perte de
 // qualité au lieu d'une panne. Le secret GEMINI_MODEL, lui, est un choix
 // explicite : on ne lui cherche pas de remplaçant.
-export const MODELES_DEFAUT = ["gemini-3.5-flash", "gemini-2.5-flash"];
+//
+// Août 2026 : les journaux de la fonction ont montré DEUX pannes distinctes, et
+// non une seule. `gemini-2.5-flash`, le repli, rendait un 404 « no longer
+// available to new users. Please update your code to use models/gemini-3.6-flash »
+// — Google y nomme lui-même son remplaçant, qui prend donc la tête. Et
+// `gemini-3.5-flash` rendait un 503 « experiencing high demand » : celui-là
+// EXISTE toujours, il était seulement saturé, d'où sa place de repli.
+//
+// Le 2.5 est retiré plutôt que relégué au bout : mort pour ce projet, il ne
+// coûtait pas qu'un aller-retour inutile. Son 404 écrasait, dans le message
+// remonté à l'écran, le 503 pourtant plus juste du modèle principal — le
+// lecteur voyait « modèle supprimé » là où « réessayez » était la bonne
+// conduite, puisque seul le dernier échec de la boucle est rapporté.
+export const MODELES_DEFAUT = ["gemini-3.6-flash", "gemini-3.5-flash"];
 
 // Statuts qui décrivent l'état du modèle, non la demande : un autre modèle a de
 // vraies chances de répondre.
