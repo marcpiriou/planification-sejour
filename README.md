@@ -829,6 +829,22 @@ crayon n'a pas lieu d'être — l'aurait laissé remonter tout en haut.
 Le partage reste offert **à tous**, propriétaire ou non, comme il l'était sur la
 timeline : l'un y gère les accès, l'autre y trouve de quoi quitter le séjour.
 
+### Un jour passé sélectionné : la police se grise
+Le bandeau des jours grisait déjà un jour révolu — fond pâle, texte `inkSoft`,
+opacité 0,55 — mais SEULEMENT tant qu'il n'était pas sélectionné. Le choisir lui
+rendait un blanc pur sur fond teal plein, identique à un jour futur actif : rien
+ne distinguait plus visuellement qu'on regardait le passé.
+
+Le fond plein reste voulu — il signale où l'on se trouve dans la bande, et le
+retirer aurait fait perdre ce repère au premier jour révolu qu'on rouvre. Seule
+la police change : blanc à 65 % d'opacité plutôt que blanc pur, un gris qui se
+lit sur le teal sans se confondre avec un jour à venir. Un jour non passé,
+sélectionné, garde son blanc plein.
+
+`passe` ne s'annule plus quand le jour est actif (`!active && d < aujourdhui`
+devient `d < aujourdhui`) : c'est justement le croisement des deux qui distingue
+maintenant le cas à traiter — actif ET passé — de l'actif tout court.
+
 ### Un livre pour le guide, plutôt qu'un « i »
 Le « i » annonçait « information », mot qui vaut pour n'importe quel écran. Un
 guide touristique se reconnaît à son livre : `BookOpen`, choisi parmi les

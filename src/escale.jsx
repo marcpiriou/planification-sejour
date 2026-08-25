@@ -1709,15 +1709,17 @@ function DateStrip({ days, current, onSelect, counts }) {
           // reste à venir. Il demeure lisible et consultable — on revient
           // volontiers sur la veille — mais passe visuellement au second plan.
           // Le jour sélectionné garde son fond plein même s'il est passé, sinon
-          // on ne saurait plus où l'on se trouve dans la bande.
-          const passe = !active && d < aujourdhui;
+          // on ne saurait plus où l'on se trouve dans la bande ; seule sa police
+          // se grise, pour que le passé reste visuellement distinct même une
+          // fois choisi.
+          const passe = d < aujourdhui;
           return (
             <button key={d} ref={active ? actifRef : undefined} onClick={() => onSelect(d)}
               style={{
                 background: active ? C.teal : C.paper,
-                color: active ? "#fff" : (passe ? C.inkSoft : C.ink),
+                color: active ? (passe ? "rgba(255,255,255,0.65)" : "#fff") : (passe ? C.inkSoft : C.ink),
                 border: `1px solid ${active ? C.teal : C.line}`,
-                opacity: passe ? 0.55 : 1,
+                opacity: active || !passe ? 1 : 0.55,
               }}
               className="shrink-0 rounded-xl px-3 py-2 text-center minw62 active:scale-95 transition">
               {/* Le jour de la semaine et la date suffisent : le rang dans le
