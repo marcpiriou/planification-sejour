@@ -829,6 +829,33 @@ crayon n'a pas lieu d'être — l'aurait laissé remonter tout en haut.
 Le partage reste offert **à tous**, propriétaire ou non, comme il l'était sur la
 timeline : l'un y gère les accès, l'autre y trouve de quoi quitter le séjour.
 
+### Un lien Maps sur un hébergement, et aucun trajet calculé
+Le trajet vers un hébergement restait « non estimé » alors qu'un lien Google Maps
+y avait été collé. Deux défauts se combinaient, dont un qui se refermait sur
+lui-même.
+
+**Le piège qui se verrouille.** La réutilisation du lieu déjà résolu acceptait un
+demi-résultat : `prevPlace.lat != null || prevPlace.mapsName`. Or une résolution
+peut rendre un NOM sans position — un lien court que Google refuse de déplier
+pour un serveur, un géocodage qui échoue. Ce demi-résultat était alors figé, et
+tout enregistrement suivant le recopiait **sans jamais retenter**. L'étape restait
+sans coordonnées à vie, donc sans trajet estimable, et la rouvrir pour la
+réenregistrer n'y changeait rien. La condition exige maintenant les coordonnées :
+un lieu qui n'en a pas mérite une nouvelle tentative.
+
+**Le repli qui manquait.** Quand le lien ne livre qu'un nom, ce nom est désormais
+**géocodé** — ce que la saisie en texte libre faisait déjà, et pas la branche des
+liens. C'est une seconde chance par une autre route que le dépliage du lien.
+
+**Un nom encore encodé se paie deux fois.** Le nom tiré du chemin d'un lien
+arrivait parfois tel quel : « Av.+Pinto+Branco+5 ». La carte affichait ces plus au
+lieu d'espaces, et surtout le géocodage de cette chaîne échouait. `nomLisible`
+remet les espaces et décode les accents (`Caf%C3%A9` → « Café ») avant l'affichage
+comme avant le géocodage.
+
+Mesuré, la chaîne causale de bout en bout : sans coordonnées `legBetween` rend
+`min: null` et l'écran dit « Trajet non estimé » ; avec elles, **30 min · 2,3 km**.
+
 ### Août 2026 : le modèle Gemini coupé, et un message trompeur
 L'écran affichait « Gemini a refusé la demande » suivi d'un 404 sur
 `gemini-2.5-flash`. Les **journaux de la fonction** ont montré que ce n'était pas

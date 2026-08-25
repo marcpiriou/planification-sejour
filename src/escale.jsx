@@ -443,6 +443,16 @@ const placeDirectUrl = (p) => {
   return null;
 };
 
+// Nettoie un nom de lieu qui traîne encore son encodage d'URL. Un nom tiré du
+// chemin d'un lien Maps arrive parfois tel quel — « Av.+Pinto+Branco+5 » — et
+// cela se paie deux fois : la carte affiche ces plus au lieu d'espaces, et le
+// géocodage de cette chaîne rend un mauvais résultat, ou rien.
+const nomLisible = (n) => {
+  let s = String(n || "").replace(/\+/g, " ");
+  try { s = decodeURIComponent(s); } catch { /* garde la version non décodée */ }
+  return s.replace(/\s+/g, " ").trim();
+};
+
 // Ce que l'épingle d'une étape doit ouvrir. placeDirectUrl seul ne rendait rien
 // d'un lieu connu par ses SEULES coordonnées — le cas courant d'un hébergement,
 // dont on saisit le point GPS plutôt qu'un lien : l'étape restait sans épingle
@@ -4011,7 +4021,9 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
     const info = await resolvePlaceInfo(link);
     setNameLoading(false);
     // On garde le nom court : la partie avant la 1re virgule (Google renvoie "Nom, code postal ville").
-    const shortName = info?.name ? info.name.split(",")[0].trim() : "";
+    // nomLisible d'abord : un nom tiré du chemin d'un lien peut arriver encore
+    // encodé, et « Av.+Pinto+Branco+5 » s'affichait alors tel quel sur la carte.
+    const shortName = info?.name ? nomLisible(info.name).split(",")[0].trim() : "";
     if (shortName) setDraft((d) => (d.name && d.name.trim() ? d : { ...d, name: shortName }));
     // Lien de partage court : c'est l'Edge Function qui a dû le déplier pour en
     // sortir les dates.
@@ -5326,15 +5338,32 @@ function SejourApp() {
       if (!isUrl(raw)) place.raw = raw;
     } else if (raw) {
       if (isUrl(raw)) {
-        if (prevPlace && prevPlace.url === raw && (prevPlace.lat != null || prevPlace.mapsName)) {
-          place = { ...prevPlace };            // même lien : rien à re-résoudre
+        // On ne réutilise le lieu déjà résolu QUE s'il a ses coordonnées. La
+        // condition acceptait aussi un simple nom (`|| prevPlace.mapsName`), et
+        // c'était un piège qui se refermait : une résolution ayant rendu un nom
+        // sans position figeait ce demi-résultat, et tout enregistrement suivant
+        // le recopiait sans jamais retenter. L'étape restait donc sans
+        // coordonnées à vie — donc sans trajet estimable — et la rouvrir pour la
+        // réenregistrer n'y changeait rien.
+        if (prevPlace && prevPlace.url === raw && prevPlace.lat != null) {
+          place = { ...prevPlace };            // même lien, position connue : rien à re-résoudre
         } else {
           // Lien Google Maps sans coordonnées lisibles (lien court) : on le déplie côté serveur
           // pour en tirer des coordonnées ou, à défaut, l'adresse du lieu (destination d'itinéraire).
           const r = await resolveMapsLink(raw);
           // On conserve le nom résolu (r.name) pour pouvoir récupérer la photo du lieu.
           if (r && r.lat != null) place = { name: r.name || null, mapsName: r.name || null, lat: r.lat, lng: r.lng, url: raw };
-          else if (r && r.name) place = { name: r.name, mapsName: r.name, lat: null, lng: null, url: raw };
+          else if (r && r.name) {
+            // Le lien n'a livré qu'un NOM : sans coordonnées, aucun trajet ne
+            // peut être estimé, ni vers cette étape ni depuis elle. On géocode
+            // donc ce nom, comme le fait déjà la saisie en texte libre — c'est
+            // une seconde chance par une autre route que la résolution du lien.
+            const nom = nomLisible(r.name);
+            const g = await geocodeText(nom);
+            place = g
+              ? { name: nom, mapsName: nom, lat: g.lat, lng: g.lng, url: raw }
+              : { name: nom, mapsName: nom, lat: null, lng: null, url: raw };
+          }
           else place = { name: raw, lat: null, lng: null, url: raw };
         }
       } else if (prevPlace && prevPlace.url == null && prevPlace.address === raw && prevPlace.lat != null) {
