@@ -39,6 +39,64 @@ function extractCoords(text: string): { lat: number; lng: number } | null {
   return null;
 }
 
+// Identifiant Google du lieu épinglé, porté par le « data=…!1s0x…:0x… » d'une
+// URL Maps. Il désigne le lieu exactement, là où le nom du chemin n'en est
+// qu'une étiquette.
+function extractFid(u: string): string | null {
+  const m = (u || "").match(/!1s(0x[0-9a-f]+:0x[0-9a-f]+)/i);
+  return m ? m[1] : null;
+}
+
+// La seconde moitié d'un identifiant est le « CID », que Google accepte en
+// décimal dans « /maps?cid=… ». C'est la clé de la route ci-dessous.
+function cidDepuisFid(fid: string): string | null {
+  const part = (fid || "").split(":")[1];
+  if (!part || !/^0x[0-9a-f]+$/i.test(part)) return null;
+  try {
+    const v = BigInt(part);
+    return v > 0n ? v.toString(10) : null;
+  } catch {
+    return null;
+  }
+}
+
+// Coordonnées d'un lieu à partir de son identifiant, par la page « embed » de
+// Google Maps.
+//
+// C'est la route qui manquait, et elle vaut d'être expliquée. Un lien vers une
+// ADRESSE — une épingle posée, non un commerce référencé — ne porte ses
+// coordonnées NULLE PART : ni dans l'URL dépliée (aucun `@lat,lng`, aucun
+// `!3d!4d`), ni dans la page complète, où l'on a cherché en vain toute paire
+// plausible dans 224 Ko. Restait à géocoder le nom, ce qui échoue pour une
+// adresse sans ville.
+//
+// La page `?cid=…&output=embed`, elle, tient en 2,4 Ko et porte la position du
+// lieu juste après son identifiant. On s'ancre donc SUR cet identifiant : la
+// page contient aussi un triplet de réglage de caméra dont les nombres
+// ressemblent à des coordonnées, et une page listant plusieurs lieux donnerait
+// sinon la position du mauvais.
+async function coordsParFid(fid: string): Promise<{ lat: number; lng: number } | null> {
+  const cid = cidDepuisFid(fid);
+  if (!cid) return null;
+  try {
+    const u = `https://www.google.com/maps?cid=${cid}&output=embed`;
+    if (!isAllowed(u)) return null;
+    const res = await fetch(u, { headers: { "User-Agent": "Mozilla/5.0 (compatible; SejourBot/1.0)" } });
+    if (!res.ok) return null;
+    const texte = await res.text();
+    const i = texte.indexOf(fid);
+    if (i < 0) return null;
+    const m = texte.slice(i, i + 400).match(/\[(-?\d{1,3}\.\d+),(-?\d{1,3}\.\d+)\]/);
+    if (!m) return null;
+    const lat = +m[1], lng = +m[2];
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
+    return { lat, lng };
+  } catch {
+    return null;
+  }
+}
+
 // Nom/adresse depuis une URL /maps/place/<NAME>/...
 function extractPlaceName(u: string): string | null {
   const m = u.match(/\/maps\/place\/([^/@?]+)/);
@@ -271,7 +329,18 @@ Deno.serve(async (req: Request) => {
     coords = extractCoords(body);
     if (coords) return json({ lat: coords.lat, lng: coords.lng, ...(name ? { name } : {}), finalUrl });
 
-    // Toujours pas de coordonnées : on géocode le nom extrait pour en obtenir.
+    // Toujours rien, mais le lien porte l'identifiant du lieu épinglé : on le
+    // demande par cet identifiant. Cette route passe AVANT le géocodage du nom,
+    // parce qu'elle désigne le lieu exact plutôt que d'interroger une étiquette
+    // — et parce qu'un nom d'adresse sans ville, ce que porte justement un lien
+    // vers une épingle, ne se géocode pas.
+    const fid = extractFid(finalUrl);
+    if (fid) {
+      const parFid = await coordsParFid(fid);
+      if (parFid) return json({ lat: parFid.lat, lng: parFid.lng, ...(name ? { name } : {}), finalUrl });
+    }
+
+    // Dernier recours : on géocode le nom extrait pour en obtenir des coordonnées.
     if (name) {
       const g = await geocode(name);
       if (g) return json({ lat: g.lat, lng: g.lng, name: g.name, finalUrl });

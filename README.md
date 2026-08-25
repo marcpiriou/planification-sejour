@@ -829,6 +829,35 @@ crayon n'a pas lieu d'être — l'aurait laissé remonter tout en haut.
 Le partage reste offert **à tous**, propriétaire ou non, comme il l'était sur la
 timeline : l'un y gère les accès, l'autre y trouve de quoi quitter le séjour.
 
+### Un lien vers une ADRESSE ne porte ses coordonnées nulle part
+Un lien de partage vers une épingle posée — une adresse, non un commerce
+référencé — résistait à toute la chaîne. Mesuré sur un cas réel
+(`maps.app.goo.gl/LYjErorBtvXaiuDk6`) :
+
+| Route | Résultat |
+|---|---|
+| `@lat,lng` ou `!3d!4d` dans l'URL dépliée | **rien** |
+| Toute paire plausible dans la page (224 Ko parcourus, deux UA) | **rien** |
+| `?cid=…` puis lecture de la page | **rien** |
+| Géocodage du nom « Av. Pinto Branco 5, Portugal » | échoue — une adresse sans ville |
+
+La page **`?cid=<décimal>&output=embed`**, en revanche, tient en **2,4 Ko** et
+porte la position juste après l'identifiant du lieu. C'est la route ajoutée : le
+`data=…!1s0x…:0x…` de l'URL donne l'identifiant, sa seconde moitié convertie en
+décimal donne le CID, et l'embed rend `[lat,lng]`.
+
+Elle passe **avant** le géocodage du nom : elle désigne le lieu exact plutôt
+qu'une étiquette, et c'est justement sur ce genre de nom que le géocodage cale.
+
+L'extraction s'**ancre sur l'identifiant** plutôt que de prendre la première
+paire de nombres : la page porte aussi un triplet de réglage de caméra, et une
+page listant plusieurs lieux donnerait sinon la position du mauvais.
+
+Vérifié sur le lien réel : **41.0817, -8.0709**, confirmé indépendamment par
+OpenStreetMap à **20 m près**, soit 20,8 km de l'étape précédente — le trajet
+redevient estimable. Un lien qui porte déjà ses coordonnées ne passe pas par
+cette route.
+
 ### Un lien Maps sur un hébergement, et aucun trajet calculé
 Le trajet vers un hébergement restait « non estimé » alors qu'un lien Google Maps
 y avait été collé. Deux défauts se combinaient, dont un qui se refermait sur
