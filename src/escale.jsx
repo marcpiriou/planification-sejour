@@ -2221,30 +2221,41 @@ function TravelLeg({
   );
 }
 
-/* --- Le « + » de fin de journée ------------------------------------ */
-// Les « + » qui intercalent une étape vivent dans TravelLeg, lequel n'est rendu
-// QU'ENTRE deux étapes. Après la dernière il n'y a pas de trajet, donc il n'y
-// avait aucun « + » : la timeline s'arrêtait sur sa dernière carte, et allonger
-// la journée supposait de passer par le bouton flottant — dont l'ancre est le
-// jour, non le bout de la liste.
+/* --- Le « + » posé sur le rail, hors trajet ------------------------- */
+// Les « + » qui intercalent une étape vivent dans TravelLeg. Or celui-ci n'est
+// rendu qu'entre deux étapes SÉPARÉES par un trajet, ce qui laissait deux trous :
+//
+//   • après la dernière étape, où il n'y a pas de trajet — la timeline
+//     s'arrêtait sur sa carte, et allonger la journée supposait le bouton
+//     flottant, dont l'ancre est le jour et non le bout de la liste ;
+//   • entre les deux entrées d'un MÊME hébergement — le réveil et le coucher.
+//     TravelLeg y est écarté à raison (on ne voyage pas d'un lieu à lui-même),
+//     mais c'est justement la journée entière qui s'écoule entre les deux, et
+//     donc l'endroit le plus naturel pour ajouter une visite.
 //
 // Même pastille que ses sœurs, pour qu'on la reconnaisse sans l'apprendre :
 // blanche cerclée, « + » teal de 30 px, posée sur la colonne des commandes de
 // largeur 66. Elle ouvre les deux mêmes choix, et s'appuie sur le même état
 // `ajoutTrajet` — d'où lui viennent gratuitement le voile de fermeture et le
 // bouton « retour » du téléphone.
-function AjoutFinJournee({ apres, ouvert, onOuvrir, onFermer, onActivite, onSuggestion }) {
+//
+// `traitContinu` distingue les deux emplois : entre deux cartes le rail traverse
+// de haut en bas, alors qu'en fin de journée il s'arrête à la pastille — rien ne
+// suit, et un trait qui continuerait dans le vide annoncerait une étape absente.
+function AjoutEtape({ apres, ouvert, onOuvrir, onFermer, onActivite, onSuggestion, traitContinu = false }) {
   return (
     <div className="flex gap-3" style={ouvert ? { position: "relative", zIndex: 30 } : undefined}>
       <div className="shrink-0 relative flex justify-center items-start" style={{ width: 66 }}>
-        {/* Le trait s'arrête au centre de la pastille (6 de marge + 15 de rayon) :
-            il conduit l'œil de la dernière carte au « + », et rien au-delà —
-            après, la journée n'a plus d'étape. */}
-        <div style={{ background: C.line, height: 21 }} className="absolute top-0 w-0.5" />
+        {/* Arrêté au centre de la pastille (6 de marge + 15 de rayon) quand rien
+            ne suit : le trait conduit l'œil de la dernière carte au « + », et
+            pas au-delà. Continu quand une carte vient après. */}
+        {traitContinu
+          ? <div style={{ background: C.line }} className="absolute inset-y-0 w-0.5" />
+          : <div style={{ background: C.line, height: 21 }} className="absolute top-0 w-0.5" />}
         <button onClick={() => (ouvert ? onFermer() : onOuvrir())} aria-expanded={ouvert}
           aria-label={ouvert
-            ? "Fermer le menu d'ajout en fin de journée"
-            : `Ajouter une étape après ${apres || "la dernière étape"}`}
+            ? "Fermer le menu d'ajout"
+            : `Ajouter une étape après ${apres || "cette étape"}`}
           style={{ background: "#fff", border: `1px solid ${C.line}`, color: C.teal, height: 30, width: 30, marginTop: 6 }}
           className="relative rounded-full shadow-sm flex items-center justify-center active:scale-95 transition shrink-0">
           <Plus size={16} style={{ transform: ouvert ? "rotate(45deg)" : "none", transition: "transform .18s" }} />
@@ -3934,6 +3945,19 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
                   onFermerAjout={fermeTrajet}
                   onAjoutActivite={canEdit && !drag ? () => choisitTrajet(() => onAddAct(a.id)) : undefined}
                   onAjoutSuggestion={() => choisitTrajet(() => ouvreSuggestions(a.id))} />}
+                {/* Deux entrées du MÊME hébergement : le réveil et le coucher.
+                    Aucun trajet à afficher — on ne va pas d'un lieu à lui-même —
+                    mais toute la journée s'écoule entre les deux, et c'est là
+                    qu'on veut poser ses visites. Le « + » seul, donc, sur un rail
+                    qui reste continu. */}
+                {i < acts.length - 1 && sameStay(a, acts[i + 1]) && canEdit && !drag && (
+                  <AjoutEtape apres={a.name} traitContinu
+                    ouvert={ajoutTrajet === a.id}
+                    onOuvrir={() => setAjoutTrajet(a.id)}
+                    onFermer={fermeTrajet}
+                    onActivite={() => choisitTrajet(() => onAddAct(a.id))}
+                    onSuggestion={() => choisitTrajet(() => ouvreSuggestions(a.id))} />
+                )}
                 {drag && drag.over === acts.length && i === acts.length - 1 && <InsertBar />}
               </div>
               );
@@ -3942,7 +3966,7 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
                 déplacement : la liste bouge alors sous le doigt, et une cible
                 d'ajout n'y a pas sa place. */}
             {canEdit && !drag && acts.length > 0 && (
-              <AjoutFinJournee apres={acts[acts.length - 1].name}
+              <AjoutEtape apres={acts[acts.length - 1].name}
                 ouvert={ajoutTrajet === acts[acts.length - 1].id}
                 onOuvrir={() => setAjoutTrajet(acts[acts.length - 1].id)}
                 onFermer={fermeTrajet}

@@ -821,6 +821,16 @@ branche `Home`/`TripView`, il se superpose à l'accueil sans qu'aucun séjour so
 ouvert. Le bouton « retour » du téléphone était déjà géré par le `useRetour` en
 place.
 
+`traitContinu` distingue les deux emplois : entre deux cartes le rail traverse
+de haut en bas (mesuré 36/36 px), alors qu'en fin de journée il s'arrête à la
+pastille (21 px) — rien ne suit, et un trait qui continuerait dans le vide
+annoncerait une étape absente.
+
+L'ancre d'insertion est l'identifiant de l'entrée qui PRÉCÈDE, ici celle du matin
+(`s1#am`). C'est un identifiant **dérivé**, absent de la base — mais
+`activitesAvecInsertion` cherche l'ancre dans la séquence AFFICHÉE, qui contient
+ces entrées : l'activité se glisse donc bien entre les deux nuits.
+
 **Crayon en haut, partage en bas, même axe.** La colonne de droite passe en
 `items-stretch` pour courir sur toute la hauteur de la carte, et le partage porte
 un `mt-auto` : sans lui, la carte d'un séjour partagé en lecture seule — où le
@@ -1011,14 +1021,20 @@ L'ordre reste inversé sur un hébergement, où l'**adresse passe devant le lien
 un lien de réservation ne montre qu'un quartier, l'adresse de l'hôte mène à la
 porte.
 
-### Le « + » de fin de journée
+### Le « + » là où aucun trajet ne pouvait le porter
 Les « + » qui intercalent une étape vivent dans `TravelLeg`, lequel n'est rendu
-**qu'entre** deux étapes. Après la dernière il n'y a pas de trajet, donc il n'y
-avait aucun « + » : la timeline s'arrêtait sur sa dernière carte. Allonger la
-journée supposait alors le bouton flottant, dont l'ancre est le jour et non le
-bout de la liste.
+qu'entre deux étapes **séparées par un trajet**. Cela laissait deux trous :
 
-`AjoutFinJournee` comble ce trou avec la **même pastille** que ses sœurs —
+- **après la dernière étape**, où il n'y a pas de trajet : la timeline s'arrêtait
+  sur sa carte, et allonger la journée supposait le bouton flottant, dont l'ancre
+  est le jour et non le bout de la liste ;
+- **entre les deux entrées d'un même hébergement** — le réveil et le coucher, sur
+  le jour du milieu d'un séjour de plusieurs nuits. `TravelLeg` y est écarté à
+  raison (`!sameStay`) : on ne voyage pas d'un lieu à lui-même. Mais c'est
+  justement la journée entière qui s'écoule entre les deux, et donc l'endroit le
+  plus naturel pour poser une visite — il n'y avait aucun moyen de le faire.
+
+`AjoutEtape` sert les deux, avec la **même pastille** que ses sœurs —
 blanche cerclée, « + » teal de 30 px, posée sur la colonne des commandes de
 largeur 66 — et les deux mêmes choix, Suggestions ou Activité. Elle s'appuie sur
 le même état `ajoutTrajet`, ce qui lui donne gratuitement le voile de fermeture
