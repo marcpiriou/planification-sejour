@@ -539,18 +539,58 @@ async function explainRlsError(base, meId) {
   return `${base} — compte bien authentifié (uid ${String(meId).slice(0, 8)}…) : ce sont les règles d'accès de la base qui refusent. Appliquez la migration 0003_repair_rls.sql.`;
 }
 
+// L'utilisateur de la session, LU LOCALEMENT.
+//
+// getUser() interrogeait le serveur à chaque appel : enregistrer une
+// modification demandait donc un aller-retour vers /auth/v1/user EN PLUS de
+// l'écriture elle-même. Sur un téléphone en déplacement, la moindre coupure
+// faisait échouer ce premier appel, et l'écran annonçait « session illisible
+// (Failed to fetch) » — un message qui accusait la session alors que celle-ci
+// était intacte dans le stockage local, et que rien n'avait même été tenté.
+//
+// getSession() la lit sans réseau, et rafraîchit le jeton de lui-même s'il a
+// expiré. On n'y perd aucune garantie : ce qu'on tire d'ici est un identifiant
+// et une adresse, jamais un droit — c'est la RLS de la base qui décide de ce
+// que cette session peut écrire, et elle vérifie le jeton de son côté.
+async function utilisateurCourant() {
+  const { data, error } = await supabase.auth.getSession();
+  const user = data?.session?.user || null;
+  return { user, error: user ? null : (error || null) };
+}
+
+// Une coupure réseau, et non un refus : « Failed to fetch », « NetworkError »,
+// un délai dépassé. Ces messages viennent du navigateur, pas de la base, et
+// disent seulement que la requête n'est jamais partie ou revenue.
+const estPanneReseau = (texte) =>
+  /failed to fetch|network|networkerror|load failed|timeout|timed out|aborted|offline/i.test(texte || "");
+
 // Sauvegardes sérialisées : deux modifications rapprochées ne doivent pas
 // s'entrelacer (sinon la seconde peut écrire par-dessus la première).
+//
+// Une coupure est RÉESSAYÉE d'elle-même, deux fois, à une puis trois secondes.
+// Sur un téléphone en déplacement — changement d'antenne, passage sous un
+// tunnel — une requête perdue est ordinaire ; elle n'a pas à se solder par un
+// bandeau rouge et un geste de l'utilisateur. Un refus de la base, lui, n'est
+// pas réessayé : il se reproduirait à l'identique, et le bandeau est alors la
+// bonne réponse.
+const ATTENTES_REESSAI = [1000, 3000];
 let saveQueue = Promise.resolve();
+async function saveAvecReessai(trips) {
+  for (let essai = 0; ; essai++) {
+    const r = await saveTrips(trips);
+    if (r?.ok || !r?.reseau || essai >= ATTENTES_REESSAI.length) return r;
+    await new Promise((f) => setTimeout(f, ATTENTES_REESSAI[essai]));
+  }
+}
 function queueSaveTrips(trips) {
-  saveQueue = saveQueue.then(() => saveTrips(trips), () => saveTrips(trips));
+  saveQueue = saveQueue.then(() => saveAvecReessai(trips), () => saveAvecReessai(trips));
   return saveQueue;
 }
 
 // Charge les séjours accessibles à l'utilisateur (les siens + ceux partagés avec lui,
 // filtrage assuré par la RLS). Attache à chaque séjour : ownerId, isOwner, role, members.
 async function loadTrips() {
-  const { data: { user }, error: ue } = await supabase.auth.getUser();
+  const { user, error: ue } = await utilisateurCourant();
   if (ue || !user) { setSyncError(ue ? `session illisible (${errText(ue)})` : "session expirée — reconnectez-vous"); return []; }
   const myEmail = (user.email || "").toLowerCase();
   const [{ data: trips, error: te }, { data: acts, error: ae }, { data: members }] = await Promise.all([
@@ -586,8 +626,11 @@ async function loadTrips() {
 // Synchronise l'état vers la base. Ne touche qu'aux séjours modifiables
 // (propriétaire ou éditeur). Les séjours d'un autre propriétaire conservent leur owner_id.
 async function saveTrips(trips) {
-  const { data: { user }, error: ue } = await supabase.auth.getUser();
-  if (ue || !user) { setSyncError(ue ? `session illisible (${errText(ue)})` : "session expirée — reconnectez-vous"); return; }
+  const { user, error: ue } = await utilisateurCourant();
+  if (ue || !user) {
+    setSyncError(ue ? `session illisible (${errText(ue)})` : "session expirée — reconnectez-vous");
+    return { ok: false, reseau: false };
+  }
   const me = user.id;
   const now = new Date().toISOString();
   const list = trips || [];
@@ -638,9 +681,14 @@ async function saveTrips(trips) {
     // sinon un état local incomplet (chargement raté, autre onglet, session
     // reprise) effacerait des séjours bien présents en base.
     setSyncError(null);
+    return { ok: true };
   } catch (e) {
-    setSyncError(await explainRlsError(errText(e), me));
+    const texte = errText(e);
+    setSyncError(await explainRlsError(texte, me));
     console.error("Sauvegarde séjours:", e);
+    // On distingue la coupure réseau du refus : la première mérite un nouvel
+    // essai, la seconde se reproduirait à l'identique.
+    return { ok: false, reseau: estPanneReseau(texte) };
   }
 }
 
@@ -658,14 +706,14 @@ async function deleteActivityRemote(id) {
 
 // Supprime tous les séjours dont l'utilisateur est propriétaire (garde-fou d'erreur).
 async function clearAllTrips() {
-  const { data: { user } } = await supabase.auth.getUser();
+  const { user } = await utilisateurCourant();
   if (!user) return;
   try { await supabase.from("trips").delete().eq("owner_id", user.id); } catch { /* silencieux */ }
 }
 
 /* --- Partage : gestion des membres -------------------------------- */
 async function addMember(tripId, email, role) {
-  const { data: { user } } = await supabase.auth.getUser();
+  const { user } = await utilisateurCourant();
   const addr = (email || "").trim().toLowerCase();
   if (!addr) return { error: "Email requis" };
   if (user && addr === (user.email || "").toLowerCase()) return { error: "C'est votre propre adresse." };
@@ -688,7 +736,7 @@ async function removeMember(memberId) {
 }
 // Un collaborateur quitte un séjour partagé (retire sa propre autorisation).
 async function leaveTrip(tripId) {
-  const { data: { user } } = await supabase.auth.getUser();
+  const { user } = await utilisateurCourant();
   const myEmail = (user?.email || "").toLowerCase();
   const { error } = await supabase.from("trip_members").delete()
     .eq("trip_id", tripId).eq("email", myEmail);
@@ -4941,9 +4989,9 @@ function SejourApp() {
   const reloadTrips = () => chargeTrips(false);
   useEffect(() => { (async () => { await chargeTrips(true); setLoaded(true); })(); }, []);
   useEffect(() => { (async () => {
-    const { data } = await supabase.auth.getUser();
-    setUserEmail(data.user?.email || "");
-    const md = data.user?.user_metadata || {};
+    const { user } = await utilisateurCourant();
+    setUserEmail(user?.email || "");
+    const md = user?.user_metadata || {};
     setHome({
       label: md.home_label || "Maison",
       address: md.home_address != null ? md.home_address : "20 rue des grillons 31700 BEAUZELLE",

@@ -829,6 +829,33 @@ crayon n'a pas lieu d'être — l'aurait laissé remonter tout en haut.
 Le partage reste offert **à tous**, propriétaire ou non, comme il l'était sur la
 timeline : l'un y gère les accès, l'autre y trouve de quoi quitter le séjour.
 
+### « session illisible (Failed to fetch) » : un message qui accusait la session
+Le bandeau rouge « Modifications non enregistrées » s'affichait avec ce motif, en
+déplacement. Les journaux Supabase ont montré que le serveur n'y était pour rien :
+**toutes** les requêtes `/auth/v1/user` du jour répondaient 200. « Failed to
+fetch » est une erreur du NAVIGATEUR — la requête n'est jamais partie ou jamais
+revenue — donc absente des journaux, ce qui est en soi la signature du problème.
+
+**Une dépendance réseau qui n'avait pas lieu d'être.** `saveTrips()` appelait
+`getUser()`, qui interroge le serveur, avant toute écriture. Enregistrer une
+modification demandait donc un aller-retour vers `/auth/v1/user` EN PLUS de
+l'écriture. Sur un téléphone en déplacement, une coupure sur ce premier appel
+suffisait à tout annuler — et le message accusait la session, alors qu'elle était
+intacte dans le stockage local et que rien n'avait même été tenté.
+
+`utilisateurCourant()` la lit désormais par `getSession()`, sans réseau. Aucune
+garantie perdue : ce qu'on en tire est un identifiant et une adresse, jamais un
+droit — c'est la RLS de la base qui décide de ce qu'une session peut écrire, et
+elle vérifie le jeton de son côté. Les sept appels du fichier y passent.
+
+**Et une coupure se réessaie.** L'écriture, elle, a bien besoin du réseau. Elle
+est donc retentée d'elle-même, deux fois, à une puis trois secondes : sur un
+téléphone qui change d'antenne, une requête perdue est ordinaire et n'a pas à se
+solder par un bandeau rouge. Un refus de la base — RLS, contrainte, colonne
+inconnue — n'est PAS réessayé : il se reproduirait à l'identique, et le bandeau
+est alors la bonne réponse. `estPanneReseau()` sépare les deux sur le libellé du
+navigateur (`Failed to fetch`, `NetworkError`, `Load failed`, délai dépassé).
+
 ### Un lien vers une ADRESSE ne porte ses coordonnées nulle part
 Un lien de partage vers une épingle posée — une adresse, non un commerce
 référencé — résistait à toute la chaîne. Mesuré sur un cas réel
