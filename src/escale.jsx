@@ -1846,6 +1846,22 @@ function ActivityCard({ act, onEdit, onEditDuration, onGuide, startMin, endMin, 
   }, [stay, act.place?.mapsName, act.place?.lat, act.place?.lng]);
   const accent = stay ? STAY_COLOR : C.teal;
 
+  // À défaut de photo, l'icône de la CATÉGORIE de l'étape plutôt qu'un bâtiment
+  // générique : elle dit quelque chose de l'activité — une fourchette pour un
+  // repas, une vague pour une plage — là où le bâtiment ne disait que « lieu »,
+  // et disait faux d'une baignade ou d'un plein de carburant.
+  //
+  // catOf n'est pas utilisé tel quel : son repli est le DERNIER de la liste,
+  // « dormir », si bien qu'une activité sans catégorie aurait reçu un lit. On
+  // écarte donc explicitement l'hébergement, qui a sa propre vignette.
+  const catVignette = CATEGORIES.find((c) => c.id === act.category && c.id !== "dormir") || catOf("autre");
+  const IconeVignette = catVignette.icon;
+  // Le fond ne doit PAS être celui de l'application (C.paper) : identiques, le
+  // cadre se lisait comme un trou découpé dans la carte plutôt que comme une
+  // vignette en attente d'image. C.line, le gris des filets, s'en détache d'un
+  // cran tout en restant discret.
+  const fondVignette = { borderLeft: `1px solid ${C.line}`, background: C.line };
+
   // Le bloc de texte — nom, mention de nuit, notes — ouvre l'édition. C'est ce
   // qui a permis de retirer le crayon pour de bon : la vignette et l'icône d'un
   // hébergement y menaient déjà, mais une activité SANS lieu n'a ni l'une ni
@@ -2002,8 +2018,8 @@ function ActivityCard({ act, onEdit, onEditDuration, onGuide, startMin, endMin, 
             </div>
           )}
         </div>
-        {/* Vignette du lieu : photo Google si elle correspond, sinon bâtiment
-            générique. Le bloc est présent dès qu'un lieu est renseigné, pour que
+        {/* Vignette du lieu : photo Google si elle correspond, sinon l'icône de la
+            catégorie. Le bloc est présent dès qu'un lieu est renseigné, pour que
             la carte ne change pas de largeur quand la photo arrive. Rien pour un
             hébergement : la place revient au texte et aux boutons. Le nom ne
             s'éditant plus en ligne, toucher la vignette ouvre l'édition complète —
@@ -2013,21 +2029,19 @@ function ActivityCard({ act, onEdit, onEditDuration, onGuide, startMin, endMin, 
             <button onClick={() => onEdit(act)} aria-label="Modifier l'activité"
               className="shrink-0 w-24 self-stretch flex items-center justify-center active:scale-95 transition"
               style={{
-                borderLeft: `1px solid ${C.line}`,
-                background: photo ? undefined : C.paper,
+                ...fondVignette,
                 ...(photo ? { backgroundImage: `url("${photo}")`, backgroundSize: "cover", backgroundPosition: "center" } : {}),
               }}>
-              {!photo && <Building2 size={22} style={{ color: C.inkSoft, opacity: 0.45 }} />}
+              {!photo && <IconeVignette size={26} strokeWidth={1.75} style={{ color: catVignette.color, opacity: 0.55 }} />}
             </button>
           ) : (
             <div className="shrink-0 w-24 self-stretch flex items-center justify-center"
               style={{
-                borderLeft: `1px solid ${C.line}`,
-                background: photo ? undefined : C.paper,
+                ...fondVignette,
                 ...(photo ? { backgroundImage: `url("${photo}")`, backgroundSize: "cover", backgroundPosition: "center" } : {}),
               }}
-              role="img" aria-label={photo ? `Photo de ${act.name}` : `Aucune photo pour ${act.name}`}>
-              {!photo && <Building2 size={22} style={{ color: C.inkSoft, opacity: 0.45 }} />}
+              role="img" aria-label={photo ? `Photo de ${act.name}` : `${catVignette.label} — aucune photo pour ${act.name}`}>
+              {!photo && <IconeVignette size={26} strokeWidth={1.75} style={{ color: catVignette.color, opacity: 0.55 }} />}
             </div>
           )
         )}
@@ -2938,7 +2952,10 @@ function SuggestionCard({ s, ajoutee, onAdd, onRemove, canEdit }) {
       aria-expanded={ouverte} aria-label={ouverte ? `Replier ${s.nom}` : `Voir le détail de ${s.nom}`}
       className={ouverte ? "w-full h-32 flex items-center justify-center" : "shrink-0 w-24 self-stretch flex items-center justify-center"}
       style={{
-        background: s.photoUri ? undefined : C.paper,
+        // Pas C.paper : identique au fond de l'application, le cadre se lisait
+        // comme un trou. Même raison que la vignette d'une étape. Le bâtiment,
+        // lui, reste : une proposition n'a pas encore de catégorie.
+        background: s.photoUri ? undefined : C.line,
         [ouverte ? "borderBottom" : "borderRight"]: `1px solid ${C.line}`,
         ...(s.photoUri ? { backgroundImage: `url("${s.photoUri}")`, backgroundSize: "cover", backgroundPosition: "center" } : {}),
       }}>

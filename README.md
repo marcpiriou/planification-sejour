@@ -1021,6 +1021,28 @@ L'ordre reste inversé sur un hébergement, où l'**adresse passe devant le lien
 un lien de réservation ne montre qu'un quartier, l'adresse de l'hôte mène à la
 porte.
 
+### La vignette d'une étape sans photo
+Elle montrait un **bâtiment** générique sur un fond `C.paper` — exactement la
+couleur de fond de l'application. Deux défauts qui se cumulaient : le cadre se
+lisait comme un trou découpé dans la carte plutôt que comme une vignette en
+attente d'image, et le bâtiment ne disait que « lieu », ce qui sonnait faux d'une
+baignade ou d'un plein de carburant.
+
+C'est désormais l'**icône de la catégorie** de l'étape, dans **sa couleur** : une
+fourchette pour un repas, des vagues pour une plage, une tasse pour un café. La
+donnée existait déjà (`CATEGORIES`), elle n'était simplement pas exploitée là.
+Et le fond passe à `C.line`, le gris des filets, qui s'écarte d'un cran du fond
+de l'application tout en restant discret.
+
+**Un piège dans `catOf`.** Son repli est le DERNIER élément de la liste —
+« dormir » — si bien qu'une étape sans catégorie aurait reçu un **lit**. La
+recherche écarte donc explicitement l'hébergement, qui a sa propre vignette, et
+retombe sur « autre ».
+
+La carte d'une **suggestion** avait le même fond que l'application : corrigé de
+la même façon. Son bâtiment reste, lui : une proposition n'a pas encore de
+catégorie.
+
 ### Le « + » là où aucun trajet ne pouvait le porter
 Les « + » qui intercalent une étape vivent dans `TravelLeg`, lequel n'est rendu
 qu'entre deux étapes **séparées par un trajet**. Cela laissait deux trous :
