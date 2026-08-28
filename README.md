@@ -1021,6 +1021,18 @@ L'ordre reste inversé sur un hébergement, où l'**adresse passe devant le lien
 un lien de réservation ne montre qu'un quartier, l'adresse de l'hôte mène à la
 porte.
 
+### Le filet de l'icône d'un hébergement
+La zone d'icône d'une activité est séparée du texte par un filet `C.line` ; celle
+d'un hébergement ne l'était pas, et le lit flottait au bord de la carte.
+
+`C.line` ne pouvait pas y servir : ce gris (#E4EAEC) et le fond d'un hébergement
+(#E7EAF7) sont si proches que le trait s'y serait perdu — écart mesuré **3, 0,
+11** sur les trois canaux, invisible à l'œil. `STAY_LINE` (#CFD4E9) garde donc la
+teinte indigo de la carte, à un écart au fond de **24, 22, 14**, calqué sur celui
+que `C.line` creuse dans le blanc d'une carte d'activité (**27, 21, 19**).
+
+Le filet vaut aussi pour le point de départ/retour, qui partage cette zone.
+
 ### La vignette d'une étape sans photo
 Elle montrait un **bâtiment** générique sur un fond `C.paper` — exactement la
 couleur de fond de l'application. Deux défauts qui se cumulaient : le cadre se

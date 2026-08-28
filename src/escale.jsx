@@ -138,6 +138,12 @@ const STAY_ARRIVE_TIME = "18:00";
 // Code couleur propre à l'hébergement, distinct des huit catégories.
 const STAY_COLOR = "#2F3E8F";
 const STAY_SOFT = "#E7EAF7";
+// Le filet qui sépare l'icône du texte sur la carte d'un hébergement. C.line n'y
+// convient pas : ce gris (#E4EAEC) et le fond d'un hébergement (#E7EAF7) sont
+// deux valeurs si proches que le trait y disparaîtrait. Celui-ci garde donc la
+// teinte indigo de la carte, à un écart au fond (24, 22, 14) calqué sur celui
+// que C.line creuse dans le blanc d'une carte d'activité (27, 21, 19).
+const STAY_LINE = "#CFD4E9";
 const STAY_AM = "am", STAY_PM = "pm";
 
 // Entrée d'affichage dérivée d'une réservation. Son id porte le créneau pour
@@ -2048,17 +2054,21 @@ function ActivityCard({ act, onEdit, onEditDuration, onGuide, startMin, endMin, 
         {/* Un hébergement n'a pas de photo : à droite, son icône en grand — le lit
             pour une nuitée, la maison pour le point de départ. Elle tient le tiers
             de la carte, ce que le nombre de nuits disait en tout petit, et ouvre
-            l'édition complète au toucher, pour la même raison que la vignette. */}
+            l'édition complète au toucher, pour la même raison que la vignette.
+            Un filet la sépare du texte, comme sur une activité — mais dans la
+            teinte de la carte : C.line s'y perdrait (voir STAY_LINE). */}
         {stay && (
           canEdit ? (
             <button onClick={() => onEdit(act)} aria-label={isBase(act) ? "Modifier le point de départ" : "Modifier l'hébergement"}
-              className="shrink-0 self-stretch flex items-center justify-center active:scale-95 transition" style={{ width: "33%" }}>
+              className="shrink-0 self-stretch flex items-center justify-center active:scale-95 transition"
+              style={{ width: "33%", borderLeft: `1px solid ${STAY_LINE}` }}>
               {isBase(act)
                 ? <HomeIcon size={56} strokeWidth={1.5} style={{ color: STAY_COLOR, opacity: 0.35 }} />
                 : <BedDouble size={56} strokeWidth={1.5} style={{ color: STAY_COLOR, opacity: 0.35 }} />}
             </button>
           ) : (
-            <div className="shrink-0 self-stretch flex items-center justify-center" style={{ width: "33%" }}
+            <div className="shrink-0 self-stretch flex items-center justify-center"
+              style={{ width: "33%", borderLeft: `1px solid ${STAY_LINE}` }}
               role="img" aria-label={isBase(act) ? "Point de départ et de retour" : "Hébergement"}>
               {isBase(act)
                 ? <HomeIcon size={56} strokeWidth={1.5} style={{ color: STAY_COLOR, opacity: 0.35 }} />
