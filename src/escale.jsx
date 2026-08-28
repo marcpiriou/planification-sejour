@@ -2141,7 +2141,7 @@ const ASPECT_TRAJET = (mode) => (
 // ajouter qu'en fin de journée.
 function TravelLeg({
   from, to, leg, onEdit, variant, fromEndMin, toStartMin,
-  ajoutOuvert, onOuvrirAjout, onFermerAjout, onAjoutActivite, onAjoutSuggestion,
+  ajoutOuvert, onOuvrirAjout, onFermerAjout, onAjoutActivite, onAjoutSuggestion, onAjoutCarte,
 }) {
   const { color, soft, Icon } = ASPECT_TRAJET(leg.mode);
   const isStart = variant === "start";
@@ -2212,6 +2212,12 @@ function TravelLeg({
               className="text-white rounded-full pl-4 pr-5 py-2.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
               <Sparkles size={18} /> Suggestions
             </button>
+            {onAjoutCarte && (
+              <button onClick={onAjoutCarte} style={{ background: C.bleu }}
+                className="text-white rounded-full pl-4 pr-5 py-2.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
+                <MapIcon size={18} /> Activité depuis la carte
+              </button>
+            )}
             <button onClick={onAjoutActivite} style={{ background: C.teal }}
               className="text-white rounded-full pl-4 pr-5 py-2.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
               <Plus size={18} /> Activité
@@ -2266,7 +2272,7 @@ function TravelLeg({
 // `traitContinu` distingue les deux emplois : entre deux cartes le rail traverse
 // de haut en bas, alors qu'en fin de journée il s'arrête à la pastille — rien ne
 // suit, et un trait qui continuerait dans le vide annoncerait une étape absente.
-function AjoutEtape({ apres, ouvert, onOuvrir, onFermer, onActivite, onSuggestion, traitContinu = false }) {
+function AjoutEtape({ apres, ouvert, onOuvrir, onFermer, onActivite, onSuggestion, onCarte, traitContinu = false }) {
   return (
     <div className="flex gap-3" style={ouvert ? { position: "relative", zIndex: 30 } : undefined}>
       <div className="shrink-0 relative flex justify-center items-start" style={{ width: 66 }}>
@@ -2294,6 +2300,12 @@ function AjoutEtape({ apres, ouvert, onOuvrir, onFermer, onActivite, onSuggestio
               className="text-white rounded-full pl-4 pr-5 py-2.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
               <Sparkles size={18} /> Suggestions
             </button>
+            {onCarte && (
+              <button onClick={onCarte} style={{ background: C.bleu }}
+                className="text-white rounded-full pl-4 pr-5 py-2.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
+                <MapIcon size={18} /> Activité depuis la carte
+              </button>
+            )}
             <button onClick={onActivite} style={{ background: C.teal }}
               className="text-white rounded-full pl-4 pr-5 py-2.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
               <Plus size={18} /> Activité
@@ -2542,7 +2554,12 @@ const bulleGoogle = (maps, m, placeId) => {
 // (les sujets vivent côté serveur, un client ne dicte pas les types Google qu'on
 // paie), `markerIcon` pour les repères, et le chemin d'ajout des propositions.
 // Rien de neuf côté base ni côté fonctions Edge.
-function DayMapSheet({ markers, dayLabel, jourLabelCourt, onClose, onAdd }) {
+// `insertion` dit que la carte a été ouverte depuis un « + » de la timeline, et
+// `apresQuoi` NOMME l'étape visée quand ce nom est connu. Deux informations, et
+// non une : le libellé du bouton doit tenir au premier, pas au second. À le faire
+// dépendre du nom, un nom introuvable faisait basculer le bouton d'« Insérer ici »
+// à « Ajouter au voyage » — il changeait de sens sans que rien ait changé.
+function DayMapSheet({ markers, dayLabel, jourLabelCourt, onClose, onAdd, insertion = false, apresQuoi = null }) {
   const hote = useRef(null);
   const [erreur, setErreur] = useState("");
 
@@ -2786,6 +2803,14 @@ function DayMapSheet({ markers, dayLabel, jourLabelCourt, onClose, onAdd }) {
             className="pointer-events-auto rounded-xl px-3 py-2 shadow-sm min-w-0">
             <div style={{ color: C.ink }} className="text-sm font-semibold leading-tight">Carte de la journée</div>
             <div style={{ color: C.inkSoft }} className="t11 capitalize truncate">{dayLabel}</div>
+            {/* Ouverte depuis un « + » de la timeline, la carte doit dire OÙ le
+                lieu se glissera : sans cela l'insertion est muette, et on ne le
+                découvre qu'après avoir refermé la carte. */}
+            {apresQuoi && (
+              <div style={{ color: C.bleu }} className="t11 mt-0.5 truncate">
+                s'insérera après {apresQuoi}
+              </div>
+            )}
           </div>
           <div className="flex-1" />
           <button onClick={onClose} aria-label="Fermer la carte"
@@ -2897,7 +2922,7 @@ function DayMapSheet({ markers, dayLabel, jourLabelCourt, onClose, onAdd }) {
                     className="flex-1 rounded-xl py-2 text-sm font-medium inline-flex items-center justify-center gap-1.5 active:scale-95 transition">
                     {ajoutes[choisi.cle]
                       ? <><Check size={16} /> Ajouté{jourLabelCourt ? ` — ${jourLabelCourt}` : ""}</>
-                      : <><Plus size={16} /> Ajouter au voyage</>}
+                      : <><Plus size={16} /> {insertion ? "Insérer ici" : "Ajouter au voyage"}</>}
                   </button>
                   <a href={mapsPlaceUrl({ lat: choisi.lat, lng: choisi.lng, name: choisi.nom })}
                     target="_blank" rel="noopener noreferrer"
@@ -4023,6 +4048,15 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
   // rendu recréerait la promesse d'adresse à chaque passage, et l'effet qui
   // l'attend repartirait sans fin.
   const [amorce, setAmorce] = useState({ promptInitial: "", repereAttendu: null, repereInitial: null });
+  // Ouvre la carte pour y CHERCHER une étape, en retenant après quoi l'insérer.
+  // `apresId` vient du « + » touché dans la timeline ; le bouton flottant, lui,
+  // n'en donne pas et l'ajout tombe alors en fin de journée, comme pour ses
+  // autres choix.
+  const ouvreCarte = (apresId) => {
+    pileAncres.current = apresId ? [apresId] : [];
+    setMapOpen(true);
+  };
+
   const ouvreSuggestions = (apresId) => {
     pileAncres.current = apresId ? [apresId] : [];
     const i = apresId ? acts.findIndex((x) => x.id === apresId) : acts.length - 1;
@@ -4161,7 +4195,7 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
                   seulement un aperçu de la journée, c'est là qu'on cherche de
                   quoi la remplir. La griser un jour vide fermait la porte
                   exactement quand elle sert le plus. */}
-              <IconBtn onClick={() => setMapOpen(true)}
+              <IconBtn onClick={() => ouvreCarte(null)}
                 label={markers.length ? "Voir la carte de la journée" : "Chercher des lieux sur la carte"}>
                 <MapIcon size={19} />
               </IconBtn>
@@ -4233,7 +4267,8 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
                   onOuvrirAjout={() => setAjoutTrajet(a.id)}
                   onFermerAjout={fermeTrajet}
                   onAjoutActivite={canEdit && !drag ? () => choisitTrajet(() => onAddAct(a.id)) : undefined}
-                  onAjoutSuggestion={() => choisitTrajet(() => ouvreSuggestions(a.id))} />}
+                  onAjoutSuggestion={() => choisitTrajet(() => ouvreSuggestions(a.id))}
+                  onAjoutCarte={canEdit && !drag ? () => choisitTrajet(() => ouvreCarte(a.id)) : undefined} />}
                 {/* Deux entrées du MÊME hébergement : le réveil et le coucher.
                     Aucun trajet à afficher — on ne va pas d'un lieu à lui-même —
                     mais toute la journée s'écoule entre les deux, et c'est là
@@ -4245,7 +4280,8 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
                     onOuvrir={() => setAjoutTrajet(a.id)}
                     onFermer={fermeTrajet}
                     onActivite={() => choisitTrajet(() => onAddAct(a.id))}
-                    onSuggestion={() => choisitTrajet(() => ouvreSuggestions(a.id))} />
+                    onSuggestion={() => choisitTrajet(() => ouvreSuggestions(a.id))}
+                    onCarte={() => choisitTrajet(() => ouvreCarte(a.id))} />
                 )}
                 {drag && drag.over === acts.length && i === acts.length - 1 && <InsertBar />}
               </div>
@@ -4260,7 +4296,8 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
                 onOuvrir={() => setAjoutTrajet(acts[acts.length - 1].id)}
                 onFermer={fermeTrajet}
                 onActivite={() => choisitTrajet(() => onAddAct(acts[acts.length - 1].id))}
-                onSuggestion={() => choisitTrajet(() => ouvreSuggestions(acts[acts.length - 1].id))} />
+                onSuggestion={() => choisitTrajet(() => ouvreSuggestions(acts[acts.length - 1].id))}
+                onCarte={() => choisitTrajet(() => ouvreCarte(acts[acts.length - 1].id))} />
             )}
             {canEdit && acts.filter((a) => !isStay(a)).length > 1 && (
               <div style={{ color: C.inkSoft }} className="t11 mt-5 flex items-center gap-1">
@@ -4283,7 +4320,24 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
           // journée : c'est le jour qu'on a sous les yeux, et l'ancre de la
           // dernière étape n'a pas de sens pour un lieu qu'on vient de choisir
           // au hasard de la carte.
-          onAdd={canEdit ? (l) => onAddSuggestion(l, safeCurrent, null) : null} />
+          // L'ancre avance sur l'étape qu'on vient de poser : deux lieux
+          // retenus d'affilée se suivent alors dans l'ordre où on les a pris,
+          // au lieu que le second passe devant le premier.
+          onAdd={canEdit ? (l) => {
+            const nouvelId = onAddSuggestion(l, safeCurrent, ancre());
+            if (nouvelId) pileAncres.current.push(nouvelId);
+            return nouvelId;
+          } : null}
+          // Dit après quoi l'étape se glissera, quand la carte a été ouverte
+          // depuis un « + » de la timeline : sans cela l'insertion serait muette,
+          // et on ne saurait qu'après coup où le lieu a atterri.
+          insertion={ancre() != null}
+          apresQuoi={(() => {
+            const a = ancre();
+            if (!a) return null;
+            const e = acts.find((x) => x.id === a);
+            return e ? e.name : null;
+          })()} />
       )}
 
       {checklistOpen && (
@@ -4336,6 +4390,10 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
                   <button onClick={() => choisitAjout(onAddStay)} style={{ background: STAY_COLOR }}
                     className="pointer-events-auto text-white rounded-full pl-4 pr-5 py-3.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
                     <Plus size={20} /> Hébergement
+                  </button>
+                  <button onClick={() => choisitAjout(() => ouvreCarte(null))} style={{ background: C.bleu }}
+                    className="pointer-events-auto text-white rounded-full pl-4 pr-5 py-3.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
+                    <MapIcon size={20} /> Activité depuis la carte
                   </button>
                   <button onClick={() => choisitAjout(onAddAct)} style={{ background: C.teal }}
                     className="pointer-events-auto text-white rounded-full pl-4 pr-5 py-3.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">

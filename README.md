@@ -1021,6 +1021,32 @@ L'ordre reste inversé sur un hébergement, où l'**adresse passe devant le lien
 un lien de réservation ne montre qu'un quartier, l'adresse de l'hôte mène à la
 porte.
 
+### « Activité depuis la carte », dans les menus d'ajout
+Les trois menus « + » — le bouton flottant, celui d'un trajet, celui de fin de
+journée — proposent un choix de plus, qui ouvre la carte pour y CHERCHER l'étape
+plutôt que de la saisir.
+
+**L'insertion tombe au bon endroit.** Le mécanisme existait déjà : `pileAncres`,
+la pile d'ancres de l'écran Suggestions. La carte s'en sert à l'identique, et
+pour la même raison — l'ancre doit **avancer** à chaque ajout, sinon le deuxième
+lieu retenu se glisserait AVANT le premier et la journée sortirait à l'envers.
+Un seul de ces deux écrans étant ouvert à la fois, la pile est partagée sans
+conflit.
+
+Ouverte depuis le bouton flottant, la carte n'a pas d'ancre : l'ajout tombe en
+fin de journée, comme pour les autres choix de ce menu.
+
+**L'insertion n'est pas muette.** L'en-tête de la carte annonce « s'insérera
+après <étape> », et le bouton de la fiche dit « Insérer ici » au lieu d'« Ajouter
+au voyage ». Sans cela on ne découvrirait où le lieu a atterri qu'après avoir
+refermé la carte.
+
+Deux informations distinctes servent cela : `insertion` (la carte vient-elle d'un
+« + » ?) et `apresQuoi` (le NOM de l'étape visée, quand il est connu). Le libellé
+du bouton tient au premier, jamais au second — à le faire dépendre du nom, un nom
+introuvable faisait basculer le bouton d'« Insérer ici » à « Ajouter au voyage »,
+qui changeait de sens sans que rien ait changé.
+
 ### Chercher et ajouter un lieu depuis la carte de la journée
 La carte montrait la journée, et rien de plus : on la consultait, on la
 refermait, puis on rouvrait l'écran Suggestions pour chercher un restaurant. Or
