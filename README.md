@@ -1021,6 +1021,19 @@ L'ordre reste inversé sur un hébergement, où l'**adresse passe devant le lien
 un lien de réservation ne montre qu'un quartier, l'adresse de l'hôte mène à la
 porte.
 
+### L'icône Maps de la fiche ouvre la FICHE, non un point
+Elle pointait sur `mapsPlaceUrl`, qui cherche un couple de coordonnées : Maps y
+posait une épingle anonyme — sans nom, sans horaires, sans avis — alors que
+l'identifiant du lieu était en main et que sa fiche existait.
+
+`mapsFicheUrl` ajoute `query_place_id`, le paramètre documenté par Google pour
+désigner un lieu nommément. Le `query` reste obligatoire à côté, Google le
+voulant comme repli si l'identifiant ne lui dit plus rien : on y met le **nom**,
+qui retrouve le lieu mieux qu'un couple de coordonnées ne le ferait.
+
+Sans identifiant — cela arrive — on retombe sur l'ancienne URL par coordonnées,
+plutôt que d'envoyer un `query_place_id` vide.
+
 ### Un lieu déjà sur la carte s'ajoute sans être cherché
 Toucher un point d'intérêt du fond de carte — un musée, un restaurant que Google
 affiche de lui-même — ouvrait la bulle de Google : elle ne sait rien du voyage et

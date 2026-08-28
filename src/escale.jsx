@@ -338,6 +338,23 @@ const mapsDirUrl = (from, to, mode) => {
   return `https://www.google.com/maps/dir/?${params.toString()}`;
 };
 const mapsPlaceUrl = (p) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(placeQuery(p))}`;
+
+// La FICHE Google d'un lieu, et non un point sur la carte.
+//
+// `mapsPlaceUrl` cherche un couple de coordonnées : Maps y pose alors une
+// épingle anonyme, sans nom, sans horaires, sans avis — alors qu'on tient
+// l'identifiant du lieu et que sa fiche existe. `query_place_id` le désigne
+// nommément, et c'est elle qui s'ouvre.
+//
+// Le `query` reste obligatoire à côté, Google le voulant comme repli si
+// l'identifiant ne lui dit plus rien : on y met le NOM, qui retrouve le lieu
+// mieux qu'un couple de coordonnées le ferait.
+const mapsFicheUrl = ({ placeId, nom, lat, lng }) => {
+  const repli = (nom || "").trim() || (lat != null && lng != null ? `${lat},${lng}` : "");
+  if (!placeId) return mapsPlaceUrl({ lat, lng, name: nom });
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(repli)}`
+    + `&query_place_id=${encodeURIComponent(placeId)}`;
+};
 // Recherche Google Maps sur une adresse écrite : c'est Google qui la géocode.
 const adresseUrl = (addr) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addr)}`;
 const isMapsLink = (u) => /^https?:\/\/([a-z0-9-]+\.)*(google\.[a-z.]+|goo\.gl)\//i.test((u || "").trim());
@@ -3037,7 +3054,7 @@ function DayMapSheet({ markers, dayLabel, jourLabelCourt, onClose, onAdd, insert
                       ? <><Check size={16} /> Ajouté{jourLabelCourt ? ` — ${jourLabelCourt}` : ""}</>
                       : <><Plus size={16} /> {insertion ? "Insérer ici" : "Ajouter au voyage"}</>}
                   </button>
-                  <a href={mapsPlaceUrl({ lat: choisi.lat, lng: choisi.lng, name: choisi.nom })}
+                  <a href={mapsFicheUrl(choisi)}
                     target="_blank" rel="noopener noreferrer"
                     aria-label="Ouvrir ce lieu dans Google Maps" title="Ouvrir dans Google Maps"
                     style={{ border: `1px solid ${C.line}`, background: "#fff", color: C.teal }}
