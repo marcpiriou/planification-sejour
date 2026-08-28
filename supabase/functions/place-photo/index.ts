@@ -1,5 +1,11 @@
 // Edge Function : identifie un lieu via l'API Google Places (New) et renvoie son
 // identifiant (placeId) et l'URL d'une de ses photos.
+//
+// Deux entrées : { query } cherche le lieu par son nom — le cas d'origine, avec
+// toute la vérification que cela demande — et { placeId } rend directement la
+// fiche d'un lieu déjà identifié, ce que Google fait au toucher d'un point
+// d'intérêt sur la carte. Rien à vérifier dans ce second cas : l'identifiant EST
+// le lieu.
 // La clé API reste secrète côté serveur (secret Supabase GOOGLE_PLACES_KEY),
 // jamais exposée au navigateur ni au dépôt public.
 //
@@ -104,7 +110,62 @@ Deno.serve(async (req: Request) => {
   if (!KEY) return json({ error: "GOOGLE_PLACES_KEY manquant (secret Supabase)" }, 500);
 
   try {
-    const { query, lat, lng, avecNote } = await req.json();
+    const { query, lat, lng, avecNote, placeId: idDemande } = await req.json();
+
+    // --- Lieu désigné par son IDENTIFIANT -------------------------------
+    // Sert la fiche d'un point d'intérêt touché sur la carte : c'est Google
+    // lui-même qui a donné cet identifiant au clic, il n'y a donc RIEN à
+    // vérifier — toute la prudence du reste de cette fonction existe parce
+    // qu'une recherche textuelle rend « quelque chose » même hors sujet, ce qui
+    // n'a pas cours ici. Une requête, et la fiche complète.
+    const id = (idDemande || "").toString().trim();
+    if (id) {
+      if (!/^[A-Za-z0-9_-]{1,255}$/.test(id)) return json({ error: "identifiant de lieu invalide" }, 400);
+      const champs = [
+        "id", "displayName", "formattedAddress", "location", "photos",
+        // Ce que Google dit que le lieu EST (« Musée d'art »), affiché sur la
+        // fiche : c'est lui qui rend un lieu hors sujet visible d'un coup d'œil.
+        "primaryTypeDisplayName", "types",
+        "rating", "userRatingCount",
+      ].join(",");
+      const r = await fetch(`https://places.googleapis.com/v1/places/${encodeURIComponent(id)}?languageCode=fr`, {
+        headers: { "X-Goog-Api-Key": KEY, "X-Goog-FieldMask": champs },
+      });
+      if (!r.ok) {
+        const t = await r.text();
+        console.error(`place-photo: fiche par id ${r.status} — ${t.slice(0, 300)}`);
+        return json({ error: "fiche du lieu indisponible", status: r.status, detail: t.slice(0, 300) }, 200);
+      }
+      const pl = await r.json();
+      const loc = pl?.location;
+      const nomPhoto = pl?.photos?.[0]?.name;
+      let photoUri: string | null = null;
+      if (nomPhoto) {
+        const media = await fetch(
+          `https://places.googleapis.com/v1/${nomPhoto}/media?maxHeightPx=800&maxWidthPx=800&skipHttpRedirect=true`,
+          { headers: { "X-Goog-Api-Key": KEY } },
+        );
+        if (media.ok) {
+          const d = await media.json();
+          photoUri = typeof d?.photoUri === "string" ? d.photoUri : null;
+        } else {
+          console.error(`place-photo: media par id ${media.status}`);
+        }
+      }
+      return json({
+        placeId: (pl?.id || id).toString(),
+        nom: pl?.displayName?.text || undefined,
+        adresse: pl?.formattedAddress || undefined,
+        ...(typeof loc?.latitude === "number" && typeof loc?.longitude === "number"
+          ? { lat: loc.latitude, lng: loc.longitude } : {}),
+        typeLisible: pl?.primaryTypeDisplayName?.text || undefined,
+        types: Array.isArray(pl?.types) ? pl.types : undefined,
+        ...(typeof pl?.rating === "number" ? { note: pl.rating } : {}),
+        ...(typeof pl?.userRatingCount === "number" ? { nbAvis: pl.userRatingCount } : {}),
+        ...(photoUri ? { photoUri } : {}),
+      });
+    }
+
     const q = (query || "").toString().trim();
     if (!q) return json({}); // rien à chercher -> pas de photo
 

@@ -2584,6 +2584,42 @@ const categorieDepuisTypes = (types) => {
   return "visite";
 };
 
+// La fiche d'un lieu par son IDENTIFIANT, via l'Edge Function place-photo.
+//
+// C'est la route PRINCIPALE, et non un repli : sa clé (secret GOOGLE_PLACES_KEY)
+// est celle qui sert déjà les photos et la recherche de proximité, donc dont on
+// sait qu'elle est autorisée sur Places (New). La clé du navigateur, elle, ne
+// l'est pas forcément — et c'est exactement ce qui laissait le chargeur tourner
+// dans le vide.
+//
+// Renvoie { lieu } ou { erreur }, jamais null en silence : un échec doit se lire
+// à l'écran, sinon il ne reste qu'un chargeur qui s'éteint sans rien montrer.
+async function fetchLieuParId(placeId) {
+  try {
+    const { data, error } = await supabase.functions.invoke("place-photo", { body: { placeId } });
+    if (error) return { erreur: (await messageFonction(error)) || "fiche du lieu indisponible" };
+    if (!data) return { erreur: "fiche du lieu indisponible" };
+    if (data.error) return { erreur: data.detail ? `${data.error} (${data.detail})` : data.error };
+    if (!data.nom && data.lat == null) return { erreur: "Google n'a rien renvoyé pour ce lieu." };
+    return { lieu: {
+      cle: data.placeId || placeId,
+      placeId: data.placeId || placeId,
+      nom: data.nom || "Lieu",
+      nomGoogle: data.nom || null,
+      description: data.typeLisible || null,
+      adresse: data.adresse || null,
+      lat: typeof data.lat === "number" ? data.lat : null,
+      lng: typeof data.lng === "number" ? data.lng : null,
+      note: typeof data.note === "number" ? data.note : null,
+      nbAvis: typeof data.nbAvis === "number" ? data.nbAvis : null,
+      photoUri: data.photoUri || null,
+      categorie: categorieDepuisTypes(data.types),
+    } };
+  } catch (e) {
+    return { erreur: e?.message || String(e) };
+  }
+}
+
 // Un lieu de la carte Google, ramené à la forme que la fiche du bas et l'ajout
 // au voyage attendent — la même que celle d'un résultat de recherche, pour que
 // les deux s'affichent et s'ajoutent exactement pareil.
@@ -2608,7 +2644,15 @@ async function lieuDepuisPlaceId(maps, placeId, latLng) {
   };
   let p = null;
   try { p = await lire(CHAMPS_LIEU); }
-  catch { try { p = await lire(CHAMPS_LIEU_MIN); } catch { return null; } }
+  catch (e1) {
+    try { p = await lire(CHAMPS_LIEU_MIN); }
+    catch (e2) {
+      // Journalisé : ce silence est ce qui laissait un chargeur tourner sans
+      // que rien n'explique pourquoi.
+      console.error("fiche du lieu (navigateur) :", e1, e2);
+      return null;
+    }
+  }
   if (!p) return null;
   const pos = p.location;
   const lat = pos ? pos.lat() : (latLng ? latLng.lat() : null);
@@ -2719,16 +2763,27 @@ function DayMapSheet({ markers, dayLabel, jourLabelCourt, onClose, onAdd, insert
         //
         // Ailleurs — le fond, une rue — il n'y a rien à montrer : on referme.
         carte.addListener("click", async (e) => {
-          if (e?.placeId && maps.places?.Place) {
+          if (e?.placeId) {
             // Sans cela la bulle de Google s'ouvre par-dessus notre fiche.
             if (typeof e.stop === "function") e.stop();
             ferme();
             setChoisi(null);
+            setErreurRecherche("");
             setFicheEnCours(true);
-            const l = await lieuDepuisPlaceId(maps, e.placeId, e.latLng);
+            // Le serveur d'abord : sa clé est celle qui sert déjà photos et
+            // recherche de proximité. Le navigateur ensuite, si sa bibliothèque
+            // Places répond là où le serveur a échoué.
+            const r = await fetchLieuParId(e.placeId);
+            let l = r.lieu || null;
+            if (!l && maps.places?.Place) l = await lieuDepuisPlaceId(maps, e.placeId, e.latLng);
             if (!alive) return;
             setFicheEnCours(false);
-            if (!l) return;
+            if (!l) {
+              // Un échec se DIT. Sans ce message, le chargeur s'éteignait et il
+              // ne restait rien — ni fiche, ni raison.
+              setErreurRecherche(r.erreur || "Fiche de ce lieu indisponible.");
+              return;
+            }
             setChoisi(l);
             if (l.lat != null && l.lng != null) {
               // Comme pour un résultat : on remonte le lieu au-dessus de la fiche.

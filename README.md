@@ -1045,15 +1045,33 @@ bulle de Google, et on affiche **notre** fiche du bas — la même que pour un
 résultat de recherche, donc le même bouton au même endroit. Vérifié en comparant
 les deux : même enveloppe, mêmes commandes.
 
-La fiche vient de la bibliothèque Places **déjà chargée** pour les bulles
-d'étape : aucune Edge Function de plus, aucun secret de plus. Elle est facturée
-comme une fiche de lieu, du même ordre que ce que la carte paie déjà au toucher
-d'une étape — et seulement au toucher.
+**La fiche est demandée au serveur, et le navigateur n'est que le repli.**
+Elle venait d'abord de la bibliothèque Places du navigateur, celle déjà chargée
+pour les bulles d'étape : rien à déployer, rien à configurer. Mais cette
+bibliothèque appelle Google avec la clé Maps **du navigateur**, restreinte aux
+référents du site et à l'API Maps JavaScript — et une fiche de lieu relève de
+l'API Places, qui n'a aucune raison d'y être autorisée. Le loader tournait donc
+puis disparaissait sans rien afficher.
 
-**Deux jeux de champs, essayés dans l'ordre.** Google refuse toute la requête si
-un seul nom de champ lui est inconnu : une version d'API un peu ancienne
-priverait la fiche de TOUT. Le repli garde le nom, l'adresse et la position — de
-quoi afficher et ajouter le lieu.
+`place-photo` accepte désormais un `placeId` en plus d'un `query` : une requête,
+la fiche complète, avec la clé serveur — la même qui sert déjà les photos et la
+recherche autour de la carte, donc démontrée bonne en production. Rien à vérifier
+dans cette branche, contrairement à la recherche par nom : l'identifiant vient de
+Google au clic, il EST le lieu. La bibliothèque du navigateur reste essayée
+ensuite, au cas où le serveur soit indisponible.
+
+**Un échec se voit.** Le vrai défaut n'était pas la clé, c'était mes deux
+`catch { return null; }` : la fonction échouait **en silence**, et l'écran ne
+pouvait rien dire d'autre qu'un loader sans suite. La recherche de fiche rend
+maintenant soit un lieu, soit un motif — affiché à la place du loader, et
+journalisé côté fonction. Un refus de Google arrive à l'écran sous son nom
+(« fiche du lieu indisponible (Places API not enabled) ») au lieu de se
+confondre avec un lieu introuvable.
+
+**Deux jeux de champs, essayés dans l'ordre** — dans le repli navigateur. Google
+refuse toute la requête si un seul nom de champ lui est inconnu : une version
+d'API un peu ancienne priverait la fiche de TOUT. Le repli garde le nom,
+l'adresse et la position — de quoi afficher et ajouter le lieu.
 
 **La catégorie vient du type Google.** Un résultat de recherche tient la sienne de
 la pastille touchée ; un lieu touché sur la carte n'a aucune pastille derrière
