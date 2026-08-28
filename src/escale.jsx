@@ -2456,6 +2456,11 @@ const positionIcon = (maps) => {
 // par Google dans l'URL, distance au point épinglé). Une étape sans lien Google —
 // une adresse tapée, un lien Airbnb — n'a pas de fiche : la bulle se rabat alors
 // sur ce que l'application sait du lieu.
+// Cadre de repli d'une carte qui n'a aucun repère à montrer : l'Europe de
+// l'ouest, assez large pour que la position de l'utilisateur — où qu'il soit en
+// Europe — n'arrive pas comme un saut d'un continent à l'autre.
+const VUE_LARGE = { centre: { lat: 46.6, lng: 2.5 }, zoom: 5 };
+
 const FICHE_W = 280; // le composant compact n'est pas supporté sous 160 px
 
 // Garde de schéma, en défense : ce lien vient des données d'une activité, qu'un
@@ -2523,9 +2528,47 @@ const bulleGoogle = (maps, m, placeId) => {
   return box;
 };
 
-function DayMapSheet({ markers, dayLabel, onClose }) {
+/* --- Carte de la journée, et recherche de lieux dessus -------------- */
+// La carte montrait la journée, et rien de plus : on la consultait, on la
+// refermait, puis on rouvrait l'écran Suggestions pour chercher un restaurant.
+// Or c'est LÀ, sur la carte, qu'on voit qu'il manque quelque chose entre deux
+// étapes — et là qu'on sait où.
+//
+// Elle porte donc les trois gestes ensemble : chercher par sujet autour de ce
+// qu'on regarde, toucher un résultat pour en lire la fiche au bas de l'écran,
+// l'ajouter au voyage sans quitter la carte.
+//
+// Ce qui EXISTAIT est réutilisé tel quel : `places-around` pour la recherche
+// (les sujets vivent côté serveur, un client ne dicte pas les types Google qu'on
+// paie), `markerIcon` pour les repères, et le chemin d'ajout des propositions.
+// Rien de neuf côté base ni côté fonctions Edge.
+function DayMapSheet({ markers, dayLabel, jourLabelCourt, onClose, onAdd }) {
   const hote = useRef(null);
   const [erreur, setErreur] = useState("");
+
+  // La carte et l'API, gardées en références : les gestes de recherche vivent
+  // hors de l'effet qui construit la carte, et ont besoin de son centre.
+  const mapsRef = useRef(null);
+  const carteRef = useRef(null);
+  // Les repères des résultats, pour pouvoir les retirer d'une recherche à
+  // l'autre. Sans cette liste, chaque recherche empilerait ses gouttes sur les
+  // précédentes.
+  const reperesRef = useRef([]);
+  const bulleRef = useRef(null);
+
+  const [sujet, setSujet] = useState(null);        // pastille active
+  const [lieux, setLieux] = useState([]);
+  const [chargement, setChargement] = useState(false);
+  const [erreurRecherche, setErreurRecherche] = useState("");
+  const [choisi, setChoisi] = useState(null);      // le lieu dont la fiche est ouverte
+  // La carte a-t-elle été déplacée depuis la dernière recherche ? C'est ce qui
+  // fait apparaître « Rechercher ici » : sans ce repère, il faudrait ou bien
+  // relancer une requête payante à chaque glissement, ou bien laisser des
+  // résultats hors champ sans le dire.
+  const [deplacee, setDeplacee] = useState(false);
+  // Ce qui a déjà été ajouté, par identifiant de lieu : la fiche le dit plutôt
+  // que de laisser ajouter deux fois le même restaurant sans prévenir.
+  const [ajoutes, setAjoutes] = useState({});
 
   useEffect(() => {
     let alive = true;
@@ -2536,6 +2579,7 @@ function DayMapSheet({ markers, dayLabel, onClose }) {
       try {
         const maps = await loadGoogleMaps();
         if (!alive || !hote.current) return;
+        mapsRef.current = maps;
         const bounds = new maps.LatLngBounds();
         const carte = new maps.Map(hote.current, {
           mapTypeControl: false,
@@ -2543,17 +2587,29 @@ function DayMapSheet({ markers, dayLabel, onClose }) {
           fullscreenControl: false,
           zoomControl: true,
           gestureHandling: "greedy",   // un doigt suffit à déplacer la carte
+          // Les commandes de Google sont remontées : la fiche d'un lieu occupe le
+          // bas de l'écran et recouvrirait le zoom laissé à sa place d'origine.
+          zoomControlOptions: { position: maps.ControlPosition.RIGHT_CENTER },
         });
+        carteRef.current = carte;
         // Une seule bulle à la fois : deux fiches ouvertes masqueraient la carte.
         const bulle = new maps.InfoWindow({ maxWidth: FICHE_W + 32 });
+        bulleRef.current = bulle;
         let ouvertePour = null;
         const ferme = () => { bulle.close(); ouvertePour = null; };
         bulle.addListener("closeclick", () => { ouvertePour = null; });
-        carte.addListener("click", ferme);
+        // Toucher le fond de la carte referme tout : la bulle d'une étape comme
+        // la fiche d'un résultat.
+        carte.addListener("click", () => { ferme(); setChoisi(null); });
+        // Un glissement ou un zoom rend les résultats affichés hors sujet : on ne
+        // les efface pas — ils restent utiles — mais on propose de rechercher là.
+        carte.addListener("dragend", () => { if (alive) setDeplacee(true); });
+        carte.addListener("zoom_changed", () => { if (alive) setDeplacee(true); });
 
         // La fiche Google n'est demandée qu'au toucher, et pour ce seul lieu :
         // chaque affichage est facturé, ouvrir la carte n'en paie aucun.
         const montreFiche = async (m, marqueur) => {
+          setChoisi(null);                        // la fiche d'un résultat cède la place
           if (ouvertePour === m) return ferme(); // deuxième toucher : on referme
           ouvertePour = m;
           bulle.setContent(blocTexte("Chargement de la fiche…", `font:400 12px ${SANS};color:${C.inkSoft}`));
@@ -2573,11 +2629,22 @@ function DayMapSheet({ markers, dayLabel, onClose }) {
             // Numéro et nom sont dans l'image : pas de label séparé, il se
             // superposerait au dessin.
             icon: markerIcon(maps, m.color, m.label, m.name),
+            // Au-dessus des résultats de recherche : la journée reste le sujet
+            // de cet écran, une goutte trouvée ne doit pas masquer une étape.
+            zIndex: 3,
           });
           marqueur.addListener("click", () => montreFiche(m, marqueur));
         });
         if (markers.length === 1) { carte.setCenter(bounds.getCenter()); carte.setZoom(15); }
-        else carte.fitBounds(bounds, 48);
+        else if (markers.length) carte.fitBounds(bounds, 48);
+        else {
+          // Journée sans étape située : aucun cadre à déduire. Une carte sans
+          // centre ni zoom ne rend qu'un fond gris, alors on pose une vue large
+          // — la position de l'utilisateur, plus bas, la resserrera dès qu'elle
+          // arrive.
+          carte.setCenter(VUE_LARGE.centre);
+          carte.setZoom(VUE_LARGE.zoom);
+        }
 
         // Position de l'utilisateur, suivie tant que la carte reste ouverte.
         //
@@ -2598,6 +2665,10 @@ function DayMapSheet({ markers, dayLabel, onClose }) {
               // Le repère est déplacé, pas recréé : en recréer un à chaque relevé
               // empilerait les marqueurs et ferait clignoter la carte.
               if (moi) { moi.setPosition(p); return; }
+              // Premier relevé sur une journée SANS étape : c'est lui qui donne
+              // le cadre, puisqu'il n'y en avait aucun à déduire. Avec des
+              // étapes, on n'y touche pas — le cadre doit rester celui du jour.
+              if (!markers.length) { carte.setCenter(p); carte.setZoom(14); }
               moi = new maps.Marker({
                 position: p, map: carte, title: "Ma position",
                 icon: positionIcon(maps),
@@ -2622,9 +2693,77 @@ function DayMapSheet({ markers, dayLabel, onClose }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Retire les repères de la recherche précédente.
+  const videRepères = () => {
+    reperesRef.current.forEach((r) => r.setMap(null));
+    reperesRef.current = [];
+  };
+
+  // Cherche autour de CE QU'ON REGARDE, et non autour des étapes de la journée :
+  // c'est le centre de la carte qui fait le point de recherche, si bien que
+  // déplacer la carte puis relancer suffit à chercher ailleurs.
+  const cherche = async (s) => {
+    const carte = carteRef.current;
+    if (!carte || !s) return;
+    const centre = carte.getCenter();
+    if (!centre) return;
+    setSujet(s);
+    setChoisi(null);
+    setErreurRecherche("");
+    setChargement(true);
+    setDeplacee(false);
+    bulleRef.current?.close();
+    const r = await fetchLieuxAutour(s.google, centre.lat(), centre.lng());
+    setChargement(false);
+    if (r.erreur) { setErreurRecherche(r.erreur); return; }
+    const trouves = (r.lieux || []).map((l, i) => ({
+      ...l,
+      cle: l.placeId || `${s.cle}-${i}`,
+      nomGoogle: l.nom || null,
+      categorie: s.categorie,
+    }));
+    setLieux(trouves);
+    poseRepères(trouves, s);
+    if (!trouves.length) setErreurRecherche(`Aucun résultat pour « ${s.libelle} » autour de ce point.`);
+  };
+
+  // Les gouttes des résultats : même dessin que celles d'une étape, dans la
+  // couleur de la catégorie du sujet, mais SANS numéro — elles ne font pas
+  // partie du parcours de la journée, et ce vide le dit sans légende.
+  const poseRepères = (trouves, s) => {
+    const maps = mapsRef.current, carte = carteRef.current;
+    if (!maps || !carte) return;
+    videRepères();
+    const couleur = catOf(s.categorie).color;
+    reperesRef.current = trouves
+      .filter((l) => typeof l.lat === "number" && typeof l.lng === "number")
+      .map((l) => {
+        const marqueur = new maps.Marker({
+          position: { lat: l.lat, lng: l.lng }, map: carte, title: l.nom,
+          icon: markerIcon(maps, couleur, null, l.nom),
+          zIndex: 2,
+        });
+        marqueur.addListener("click", () => {
+          bulleRef.current?.close();
+          setChoisi(l);
+          // La fiche occupe le bas de l'écran : on remonte le lieu pour qu'il
+          // reste visible au-dessus d'elle, plutôt que caché derrière.
+          carte.panTo({ lat: l.lat, lng: l.lng });
+          carte.panBy(0, 110);
+        });
+        return marqueur;
+      });
+  };
+
+  const ajoute = (l) => {
+    if (!onAdd || ajoutes[l.cle]) return;
+    const id = onAdd(l);
+    if (id) setAjoutes((v) => ({ ...v, [l.cle]: id }));
+  };
+
   return (
     <div className="fixed inset-0 z-40" style={{ background: C.paper }}>
-      {/* La carte occupe tout l'écran ; l'en-tête flotte au-dessus. */}
+      {/* La carte occupe tout l'écran ; l'en-tête et la fiche flottent au-dessus. */}
       <div ref={hote} className="absolute inset-0" />
       {erreur && (
         <div className="absolute inset-0 flex items-center justify-center px-6">
@@ -2637,19 +2776,142 @@ function DayMapSheet({ markers, dayLabel, onClose }) {
           </div>
         </div>
       )}
-      <div className="absolute top-0 inset-x-0 flex items-start gap-2 p-3 pointer-events-none">
-        <div style={{ background: "rgba(255,255,255,0.94)", border: `1px solid ${C.line}` }}
-          className="pointer-events-auto rounded-xl px-3 py-2 shadow-sm min-w-0">
-          <div style={{ color: C.ink }} className="text-sm font-semibold leading-tight">Carte de la journée</div>
-          <div style={{ color: C.inkSoft }} className="t11 capitalize truncate">{dayLabel}</div>
+
+      {/* En-tête, puis les pastilles de sujet juste dessous. Le conteneur ne
+          capte pas le toucher (pointer-events-none) : entre deux commandes, le
+          doigt doit atteindre la carte. */}
+      <div className="absolute top-0 inset-x-0 p-3 pointer-events-none">
+        <div className="flex items-start gap-2">
+          <div style={{ background: "rgba(255,255,255,0.94)", border: `1px solid ${C.line}` }}
+            className="pointer-events-auto rounded-xl px-3 py-2 shadow-sm min-w-0">
+            <div style={{ color: C.ink }} className="text-sm font-semibold leading-tight">Carte de la journée</div>
+            <div style={{ color: C.inkSoft }} className="t11 capitalize truncate">{dayLabel}</div>
+          </div>
+          <div className="flex-1" />
+          <button onClick={onClose} aria-label="Fermer la carte"
+            style={{ background: "rgba(255,255,255,0.94)", border: `1px solid ${C.line}`, color: C.ink }}
+            className="pointer-events-auto h-10 w-10 rounded-full flex items-center justify-center shadow-sm active:scale-95 transition">
+            <X size={20} />
+          </button>
         </div>
-        <div className="flex-1" />
-        <button onClick={onClose} aria-label="Fermer la carte"
-          style={{ background: "rgba(255,255,255,0.94)", border: `1px solid ${C.line}`, color: C.ink }}
-          className="pointer-events-auto h-10 w-10 rounded-full flex items-center justify-center shadow-sm active:scale-95 transition">
-          <X size={20} />
-        </button>
+
+        {/* Les sujets que Google sait chercher, dans l'ordre de SUJETS_GOOGLE.
+            La liste défile : cinq pastilles ne tiennent pas sur 360 px. */}
+        <div className="pointer-events-auto mt-2 -mx-1 px-1 flex gap-2 overflow-x-auto noscrollbar">
+          {SUJETS_GOOGLE.map((s) => {
+            const actif = sujet && sujet.cle === s.cle;
+            const Icone = catOf(s.categorie).icon;
+            return (
+              <button key={s.cle} onClick={() => cherche(s)} disabled={chargement}
+                style={{
+                  background: actif ? catOf(s.categorie).color : "rgba(255,255,255,0.94)",
+                  color: actif ? "#fff" : C.ink,
+                  border: `1px solid ${actif ? catOf(s.categorie).color : C.line}`,
+                }}
+                className="shrink-0 rounded-full pl-2.5 pr-3 py-1.5 text-xs font-medium shadow-sm inline-flex items-center gap-1.5 active:scale-95 transition capitalize">
+                <Icone size={13} /> {s.libelle}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Relancer là où l'on regarde : proposé seulement après un déplacement,
+            et seulement si une recherche a déjà eu lieu — sinon la pastille suffit. */}
+        {sujet && deplacee && !chargement && (
+          <div className="pointer-events-auto mt-2 flex justify-center">
+            <button onClick={() => cherche(sujet)}
+              style={{ background: C.card, border: `1px solid ${C.line}`, color: C.teal }}
+              className="rounded-full px-3 py-1.5 text-xs font-semibold shadow-sm inline-flex items-center gap-1.5 active:scale-95 transition">
+              <Search size={13} /> Rechercher ici
+            </button>
+          </div>
+        )}
+        {chargement && (
+          <div className="pointer-events-none mt-2 flex justify-center">
+            <div style={{ background: "rgba(255,255,255,0.94)", border: `1px solid ${C.line}`, color: C.inkSoft }}
+              className="rounded-full px-3 py-1.5 t11 inline-flex items-center gap-1.5 shadow-sm">
+              <Loader2 size={13} className="animate-spin" /> Recherche…
+            </div>
+          </div>
+        )}
+        {erreurRecherche && !chargement && (
+          <div className="pointer-events-auto mt-2 flex justify-center">
+            <div style={{ background: C.warnSoft, border: `1px solid ${C.warn}`, color: C.warn }}
+              className="rounded-xl px-3 py-1.5 t11 max-w-xs text-center">{erreurRecherche}</div>
+          </div>
+        )}
       </div>
+
+      {/* La fiche du lieu touché, au bas de l'écran — c'est de là qu'on l'ajoute
+          au voyage, sans quitter la carte. */}
+      {choisi && (
+        // La barre d'accueil du téléphone mange le bas de l'écran : sans cette
+        // marge, le bouton d'ajout passerait dessous. Même convention que les
+        // autres pieds d'écran de l'application.
+        <div className="absolute bottom-0 inset-x-0 p-3"
+          style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}>
+          <div style={{ background: C.card, border: `1px solid ${C.line}` }}
+            className="mx-auto max-w-md rounded-2xl shadow-lg overflow-hidden">
+            <div className="flex items-stretch">
+              {choisi.photoUri ? (
+                <div className="shrink-0 w-24 self-stretch" style={{
+                  backgroundImage: `url("${choisi.photoUri}")`, backgroundSize: "cover", backgroundPosition: "center",
+                  borderRight: `1px solid ${C.line}`,
+                }} role="img" aria-label={`Photo de ${choisi.nom}`} />
+              ) : (
+                <div className="shrink-0 w-24 self-stretch flex items-center justify-center"
+                  style={{ background: C.line, borderRight: `1px solid ${C.line}` }}>
+                  {(() => { const I = catOf(choisi.categorie).icon; return <I size={26} strokeWidth={1.75} style={{ color: catOf(choisi.categorie).color, opacity: 0.55 }} />; })()}
+                </div>
+              )}
+              <div className="flex-1 min-w-0 p-3">
+                <div className="flex items-start gap-2">
+                  <div style={{ color: C.ink }} className="font-semibold leading-tight flex-1 min-w-0">{choisi.nom}</div>
+                  <button onClick={() => setChoisi(null)} aria-label="Fermer la fiche du lieu"
+                    className="shrink-0 -mt-1 -mr-1 h-7 w-7 rounded-full flex items-center justify-center active:scale-95 transition">
+                    <X size={16} style={{ color: C.inkSoft }} />
+                  </button>
+                </div>
+                {/* Ce que Google dit du lieu, et sa note : deux repères qui
+                    rendent un résultat hors sujet visible d'un coup d'œil. */}
+                <div className="mt-1 flex items-center gap-2 flex-wrap">
+                  {choisi.description && (
+                    <span style={{ color: catOf(choisi.categorie).color }} className="t11 font-medium">{choisi.description}</span>
+                  )}
+                  {typeof choisi.note === "number" && (
+                    <span style={{ color: C.inkSoft, fontFamily: MONO }} className="t11">
+                      ★ {choisi.note.toFixed(1)}{typeof choisi.nbAvis === "number" ? ` · ${choisi.nbAvis}` : ""}
+                    </span>
+                  )}
+                </div>
+                {choisi.adresse && (
+                  <div style={{ color: C.inkSoft }} className="text-xs mt-1 clamp3">{choisi.adresse}</div>
+                )}
+                <div className="mt-2 flex items-center gap-2">
+                  <button onClick={() => ajoute(choisi)} disabled={!onAdd || !!ajoutes[choisi.cle]}
+                    style={{
+                      background: ajoutes[choisi.cle] ? C.tealSoft : C.teal,
+                      color: ajoutes[choisi.cle] ? C.teal : "#fff",
+                      border: `1px solid ${ajoutes[choisi.cle] ? C.teal : "transparent"}`,
+                    }}
+                    className="flex-1 rounded-xl py-2 text-sm font-medium inline-flex items-center justify-center gap-1.5 active:scale-95 transition">
+                    {ajoutes[choisi.cle]
+                      ? <><Check size={16} /> Ajouté{jourLabelCourt ? ` — ${jourLabelCourt}` : ""}</>
+                      : <><Plus size={16} /> Ajouter au voyage</>}
+                  </button>
+                  <a href={mapsPlaceUrl({ lat: choisi.lat, lng: choisi.lng, name: choisi.nom })}
+                    target="_blank" rel="noopener noreferrer"
+                    aria-label="Ouvrir ce lieu dans Google Maps" title="Ouvrir dans Google Maps"
+                    style={{ border: `1px solid ${C.line}`, background: "#fff", color: C.teal }}
+                    className="shrink-0 h-10 w-10 rounded-xl flex items-center justify-center active:scale-95 transition">
+                    <MapPin size={18} />
+                  </a>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -3895,14 +4157,14 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
                   elle et le menu du séjour : il est parti sur la carte du séjour,
                   à l'accueil — gérer qui accède à un séjour ne regarde pas la
                   journée qu'on avait sous les yeux au moment d'y penser. */}
-              {markers.length ? (
-                <IconBtn onClick={() => setMapOpen(true)} label="Voir la carte de la journée"><MapIcon size={19} /></IconBtn>
-              ) : (
-                <span aria-hidden="true" style={{ color: C.line }}
-                  className="h-10 w-10 rounded-full flex items-center justify-center" title="Aucun lieu situé ce jour">
-                  <MapIcon size={19} />
-                </span>
-              )}
+              {/* Toujours actif, même sans étape située : la carte n'est plus
+                  seulement un aperçu de la journée, c'est là qu'on cherche de
+                  quoi la remplir. La griser un jour vide fermait la porte
+                  exactement quand elle sert le plus. */}
+              <IconBtn onClick={() => setMapOpen(true)}
+                label={markers.length ? "Voir la carte de la journée" : "Chercher des lieux sur la carte"}>
+                <MapIcon size={19} />
+              </IconBtn>
               {canEdit && <IconBtn onClick={onEditTrip} label="Modifier le séjour"><MoreVertical size={20} /></IconBtn>}
             </div>
           }
@@ -4009,8 +4271,19 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
         )}
       </div>
 
-      {mapOpen && markers.length > 0 && (
-        <DayMapSheet markers={markers} dayLabel={fmtLong(safeCurrent)} onClose={() => setMapOpen(false)} />
+      {/* La carte s'ouvre même sur une journée VIDE, désormais : c'est là qu'on
+          cherche de quoi la remplir. Elle se cadrait sur les étapes du jour, et
+          n'avait donc rien à montrer sans elles ; sans repère, elle s'ouvre sur
+          la position de l'utilisateur, que la géolocalisation pose de toute façon. */}
+      {mapOpen && (
+        <DayMapSheet markers={markers} dayLabel={fmtLong(safeCurrent)}
+          jourLabelCourt={fmtShort(safeCurrent)}
+          onClose={() => setMapOpen(false)}
+          // Un lieu trouvé sur la carte rejoint la journée AFFICHÉE, en fin de
+          // journée : c'est le jour qu'on a sous les yeux, et l'ancre de la
+          // dernière étape n'a pas de sens pour un lieu qu'on vient de choisir
+          // au hasard de la carte.
+          onAdd={canEdit ? (l) => onAddSuggestion(l, safeCurrent, null) : null} />
       )}
 
       {checklistOpen && (

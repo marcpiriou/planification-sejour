@@ -1021,6 +1021,50 @@ L'ordre reste inversé sur un hébergement, où l'**adresse passe devant le lien
 un lien de réservation ne montre qu'un quartier, l'adresse de l'hôte mène à la
 porte.
 
+### Chercher et ajouter un lieu depuis la carte de la journée
+La carte montrait la journée, et rien de plus : on la consultait, on la
+refermait, puis on rouvrait l'écran Suggestions pour chercher un restaurant. Or
+c'est **là**, sur la carte, qu'on voit qu'il manque quelque chose entre deux
+étapes — et là qu'on sait où.
+
+Elle porte donc les trois gestes ensemble :
+
+1. **Chercher par sujet** — cinq pastilles (activités, parking, glacier,
+   restaurant, toilettes) au-dessus de la carte ;
+2. **Toucher un résultat** — sa fiche s'ouvre au bas de l'écran : photo, type
+   selon Google, note, adresse ;
+3. **Ajouter au voyage** — sans quitter la carte. La fiche dit ensuite « Ajouté »
+   et refuse le doublon, plutôt que de laisser poser deux fois le même musée.
+
+**Rien de neuf côté serveur.** `places-around` existait pour l'écran Suggestions
+et rend déjà exactement ce qu'il faut. Ses sujets vivent **côté serveur** et le
+client n'envoie qu'un mot-clé : c'était déjà le choix, pour qu'un navigateur ne
+puisse pas dicter les types Google qu'on paie. Le chemin d'ajout est celui des
+propositions (`addSuggestion`), et la catégorie de l'étape créée vient de la
+pastille touchée — un restaurant devient un repas, un parking un transport.
+
+**La recherche part du centre de la carte**, non des étapes du jour : déplacer la
+carte puis relancer suffit donc à chercher ailleurs. Un glissement fait
+apparaître **« Rechercher ici »** au lieu de relancer une requête payante à
+chaque mouvement — ou de laisser des résultats hors champ sans le dire.
+
+**Les repères se distinguent sans légende.** Un résultat reprend la goutte d'une
+étape, dans la couleur de sa catégorie, mais **sans numéro** : `markerIcon`
+acceptait déjà `numero == null`. Le vide dit qu'il ne fait pas partie du
+parcours. Les étapes gardent un `zIndex` supérieur — la journée reste le sujet de
+l'écran.
+
+**La carte s'ouvre désormais sur une journée VIDE.** Son bouton était grisé sans
+étape située, ce qui fermait la porte exactement quand elle sert le plus. Sans
+repère il n'y a aucun cadre à déduire, et une carte sans centre ni zoom ne rend
+qu'un fond gris : on pose donc une vue large (`VUE_LARGE`), que le premier relevé
+de position resserre. Avec des étapes, ce relevé ne touche pas au cadre — se
+trouver à 500 km de son séjour dézoomerait la carte jusqu'à l'illisible.
+
+Deux détails de finition : les commandes de zoom de Google remontent au centre
+droit, la fiche occupant le bas ; et toucher un résultat remonte le lieu de
+110 px pour qu'il reste visible au-dessus d'elle.
+
 ### Le filet de l'icône d'un hébergement
 La zone d'icône d'une activité est séparée du texte par un filet `C.line` ; celle
 d'un hébergement ne l'était pas, et le lit flottait au bord de la carte.
