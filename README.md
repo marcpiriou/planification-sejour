@@ -1021,6 +1021,34 @@ L'ordre reste inversé sur un hébergement, où l'**adresse passe devant le lien
 un lien de réservation ne montre qu'un quartier, l'adresse de l'hôte mène à la
 porte.
 
+### Un lieu déjà sur la carte s'ajoute sans être cherché
+Toucher un point d'intérêt du fond de carte — un musée, un restaurant que Google
+affiche de lui-même — ouvrait la bulle de Google : elle ne sait rien du voyage et
+n'offre que d'aller voir ailleurs. Il fallait donc chercher un lieu déjà sous les
+yeux pour pouvoir l'ajouter.
+
+L'événement de clic porte le `placeId` du lieu touché. `e.stop()` retient la
+bulle de Google, et on affiche **notre** fiche du bas — la même que pour un
+résultat de recherche, donc le même bouton au même endroit. Vérifié en comparant
+les deux : même enveloppe, mêmes commandes.
+
+La fiche vient de la bibliothèque Places **déjà chargée** pour les bulles
+d'étape : aucune Edge Function de plus, aucun secret de plus. Elle est facturée
+comme une fiche de lieu, du même ordre que ce que la carte paie déjà au toucher
+d'une étape — et seulement au toucher.
+
+**Deux jeux de champs, essayés dans l'ordre.** Google refuse toute la requête si
+un seul nom de champ lui est inconnu : une version d'API un peu ancienne
+priverait la fiche de TOUT. Le repli garde le nom, l'adresse et la position — de
+quoi afficher et ajouter le lieu.
+
+**La catégorie vient du type Google.** Un résultat de recherche tient la sienne de
+la pastille touchée ; un lieu touché sur la carte n'a aucune pastille derrière
+lui. Sans traduction, toute épicerie et tout parking arriveraient en « visite »,
+avec l'icône d'un monument. `categorieDepuisTypes` fait la conversion — un
+restaurant devient un repas, un parking un transport — et ce qui n'est pas
+reconnu retombe sur « visite », le défaut déjà retenu pour une recherche libre.
+
 ### « Activité depuis la carte », dans les menus d'ajout
 Les trois menus « + » — le bouton flottant, celui d'un trajet, celui de fin de
 journée — proposent un choix de plus, qui ouvre la carte pour y CHERCHER l'étape

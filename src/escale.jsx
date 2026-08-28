@@ -2540,6 +2540,78 @@ const bulleGoogle = (maps, m, placeId) => {
   return box;
 };
 
+// Catégorie de l'application, déduite de ce que Google dit qu'un lieu EST.
+//
+// Un résultat de recherche tient sa catégorie de la pastille touchée — un
+// restaurant est un repas. Un lieu touché directement sur la carte, lui, n'a
+// aucune pastille derrière lui : sans cette traduction, toute épicerie, tout
+// parking et toute plage arriveraient en « visite », avec l'icône et la couleur
+// d'un monument.
+//
+// La liste n'a pas à être exhaustive : les types Google se comptent par
+// centaines, et ce qui n'est pas reconnu retombe sur « visite », le défaut déjà
+// retenu ailleurs pour une recherche libre.
+const TYPES_VERS_CATEGORIE = [
+  [/^(restaurant|food|meal_|fast_food|pizza|steak|sushi|barbecue|breakfast|brunch|deli|diner|dessert_restaurant|fine_dining)/, "repas"],
+  [/^(cafe|coffee|bakery|ice_cream|tea_house|juice|dessert_shop|donut|candy|chocolate|confectionery|bar$|pub|wine_bar)/, "cafe"],
+  [/^(park$|national_park|state_park|beach|hiking|campground|garden|botanical|zoo|wildlife|natural_feature|marina)/, "nature"],
+  [/^(store|shop|market|supermarket|grocery|mall|clothing|book_store|department_store|pharmacy|convenience)/, "shopping"],
+  [/^(parking|transit|train|bus|subway|light_rail|airport|ferry|taxi|car_rental|gas_station|electric_vehicle)/, "transport"],
+  [/^(museum|tourist_attraction|historical|monument|church|mosque|synagogue|hindu_temple|place_of_worship|art_gallery|cultural|landmark|castle|observation_deck|amusement|aquarium|planetarium|performing_arts|movie_theater|stadium)/, "visite"],
+];
+const categorieDepuisTypes = (types) => {
+  for (const t of Array.isArray(types) ? types : []) {
+    const id = String(t || "").toLowerCase();
+    for (const [motif, categorie] of TYPES_VERS_CATEGORIE) if (motif.test(id)) return categorie;
+  }
+  return "visite";
+};
+
+// Un lieu de la carte Google, ramené à la forme que la fiche du bas et l'ajout
+// au voyage attendent — la même que celle d'un résultat de recherche, pour que
+// les deux s'affichent et s'ajoutent exactement pareil.
+//
+// La demande passe par la bibliothèque Places DÉJÀ chargée pour les bulles
+// d'étape : aucune Edge Function de plus, aucun secret de plus. Elle est
+// facturée comme une fiche de lieu, du même ordre que ce que la carte paie déjà
+// au toucher d'une étape — et seulement au toucher, jamais à l'ouverture.
+//
+// Deux jeux de champs, essayés dans l'ordre : Google refuse toute la requête si
+// un seul nom de champ lui est inconnu, et une version d'API un peu ancienne
+// priverait alors la fiche de TOUT. Le repli garde le nom, l'adresse et la
+// position — de quoi afficher et ajouter le lieu.
+const CHAMPS_LIEU = ["displayName", "formattedAddress", "location", "rating", "userRatingCount", "photos", "primaryTypeDisplayName", "types"];
+const CHAMPS_LIEU_MIN = ["displayName", "formattedAddress", "location"];
+async function lieuDepuisPlaceId(maps, placeId, latLng) {
+  if (!maps.places?.Place) return null;
+  const lire = async (champs) => {
+    const p = new maps.places.Place({ id: placeId });
+    await p.fetchFields({ fields: champs });
+    return p;
+  };
+  let p = null;
+  try { p = await lire(CHAMPS_LIEU); }
+  catch { try { p = await lire(CHAMPS_LIEU_MIN); } catch { return null; } }
+  if (!p) return null;
+  const pos = p.location;
+  const lat = pos ? pos.lat() : (latLng ? latLng.lat() : null);
+  const lng = pos ? pos.lng() : (latLng ? latLng.lng() : null);
+  const nom = (typeof p.displayName === "string" ? p.displayName : "") || "Lieu";
+  let photoUri = null;
+  try { photoUri = p.photos?.[0]?.getURI ? p.photos[0].getURI({ maxWidth: 400, maxHeight: 400 }) : null; } catch { photoUri = null; }
+  return {
+    cle: placeId, placeId,
+    nom, nomGoogle: nom,
+    description: typeof p.primaryTypeDisplayName === "string" ? p.primaryTypeDisplayName : null,
+    adresse: typeof p.formattedAddress === "string" ? p.formattedAddress : null,
+    lat, lng,
+    note: typeof p.rating === "number" ? p.rating : null,
+    nbAvis: typeof p.userRatingCount === "number" ? p.userRatingCount : null,
+    photoUri,
+    categorie: categorieDepuisTypes(p.types),
+  };
+}
+
 /* --- Carte de la journée, et recherche de lieux dessus -------------- */
 // La carte montrait la journée, et rien de plus : on la consultait, on la
 // refermait, puis on rouvrait l'écran Suggestions pour chercher un restaurant.
@@ -2578,6 +2650,9 @@ function DayMapSheet({ markers, dayLabel, jourLabelCourt, onClose, onAdd, insert
   const [chargement, setChargement] = useState(false);
   const [erreurRecherche, setErreurRecherche] = useState("");
   const [choisi, setChoisi] = useState(null);      // le lieu dont la fiche est ouverte
+  // La fiche d'un lieu touché SUR la carte demande un aller-retour à Google : on
+  // le dit, plutôt que de laisser croire que le toucher n'a rien fait.
+  const [ficheEnCours, setFicheEnCours] = useState(false);
   // La carte a-t-elle été déplacée depuis la dernière recherche ? C'est ce qui
   // fait apparaître « Rechercher ici » : sans ce repère, il faudrait ou bien
   // relancer une requête payante à chaque glissement, ou bien laisser des
@@ -2615,9 +2690,39 @@ function DayMapSheet({ markers, dayLabel, jourLabelCourt, onClose, onAdd, insert
         let ouvertePour = null;
         const ferme = () => { bulle.close(); ouvertePour = null; };
         bulle.addListener("closeclick", () => { ouvertePour = null; });
-        // Toucher le fond de la carte referme tout : la bulle d'une étape comme
-        // la fiche d'un résultat.
-        carte.addListener("click", () => { ferme(); setChoisi(null); });
+        // Toucher la carte : deux cas bien distincts.
+        //
+        // Sur un LIEU que Google affiche de lui-même — un musée, un restaurant,
+        // n'importe quel point d'intérêt du fond de carte — l'événement porte son
+        // `placeId`. Google ouvrirait alors SA bulle, qui ne sait rien du voyage
+        // et n'offre que d'aller voir ailleurs. `e.stop()` la retient, et on
+        // affiche notre fiche du bas : la même que pour un résultat de recherche,
+        // donc le même bouton d'ajout au même endroit. Un lieu déjà sur la carte
+        // n'a plus à être cherché pour être ajouté.
+        //
+        // Ailleurs — le fond, une rue — il n'y a rien à montrer : on referme.
+        carte.addListener("click", async (e) => {
+          if (e?.placeId && maps.places?.Place) {
+            // Sans cela la bulle de Google s'ouvre par-dessus notre fiche.
+            if (typeof e.stop === "function") e.stop();
+            ferme();
+            setChoisi(null);
+            setFicheEnCours(true);
+            const l = await lieuDepuisPlaceId(maps, e.placeId, e.latLng);
+            if (!alive) return;
+            setFicheEnCours(false);
+            if (!l) return;
+            setChoisi(l);
+            if (l.lat != null && l.lng != null) {
+              // Comme pour un résultat : on remonte le lieu au-dessus de la fiche.
+              carte.panTo({ lat: l.lat, lng: l.lng });
+              carte.panBy(0, 110);
+            }
+            return;
+          }
+          ferme();
+          setChoisi(null);
+        });
         // Un glissement ou un zoom rend les résultats affichés hors sujet : on ne
         // les efface pas — ils restent utiles — mais on propose de rechercher là.
         carte.addListener("dragend", () => { if (alive) setDeplacee(true); });
@@ -2856,6 +2961,14 @@ function DayMapSheet({ markers, dayLabel, jourLabelCourt, onClose, onAdd, insert
             <div style={{ background: "rgba(255,255,255,0.94)", border: `1px solid ${C.line}`, color: C.inkSoft }}
               className="rounded-full px-3 py-1.5 t11 inline-flex items-center gap-1.5 shadow-sm">
               <Loader2 size={13} className="animate-spin" /> Recherche…
+            </div>
+          </div>
+        )}
+        {ficheEnCours && (
+          <div className="pointer-events-none mt-2 flex justify-center">
+            <div style={{ background: "rgba(255,255,255,0.94)", border: `1px solid ${C.line}`, color: C.inkSoft }}
+              className="rounded-full px-3 py-1.5 t11 inline-flex items-center gap-1.5 shadow-sm">
+              <Loader2 size={13} className="animate-spin" /> Fiche du lieu…
             </div>
           </div>
         )}
