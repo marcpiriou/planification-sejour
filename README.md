@@ -112,11 +112,59 @@ borne son usage.
 serveur — non restreignable — partait dans le navigateur. Mieux vaut une carte en
 erreur, visible, qu'un secret exposé en silence.
 
+Un quatrième réglage s'ajoute, qui n'est **pas** un secret :
+**`GOOGLE_MAP_ID`**, l'identifiant de carte vectorielle. Tout site à fond
+vectoriel l'expose dans son code — mais il est propre au projet Google, comme les
+clés, d'où le même canal (`maps-key`) plutôt qu'une valeur figée dans le dépôt.
+Il est facultatif : absent, la carte se construit comme avant, en raster, sans
+rotation proposée.
+
 Un troisième secret, sans rapport avec Google Maps, complète la liste :
 **`GEMINI_API_KEY`** pour les modes IA de l'écran Suggestions et pour le guide
 d'un lieu (voir plus bas), avec `GEMINI_MODEL` en option. `place-reviews` est la
 seule fonction à se servir des deux : `GOOGLE_PLACES_KEY` pour lire les avis,
 `GEMINI_API_KEY` pour les résumer.
+
+### Faire tourner la carte à deux doigts
+Deux doigts qui pivotent changent le cap de la carte, et les libellés restent
+lisibles — jamais couchés, jamais à l'envers.
+
+**Ce qui rend cela possible, c'est le mode de rendu, pas un calcul de notre
+côté.** Le fond servi jusqu'ici est **raster** : des tuiles d'image où les noms
+de rues sont *dessinés*. Tourner une telle carte — par une rotation CSS du
+conteneur, la seule voie possible sur du raster — retournerait chaque libellé
+avec l'image. C'est précisément ce qu'il fallait éviter, et aucune contorsion ne
+le rattrape : on ne redresse pas un texte déjà cuit dans un pixel.
+
+Un fond **vectoriel** change la nature du problème. Google y dessine ses
+libellés à chaque image, et les redresse lui-même à chaque changement de cap.
+Nos repères, eux, sont posés en surcouche : ils ne tournent pas du tout. Il n'y a
+donc **aucune contre-rotation** dans le code — et c'est vérifié comme tel : le
+conteneur de la carte et toute sa pile de parents sont sans `transform`. Une
+rotation qui apparaîtrait là serait le bug.
+
+**Deux options, qui vont ensemble.** `headingInteractionEnabled` ouvre le geste,
+mais n'a d'effet que sur un fond vectoriel, lequel demande un `mapId`. On ne pose
+donc ni l'un sans l'autre : sans identifiant configuré, la carte est construite
+exactement comme avant.
+
+**L'inclinaison reste fermée** (`tiltInteractionEnabled: false`). Chez Google
+elle vient du même geste à deux doigts, mais elle coucherait la carte en
+perspective : nos repères, dessinés à plat, garderaient leur taille et
+flotteraient au-dessus d'un sol fuyant. Seule la rotation a été demandée.
+
+**Une boussole pour revenir au nord**, sous la croix de fermeture, et seulement
+une fois la carte tournée : au nord, il n'y a rien à remettre au nord. Son
+aiguille montre où le nord est passé — la carte ayant tourné de `cap`, le nord
+est à `-cap`. Le retour s'anime sur un quart de seconde et par le plus court
+chemin : depuis 350°, dix degrés, pas trois cent cinquante. Un saut de cap sur
+une carte tournée fait perdre de vue ce que l'on regardait.
+
+**Mise en service.** Créer un identifiant de carte dans la console Google Cloud
+(*Google Maps Platform → Map management*), de type **JavaScript** et de rendu
+**Vector**, puis le déposer dans le secret Supabase `GOOGLE_MAP_ID`. Rien
+d'autre à changer. Attention au type : un identifiant de rendu raster, ou d'une
+autre plateforme, ne donnera pas la rotation.
 
 ### Accès aux Edge Functions
 Les huit fonctions (`maps-key`, `resolve-place`, `travel-time`, `place-photo`,

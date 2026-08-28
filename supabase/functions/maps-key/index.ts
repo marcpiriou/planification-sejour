@@ -16,6 +16,13 @@
 // JavaScript. Elle est donc DÉDIÉE à cet usage : distincte de la clé serveur
 // (GOOGLE_PLACES_KEY), qui appelle Places et Routes depuis les Edge Functions
 // et ne peut pas, elle, être restreinte par référent.
+//
+// Deuxième valeur servie ici : l'identifiant de carte (GOOGLE_MAP_ID). Il n'a
+// rien d'un secret — tout site à fond vectoriel l'expose dans son code — mais
+// il est PROPRE AU PROJET Google, comme la clé : le figer dans le dépôt
+// obligerait à modifier le code pour changer de projet. Il passe donc par le
+// même canal, et reste facultatif : sans lui, la carte se construit comme
+// avant, en raster.
 
 import { refusAuth, utilisateurConnecte } from "../_shared/auth.ts";
 
@@ -34,8 +41,14 @@ Deno.serve(async (req: Request) => {
   // pas être restreinte par référent, donc n'importe qui pouvait s'en servir.
   // Une carte en erreur, que l'on voit, vaut mieux qu'un secret exposé en silence.
   const key = Deno.env.get("GOOGLE_MAPS_BROWSER_KEY");
+  // Sans identifiant de carte, Google ne sert qu'un fond raster : des tuiles où
+  // les noms de rues sont DESSINÉS dans l'image. La rotation à deux doigts en
+  // dépend donc entièrement — non par choix, mais parce qu'un fond raster tourné
+  // afficherait chaque libellé à l'envers. Absent, le champ n'est pas envoyé :
+  // l'application sait s'en passer, elle ne propose alors pas de rotation.
+  const mapId = (Deno.env.get("GOOGLE_MAP_ID") || "").trim();
   const body = key
-    ? { key }
+    ? (mapId ? { key, mapId } : { key })
     : { error: "aucune clé de navigateur configurée (secret GOOGLE_MAPS_BROWSER_KEY)" };
   return new Response(JSON.stringify(body), {
     status: key ? 200 : 500,

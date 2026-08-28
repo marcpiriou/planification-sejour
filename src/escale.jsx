@@ -6,6 +6,7 @@ import {
   Check, MoreVertical, Route, Mail, LogOut,
   Users, Share2, UserPlus, User, Home as HomeIcon, Building2, ClipboardPaste, Copy,
   ListChecks, ChevronRight, ChevronDown, Search, Loader2, Archive, ArchiveRestore,
+  Compass,
   // Alias obligatoire : « Map » masquerait le constructeur Map de JavaScript,
   // dont se servent les caches de trajets et de photos.
   Map as MapIcon
@@ -2386,6 +2387,18 @@ async function messageFonction(error) {
 }
 
 let mapsLoader = null; // une seule injection du script pour toute la session
+
+// Identifiant de carte VECTORIELLE, servi avec la clé quand le projet Google en
+// a un. Il commande la rotation à deux doigts, et c'est la seule voie qui la
+// rende acceptable : le fond raster — celui servi sans identifiant — porte les
+// noms de rues DESSINÉS dans ses tuiles, si bien qu'une carte raster tournée
+// afficherait chaque libellé couché ou à l'envers. Sur un fond vectoriel, c'est
+// le moteur de Google qui redresse ses propres libellés à chaque changement de
+// cap, et nos repères, posés en surcouche, ne tournent pas du tout.
+// Absent : la carte reste exactement celle d'avant, sans rotation proposée.
+let idCarteVecteur = null;
+const carteTournante = () => !!idCarteVecteur;
+
 function loadGoogleMaps() {
   if (mapsLoader) return mapsLoader;
   mapsLoader = (async () => {
@@ -2393,6 +2406,9 @@ function loadGoogleMaps() {
       const { data, error } = await supabase.functions.invoke("maps-key", { body: {} });
       const key = data && data.key;
       if (error || !key) throw new Error((data && data.error) || (await messageFonction(error)) || "clé Google indisponible");
+      // Facultatif, et vérifié : un identifiant vide ou d'un autre type passé à
+      // Google fait échouer la construction de la carte entière.
+      idCarteVecteur = (data && typeof data.mapId === "string" && data.mapId.trim()) || null;
       await new Promise((resolve, reject) => {
         const el = document.createElement("script");
         el.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&language=fr&loading=async`;
@@ -2719,6 +2735,10 @@ function DayMapSheet({ markers, dayLabel, jourLabelCourt, onClose, onAdd, insert
   // relancer une requête payante à chaque glissement, ou bien laisser des
   // résultats hors champ sans le dire.
   const [deplacee, setDeplacee] = useState(false);
+  // Cap de la carte, en degrés d'horloge depuis le nord. Nul tant qu'on n'a rien
+  // tourné : c'est cette valeur qui décide d'afficher la boussole, car un bouton
+  // « remettre au nord » sur une carte déjà au nord n'aurait rien à faire.
+  const [cap, setCap] = useState(0);
   // Ce qui a déjà été ajouté, par identifiant de lieu : la fiche le dit plutôt
   // que de laisser ajouter deux fois le même restaurant sans prévenir.
   const [ajoutes, setAjoutes] = useState({});
@@ -2743,6 +2763,21 @@ function DayMapSheet({ markers, dayLabel, jourLabelCourt, onClose, onAdd, insert
           // Les commandes de Google sont remontées : la fiche d'un lieu occupe le
           // bas de l'écran et recouvrirait le zoom laissé à sa place d'origine.
           zoomControlOptions: { position: maps.ControlPosition.RIGHT_CENTER },
+          // Rotation à deux doigts, quand le projet Google a un identifiant de
+          // carte. `headingInteractionEnabled` n'a d'effet que sur un fond
+          // vectoriel, et l'identifiant est ce qui le déclenche : les deux vont
+          // ensemble, on ne pose ni l'un ni l'autre sans l'autre.
+          //
+          // L'inclinaison, elle, reste fermée. Elle vient du même geste à deux
+          // doigts chez Google, mais elle coucherait la carte en perspective :
+          // nos repères, dessinés à plat en surcouche, garderaient leur taille
+          // et flotteraient au-dessus d'un sol fuyant. Rien de tout cela n'a été
+          // demandé — seule la rotation l'a été.
+          ...(carteTournante() ? {
+            mapId: idCarteVecteur,
+            headingInteractionEnabled: true,
+            tiltInteractionEnabled: false,
+          } : {}),
         });
         carteRef.current = carte;
         // Une seule bulle à la fois : deux fiches ouvertes masqueraient la carte.
@@ -2799,6 +2834,12 @@ function DayMapSheet({ markers, dayLabel, jourLabelCourt, onClose, onAdd, insert
         // les efface pas — ils restent utiles — mais on propose de rechercher là.
         carte.addListener("dragend", () => { if (alive) setDeplacee(true); });
         carte.addListener("zoom_changed", () => { if (alive) setDeplacee(true); });
+        // Le cap suit la rotation, pour que la boussole sache où est le nord.
+        // Écouté même sans fond vectoriel : l'événement ne viendra jamais, et
+        // conditionner l'écoute ferait une branche de plus à tenir pour rien.
+        carte.addListener("heading_changed", () => {
+          if (alive) setCap(Math.round(carte.getHeading?.() || 0));
+        });
 
         // La fiche Google n'est demandée qu'au toucher, et pour ce seul lieu :
         // chaque affichage est facturé, ouvrir la carte n'en paie aucun.
@@ -2955,6 +2996,24 @@ function DayMapSheet({ markers, dayLabel, jourLabelCourt, onClose, onAdd, insert
     if (id) setAjoutes((v) => ({ ...v, [l.cle]: id }));
   };
 
+  // Retour au nord, en un quart de seconde plutôt que d'un coup : sur une carte
+  // tournée, un saut de cap fait perdre de vue ce que l'on regardait.
+  const remetLeNord = () => {
+    const carte = carteRef.current;
+    if (!carte?.setHeading) return;
+    // Par le plus court chemin : depuis 350°, on rejoint le nord en tournant de
+    // dix degrés, pas de trois cent cinquante.
+    const ecart = ((((carte.getHeading?.() || 0) + 180) % 360) + 360) % 360 - 180;
+    const debut = (typeof performance !== "undefined" ? performance : Date).now();
+    const pas = () => {
+      if (carteRef.current !== carte) return;   // carte refermée entre deux images
+      const t = Math.min(1, ((typeof performance !== "undefined" ? performance : Date).now() - debut) / 250);
+      carte.setHeading(ecart * (1 - t));        // à t = 1, exactement zéro
+      if (t < 1) requestAnimationFrame(pas);
+    };
+    pas();
+  };
+
   return (
     <div className="fixed inset-0 z-40" style={{ background: C.paper }}>
       {/* La carte occupe tout l'écran ; l'en-tête et la fiche flottent au-dessus. */}
@@ -2990,11 +3049,23 @@ function DayMapSheet({ markers, dayLabel, jourLabelCourt, onClose, onAdd, insert
             )}
           </div>
           <div className="flex-1" />
-          <button onClick={onClose} aria-label="Fermer la carte"
-            style={{ background: "rgba(255,255,255,0.94)", border: `1px solid ${C.line}`, color: C.ink }}
-            className="pointer-events-auto h-10 w-10 rounded-full flex items-center justify-center shadow-sm active:scale-95 transition">
-            <X size={20} />
-          </button>
+          <div className="flex flex-col items-end gap-2">
+            <button onClick={onClose} aria-label="Fermer la carte"
+              style={{ background: "rgba(255,255,255,0.94)", border: `1px solid ${C.line}`, color: C.ink }}
+              className="pointer-events-auto h-10 w-10 rounded-full flex items-center justify-center shadow-sm active:scale-95 transition">
+              <X size={20} />
+            </button>
+            {/* La boussole n'apparaît qu'une fois la carte tournée : au nord, il
+                n'y a rien à remettre au nord. L'aiguille montre où le nord est
+                PASSÉ — la carte a tourné de `cap`, le nord est donc à -cap. */}
+            {cap !== 0 && (
+              <button onClick={remetLeNord} aria-label="Remettre la carte au nord"
+                style={{ background: "rgba(255,255,255,0.94)", border: `1px solid ${C.line}`, color: C.ink }}
+                className="pointer-events-auto h-10 w-10 rounded-full flex items-center justify-center shadow-sm active:scale-95 transition">
+                <Compass size={20} style={{ transform: `rotate(${-cap}deg)` }} />
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Les sujets que Google sait chercher, dans l'ordre de SUJETS_GOOGLE.
