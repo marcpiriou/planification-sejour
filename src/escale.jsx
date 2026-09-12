@@ -647,6 +647,31 @@ async function loadTrips() {
   });
 }
 
+// Ce qui a DÉJÀ été écrit, pour ne pas le réécrire.
+//
+// Une sauvegarde renvoyait jusqu'ici toutes les activités de tous les séjours
+// modifiables : corriger une heure réécrivait les cent soixante-dix lignes du
+// voyage. Chaque ligne repasse par la politique RLS, qui interroge `trips` puis
+// `trip_members` — d'où environ 865 blocs touchés et 24 ko de journal pour un
+// caractère changé. Mesuré, pas supposé : `pg_stat_statements` donnait 428 206
+// blocs pour 495 sauvegardes.
+//
+// La règle est DISSYMÉTRIQUE, à dessein : cette empreinte ne sert qu'à sauter
+// une écriture dont on est certain qu'elle a déjà eu lieu, à l'identique, dans
+// cette session. Le moindre doute — première sauvegarde, erreur précédente,
+// autre compte, sérialisation différente — écrit. On ne perd donc jamais une
+// modification : au pire on en réécrit une pour rien.
+const dejaEcrit = { pour: null, sejours: new Map(), activites: new Map() };
+const empreinte = (o) => JSON.stringify(o);
+function oublieCeQuiEstEcrit() {
+  dejaEcrit.sejours.clear();
+  dejaEcrit.activites.clear();
+}
+// Un autre compte n'a rien à voir avec ce qui a été écrit pour le précédent.
+function cadreEmpreintes(userId) {
+  if (dejaEcrit.pour !== userId) { dejaEcrit.pour = userId; oublieCeQuiEstEcrit(); }
+}
+
 // Synchronise l'état vers la base. Ne touche qu'aux séjours modifiables
 // (propriétaire ou éditeur). Les séjours d'un autre propriétaire conservent leur owner_id.
 async function saveTrips(trips) {
@@ -675,29 +700,39 @@ async function saveTrips(trips) {
     night_travel: a.nightTravel || {},
   });
 
+  cadreEmpreintes(me);
+
   try {
     for (const t of editable) {
       const owned = t.isOwner !== false; // séjours créés localement : propriétaire par défaut
-      if (owned) {
-        const { error } = await supabase.from("trips").upsert({
-          id: t.id, owner_id: me, name: t.name || "",
-          start_date: t.startDate, end_date: t.endDate, updated_at: now,
-          checklist: t.checklist || [],
-        });
+      // `updated_at` est HORS empreinte : il vaut l'instant présent, donc il
+      // ferait différer le séjour à chaque appel et la comparaison ne servirait
+      // à rien. Rien ne le relit côté application — il n'est écrit que pour la
+      // base. Un séjour inchangé garde donc sa date de dernière VRAIE écriture,
+      // ce qui est plus juste que de l'avancer sans rien avoir modifié.
+      const champsSejour = owned
+        ? { id: t.id, owner_id: me, name: t.name || "",
+            start_date: t.startDate, end_date: t.endDate, checklist: t.checklist || [] }
+        : { name: t.name || "", start_date: t.startDate, end_date: t.endDate,
+            checklist: t.checklist || [] };
+      // Le mode fait partie de l'empreinte : passer d'éditeur à propriétaire
+      // change ce qui est écrit, même à champs identiques.
+      const empSejour = empreinte([owned, champsSejour]);
+      if (dejaEcrit.sejours.get(t.id) !== empSejour) {
+        const { error } = owned
+          ? await supabase.from("trips").upsert({ ...champsSejour, updated_at: now })
+          // Séjour partagé (éditeur) : on met à jour les champs sans toucher owner_id
+          : await supabase.from("trips").update({ ...champsSejour, updated_at: now }).eq("id", t.id);
         if (error) throw error;
-      } else {
-        // Séjour partagé (éditeur) : on met à jour les champs sans toucher owner_id
-        const { error } = await supabase.from("trips").update({
-          name: t.name || "", start_date: t.startDate, end_date: t.endDate, updated_at: now,
-          checklist: t.checklist || [],
-        }).eq("id", t.id);
-        if (error) throw error;
+        dejaEcrit.sejours.set(t.id, empSejour);
       }
 
       const rows = (t.activities || []).map((a, i) => actRow(t, a, i));
-      if (rows.length) {
-        const { error } = await supabase.from("activities").upsert(rows);
+      const aEcrire = rows.filter((r) => dejaEcrit.activites.get(r.id) !== empreinte(r));
+      if (aEcrire.length) {
+        const { error } = await supabase.from("activities").upsert(aEcrire);
         if (error) throw error;
+        for (const r of aEcrire) dejaEcrit.activites.set(r.id, empreinte(r));
       }
     }
     // Volontairement : aucune suppression déduite d'une comparaison avec la base.
@@ -707,6 +742,9 @@ async function saveTrips(trips) {
     setSyncError(null);
     return { ok: true };
   } catch (e) {
+    // Une écriture qui échoue laisse la base dans un état qu'on ne connaît plus :
+    // la sauvegarde suivante doit tout renvoyer, sans rien sauter.
+    oublieCeQuiEstEcrit();
     const texte = errText(e);
     setSyncError(await explainRlsError(texte, me));
     console.error("Sauvegarde séjours:", e);
@@ -716,15 +754,60 @@ async function saveTrips(trips) {
   }
 }
 
+// Le jour consulté, écrit une fois la rafale finie.
+//
+// Il voyage dans les métadonnées du COMPTE : chaque changement était donc un
+// `update auth.users` — la requête la plus coûteuse du projet en journal, 2,2 Mo
+// pour 1 217 appels — suivi de la ré-émission du jeton et des cinq lectures que
+// le service d'authentification enchaîne derrière. Feuilleter une semaine
+// coûtait sept fois cela, soit une quarantaine d'allers-retours.
+//
+// Seule la dernière valeur d'une rafale compte : ce jour ne sert qu'à la
+// réouverture du séjour, pas à la seconde près.
+const DELAI_JOUR_CONSULTE = 5000;
+let minuterieJour = null;
+let jourAEcrire = null;
+function ecritJourConsulte() {
+  if (minuterieJour) { clearTimeout(minuterieJour); minuterieJour = null; }
+  if (!jourAEcrire) return;
+  const valeur = jourAEcrire;
+  jourAEcrire = null;
+  supabase.auth.updateUser({ data: { last_day_by_trip: valeur } })
+    .catch((e) => console.error("Sauvegarde du jour consulté:", e));
+}
+function planifieJourConsulte(next) {
+  jourAEcrire = next;
+  if (minuterieJour) clearTimeout(minuterieJour);
+  minuterieJour = setTimeout(ecritJourConsulte, DELAI_JOUR_CONSULTE);
+}
+if (typeof document !== "undefined") {
+  // `visibilitychange` et non `beforeunload` : sur téléphone, une application
+  // passée en arrière-plan puis fermée par le système ne voit jamais
+  // `beforeunload`. Sans cette vidange, quitter dans les cinq secondes
+  // perdrait le dernier jour regardé.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") ecritJourConsulte();
+  });
+  window.addEventListener("pagehide", ecritJourConsulte);
+}
+
 // Suppressions explicites : seul un geste de l'utilisateur efface en base.
+// L'empreinte de ce qui est supprimé doit partir avec : sans cela, une étape
+// recréée plus tard sous le même identifiant et au même contenu serait tenue
+// pour déjà écrite, et ne repartirait jamais en base.
 async function deleteTripRemote(id) {
   const { error } = await supabase.from("trips").delete().eq("id", id); // cascade sur les activités
   if (error) { setSyncError(`suppression impossible (${errText(error)})`); return false; }
+  dejaEcrit.sejours.delete(id);
+  // La cascade emporte les activités du séjour : on ne sait pas lesquelles
+  // d'ici, donc on oublie tout plutôt que d'en garder une qui n'existe plus.
+  dejaEcrit.activites.clear();
   return true;
 }
 async function deleteActivityRemote(id) {
   const { error } = await supabase.from("activities").delete().eq("id", id);
   if (error) { setSyncError(`suppression impossible (${errText(error)})`); return false; }
+  dejaEcrit.activites.delete(id);
   return true;
 }
 
@@ -733,6 +816,7 @@ async function clearAllTrips() {
   const { user } = await utilisateurCourant();
   if (!user) return;
   try { await supabase.from("trips").delete().eq("owner_id", user.id); } catch { /* silencieux */ }
+  oublieCeQuiEstEcrit();
 }
 
 /* --- Partage : gestion des membres -------------------------------- */
@@ -5741,8 +5825,7 @@ function SejourApp() {
     const next = { [tripId]: curDay };
     for (const [k, v] of Object.entries(lastDayByTrip)) if (k !== tripId && ids.has(k)) next[k] = v;
     setLastDayByTrip(next);
-    supabase.auth.updateUser({ data: { last_day_by_trip: next } })
-      .catch((e) => console.error("Sauvegarde du jour consulté:", e));
+    planifieJourConsulte(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tripId, curDay]);
 

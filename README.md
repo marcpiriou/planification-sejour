@@ -887,6 +887,63 @@ crayon n'a pas lieu d'être — l'aurait laissé remonter tout en haut.
 Le partage reste offert **à tous**, propriétaire ou non, comme il l'était sur la
 timeline : l'un y gère les accès, l'autre y trouve de quoi quitter le séjour.
 
+### Écrire seulement ce qui a changé
+Supabase a signalé que le projet épuisait son budget d'entrées-sorties disque.
+La mesure a d'abord montré où le problème n'était **pas** : sur neuf heures,
+Postgres avait lu 841 blocs, écrit 134, et produit 329 ko de journal — la base
+entière tient dans quelques centaines de kilo-octets et ne quitte jamais le
+cache. Aucun slot de réplication. Et 98 % du volume de journaux venait des
+sondes de surveillance de Supabase elle-même (`user=pgbouncer` depuis `[::1]`,
+connexion et fermeture en `age=0s`, toutes les quarante secondes), pas de
+l'application.
+
+Le trafic applicatif n'explique donc pas le message : deux mois d'usage
+totalisent environ 6 200 requêtes et 28 Mo de journal. Restait à supprimer ce
+qui, dans ce peu, était du pur gaspillage — et il y en avait.
+
+**Une sauvegarde réécrivait tout.** `saveTrips()` renvoyait toutes les activités
+de tous les séjours modifiables, à chaque modification : corriger une heure
+réécrivait les cent soixante-dix lignes du voyage. `pg_stat_statements` chiffrait
+le coût : 428 206 blocs touchés pour 495 sauvegardes, soit **865 blocs par
+sauvegarde** sur une table qui en occupe quatorze.
+
+Une empreinte de ce qui a déjà été écrit, tenue en mémoire, réduit cela à la
+ligne modifiée. La règle est **dissymétrique**, à dessein : l'empreinte ne sert
+qu'à sauter une écriture dont on est certain qu'elle a déjà eu lieu, à
+l'identique, dans cette session. Tout le reste écrit — première sauvegarde,
+erreur précédente, autre compte, sérialisation différente. Une écriture qui
+échoue **efface toute l'empreinte** : la base est alors dans un état qu'on ne
+connaît plus, et la sauvegarde suivante doit tout renvoyer. Une suppression
+retire l'entrée correspondante, sans quoi une étape recréée sous le même
+identifiant et au même contenu passerait pour déjà écrite et ne repartirait
+jamais. `updated_at` est exclu de la comparaison : il vaut l'instant présent,
+donc il ferait différer chaque séjour à chaque appel — et rien ne le relit.
+
+**Le jour consulté n'écrit plus à chaque changement.** Il voyage dans les
+métadonnées du compte, donc chaque changement était un `update auth.users` —
+la requête la plus lourde du projet, 2,2 Mo de journal pour 1 217 appels — suivi
+de la ré-émission du jeton et des cinq lectures que le service d'authentification
+enchaîne derrière. Feuilleter une semaine coûtait une quarantaine
+d'allers-retours. Seule la dernière valeur d'une rafale compte : l'écriture
+attend cinq secondes de calme. Elle est vidée à la mise en arrière-plan
+(`visibilitychange`, et non `beforeunload` — sur téléphone, une application tuée
+par le système ne voit jamais ce dernier), sinon quitter dans les cinq secondes
+perdrait le dernier jour regardé.
+
+**Et l'identité n'est plus vérifiée ligne à ligne.** `auth.uid()` et `auth.jwt()`
+lisent puis analysent le JSON du jeton ; écrits tels quels dans une policy, ils
+étaient réévalués à chaque ligne examinée. Enveloppés dans un sous-select
+(migration `0012`), Postgres les reconnaît comme un InitPlan et les évalue une
+fois par requête. La sémantique ne bouge pas — au sein d'une requête, l'appelant
+ne change pas d'identité — et le linter `auth_rls_initplan` de Supabase ne
+signale plus rien.
+
+Une première version de cette migration ajoutait aussi un index sur
+`lower(email)`, en croyant `trip_members_email_idx` posé sur `email` brut. Il
+l'était déjà sur `lower(email)` : l'index était un doublon exact, signalé comme
+tel, et il a été retiré. S'il passe pour « inutilisé », c'est que la table tient
+sur une page et que Postgres la parcourt plus vite qu'il ne lirait l'index.
+
 ### « session illisible (Failed to fetch) » : un message qui accusait la session
 Le bandeau rouge « Modifications non enregistrées » s'affichait avec ce motif, en
 déplacement. Les journaux Supabase ont montré que le serveur n'y était pour rien :
