@@ -35,6 +35,55 @@ npm run preview    # sert dist/ (service worker actif) ; --host pour tester depu
 - Styles : Tailwind CSS (classes standard) + utilitaires injectés par le composant
   (t10, t11, dim…) + police IBM Plex via `@import` (repli gracieux hors-ligne).
 
+## Thème clair, sombre, ou celui du téléphone
+L'écran Compte offre trois choix. « Clair » est la palette d'origine, inchangée
+au pixel près. « Sombre » est une seconde palette complète. « Système » n'en fixe
+aucune : il suit le réglage du téléphone et **change avec lui**, sans
+rechargement — d'où l'écoute de `matchMedia` tant qu'il est retenu, et seulement
+dans ce mode, un choix explicite n'ayant rien à suivre.
+
+**Les couleurs sont devenues des variables CSS.** C'est la décision qui tient
+tout le reste. La palette `C` ne porte plus `#16324A` mais `var(--c-ink)` ; les
+quelque cinq cents endroits qui l'emploient n'ont pas bougé d'une ligne, et
+changer de thème revient à poser un attribut sur `<html>`. Aucun rendu React
+n'est déclenché : le basculement est immédiat et atteint jusqu'aux écrans qui ne
+se redessinent pas — ce qu'un objet JavaScript échangé n'aurait pas fait, React
+ne sachant pas qu'une constante de module a changé.
+
+**Trois pièges, et ce qui les évite :**
+
+- **Une `var()` ne se résout pas dans une image.** Les repères de la carte sont
+  des SVG encodés en data-URI : aucune variable n'y vaut. Ils gardent donc des
+  valeurs hexadécimales (`MARQUEUR_ETAPE`, `MARQUEUR_STAY`, et le `color` de
+  chaque catégorie), ce qui est correct — ils se posent sur des tuiles Google.
+  Chaque catégorie porte en plus une `teinte`, celle-là variable, pour tout ce
+  qui relève de l'interface.
+- **L'encre du TEXTE et l'encre en APLAT s'inversent.** `C.ink` est un marine
+  foncé en clair, un quasi-blanc en sombre. Or il servait aussi de fond à la
+  pastille active d'un sélecteur, avec un libellé blanc : en sombre, du blanc
+  sur du quasi-blanc. D'où `C.encre` pour l'aplat et `C.surAccent` pour ce qu'on
+  écrit dessus. La classe Tailwind `text-white`, qui supposait que tout aplat
+  est sombre, a disparu au profit de `surAccent` — sur les accents éclaircis du
+  thème sombre, du blanc tomberait à 2,3:1, quand le fond de nuit donne 8:1.
+- **Le thème doit être posé avant le premier pixel.** Attendre React, puis la
+  session, puis les métadonnées ferait commencer chaque ouverture par un éclair
+  blanc. Un script en ligne dans `index.html` lit un miroir `localStorage` et
+  pose l'attribut avant tout rendu. Ce miroir n'est pas la source de vérité — le
+  compte l'est, pour valoir d'un appareil à l'autre — mais il est le seul
+  lisible à cet instant.
+
+**Ce que le thème atteint aussi.** `color-scheme` est déclaré, ce qui suffit à
+faire suivre les listes déroulantes, les champs numériques et les barres de
+défilement natives. Le logo est une image monochrome qu'aucune variable ne peut
+atteindre : un filtre CSS l'éclaircit plutôt qu'un second fichier, qui finirait
+par diverger du premier. Et la carte Google reçoit un style sombre, sans quoi
+elle projetterait un rectangle blanc plein écran ; ses icônes de lieux restent
+visibles, ce sont elles qu'on touche pour ajouter un point d'intérêt.
+
+**Une réserve.** Avec un identifiant de carte vectorielle configuré
+(`GOOGLE_MAP_ID`, voir plus bas), Google ignore `styles` : le fond de carte se
+règle alors dans sa console, et l'application ne peut plus l'assortir seule.
+
 ## Carte de la journée
 Le bouton carte de l'en-tête d'un séjour ouvre une carte Google **plein écran**,
 déplaçable et zoomable, avec un repère par étape à sa couleur — indigo pour un

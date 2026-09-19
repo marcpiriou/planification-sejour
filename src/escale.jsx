@@ -6,7 +6,7 @@ import {
   Check, MoreVertical, Route, Mail, LogOut,
   Users, Share2, UserPlus, User, Home as HomeIcon, Building2, ClipboardPaste, Copy,
   ListChecks, ChevronRight, ChevronDown, Search, Loader2, Archive, ArchiveRestore,
-  Compass,
+  Compass, Sun, Moon, Smartphone,
   // Alias obligatoire : « Map » masquerait le constructeur Map de JavaScript,
   // dont se servent les caches de trajets et de photos.
   Map as MapIcon
@@ -17,41 +17,112 @@ import { takeSharedLink } from "./shared-link";
 /* ------------------------------------------------------------------ */
 /* Palette & thème                                                     */
 /* ------------------------------------------------------------------ */
+// La palette ne porte plus de valeurs mais des RENVOIS vers les variables CSS
+// définies dans index.css, où les thèmes clair et sombre les redéfinissent.
+//
+// Ce détour est ce qui rend le thème sombre possible sans toucher aux cinq cents
+// endroits qui emploient ces couleurs : elles restent écrites `C.ink`, le
+// navigateur résout `var(--c-ink)` selon l'attribut `data-theme` posé sur
+// <html>, et basculer de thème ne demande AUCUN rendu React — le changement
+// atteint jusqu'aux écrans qui ne se redessinent pas.
+//
+// Ce qu'on y perd : ces valeurs ne sont plus lisibles depuis le JavaScript. Une
+// `var()` ne se résout que dans le document — jamais dans une image en data-URI.
+// Les repères de la carte, dessinés en SVG, ont donc leurs propres valeurs
+// hexadécimales (MARQUEUR_*, plus bas).
 const C = {
-  paper: "#F4F6F7",
-  card: "#FFFFFF",
-  ink: "#16324A",
-  inkSoft: "#5B6B7A",
-  line: "#E4EAEC",
-  teal: "#0F8A80",
-  tealSoft: "#E4F2F0",
-  amber: "#DE8A1E",
-  amberSoft: "#FBEBD6",
-  rose: "#C0559B",
+  paper: "var(--c-paper)",
+  card: "var(--c-card)",
+  ink: "var(--c-ink)",
+  inkSoft: "var(--c-ink-soft)",
+  line: "var(--c-line)",
+  teal: "var(--c-teal)",
+  tealSoft: "var(--c-teal-soft)",
+  amber: "var(--c-amber)",
+  amberSoft: "var(--c-amber-soft)",
+  rose: "var(--c-rose)",
   // Bleu des transports en commun : teal (marche), ambre (voiture) et indigo
   // (hébergement) étaient déjà pris, le rose sert au repère de l'heure actuelle.
-  bleu: "#2E8BC0",
-  bleuSoft: "#E2EFF7",
-  warn: "#D0453B",
-  warnSoft: "#FBE6E4",
+  bleu: "var(--c-bleu)",
+  bleuSoft: "var(--c-bleu-soft)",
+  warn: "var(--c-warn)",
+  warnSoft: "var(--c-warn-soft)",
+  // Surfaces posées sur le papier : boutons ronds, pastilles. Blanc en thème
+  // clair — c'était un « #fff » écrit en dur à cinquante-cinq endroits.
+  surface: "var(--c-surface)",
+  // Voile des commandes flottant au-dessus de la carte Google.
+  voile: "var(--c-voile)",
+  // L'encre en APLAT, à ne pas confondre avec `ink`, qui est celle du texte :
+  // en thème sombre les deux s'inversent. Un aplat resté sur `ink` deviendrait
+  // quasi blanc, et son libellé blanc disparaîtrait avec lui.
+  encre: "var(--c-ink-fond)",
+  // Ce qu'on écrit PAR-DESSUS un aplat d'accent — teal, encre, indigo, alerte.
+  surAccent: "var(--c-sur-accent)",
+  // La même, éteinte : le jour sélectionné d'une journée déjà passée.
+  surAccentDoux: "var(--c-sur-accent-doux)",
 };
+/* ------------------------------------------------------------------ */
+/* Thème                                                               */
+/*                                                                     */
+/* Trois choix, dont un qui n'en est pas vraiment un : « Système » ne   */
+/* fixe rien, il suit le réglage du téléphone et change avec lui — d'où */
+/* l'écoute de `matchMedia` tant qu'il est retenu.                      */
+/*                                                                     */
+/* Appliquer un thème revient à poser un attribut sur <html> : tout le  */
+/* reste est dans les variables CSS d'index.css. Aucun rendu React, et  */
+/* donc rien à oublier de redessiner.                                   */
+/* ------------------------------------------------------------------ */
+const THEMES = [
+  { id: "clair", label: "Clair", icon: Sun },
+  { id: "sombre", label: "Sombre", icon: Moon },
+  { id: "systeme", label: "Système", icon: Smartphone },
+];
+// Le choix est aussi gardé en LOCAL, en plus des métadonnées du compte. Ce
+// doublon a une raison précise : le thème doit être posé avant le premier
+// rendu, or les métadonnées n'arrivent qu'une fois la session lue. Sans ce
+// miroir, chaque ouverture commencerait par un éclair blanc (voir index.html).
+const CLE_THEME = "periplo.theme";
+const themeValide = (v) => (THEMES.some((t) => t.id === v) ? v : "systeme");
+const themeLocal = () => {
+  try { return themeValide(localStorage.getItem(CLE_THEME)); } catch { return "systeme"; }
+};
+const requeteSombre = () =>
+  (typeof window !== "undefined" && window.matchMedia
+    ? window.matchMedia("(prefers-color-scheme: dark)")
+    : null);
+function appliqueTheme(pref) {
+  if (typeof document === "undefined") return;
+  const mq = requeteSombre();
+  const sombre = pref === "sombre" || (pref === "systeme" && !!mq && mq.matches);
+  // On pose « light » explicitement plutôt que de retirer l'attribut : l'état
+  // se lit alors dans l'inspecteur, et les deux cas s'écrivent pareil.
+  document.documentElement.setAttribute("data-theme", sombre ? "dark" : "light");
+}
+
 const SANS = "'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
 const MONO = "'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace";
 const APP_VERSION = "2.0";
 
+// Deux couleurs par catégorie, et ce n'est pas une redite :
+//   • `color` est la valeur HEXADÉCIMALE du repère dessiné sur la carte. Un SVG
+//     en data-URI ne résout aucune variable CSS, et il se pose de toute façon
+//     sur des tuiles Google claires dans les deux thèmes : elle ne change pas.
+//   • `teinte` est ce que porte l'INTERFACE — icônes, pastilles, libellés. Elle
+//     s'éclaircit en thème sombre, sans quoi ces accents moyens disparaîtraient
+//     sur le fond de nuit.
 const CATEGORIES = [
-  { id: "visite", label: "Visite", icon: Landmark, color: "#0F8A80" },
-  { id: "repas", label: "Repas", icon: UtensilsCrossed, color: "#DE8A1E" },
-  { id: "cafe", label: "Café / pause", icon: Coffee, color: "#B4763B" },
-  { id: "nature", label: "Nature / plage", icon: Waves, color: "#2E8BC0" },
-  { id: "shopping", label: "Shopping", icon: ShoppingBag, color: "#C0559B" },
-  { id: "transport", label: "Transport", icon: TrainFront, color: "#5B6B7A" },
-  { id: "autre", label: "Autre", icon: Sparkles, color: "#7A8A55" },
+  { id: "visite", label: "Visite", icon: Landmark, color: "#0F8A80", teinte: "var(--cat-visite)" },
+  { id: "repas", label: "Repas", icon: UtensilsCrossed, color: "#DE8A1E", teinte: "var(--cat-repas)" },
+  { id: "cafe", label: "Café / pause", icon: Coffee, color: "#B4763B", teinte: "var(--cat-cafe)" },
+  { id: "nature", label: "Nature / plage", icon: Waves, color: "#2E8BC0", teinte: "var(--cat-nature)" },
+  { id: "shopping", label: "Shopping", icon: ShoppingBag, color: "#C0559B", teinte: "var(--cat-shopping)" },
+  { id: "transport", label: "Transport", icon: TrainFront, color: "#5B6B7A", teinte: "var(--cat-transport)" },
+  { id: "autre", label: "Autre", icon: Sparkles, color: "#7A8A55", teinte: "var(--cat-autre)" },
   // L'hébergement n'est pas une activité ordinaire : il couvre plusieurs nuits et
   // se place de lui-même en fin et en début de journée. Il ne s'ajoute que par son
   // propre bouton. L'identifiant reste « dormir » : c'est la valeur déjà écrite en
   // base, seul le libellé affiché change.
-  { id: "dormir", label: "Hébergement", icon: BedDouble, color: "#2F3E8F" },
+  { id: "dormir", label: "Hébergement", icon: BedDouble, color: "#2F3E8F", teinte: "var(--cat-dormir)" },
 ];
 const catOf = (id) => CATEGORIES.find((c) => c.id === id) || CATEGORIES[CATEGORIES.length - 1];
 
@@ -137,14 +208,50 @@ const stayCoversNight = (a, iso) => isStay(a) && !isBase(a) && iso >= a.date && 
 const STAY_LEAVE_TIME = "09:00";
 const STAY_ARRIVE_TIME = "18:00";
 // Code couleur propre à l'hébergement, distinct des huit catégories.
-const STAY_COLOR = "#2F3E8F";
-const STAY_SOFT = "#E7EAF7";
+const STAY_COLOR = "var(--stay)";
+const STAY_SOFT = "var(--stay-soft)";
 // Le filet qui sépare l'icône du texte sur la carte d'un hébergement. C.line n'y
 // convient pas : ce gris (#E4EAEC) et le fond d'un hébergement (#E7EAF7) sont
 // deux valeurs si proches que le trait y disparaîtrait. Celui-ci garde donc la
 // teinte indigo de la carte, à un écart au fond (24, 22, 14) calqué sur celui
 // que C.line creuse dans le blanc d'une carte d'activité (27, 21, 19).
-const STAY_LINE = "#CFD4E9";
+const STAY_LINE = "var(--stay-line)";
+
+// Fond de carte assorti au thème sombre. Google ne suit pas le thème du site :
+// sans cela, ouvrir la carte de la journée projetterait un rectangle blanc plein
+// écran au milieu d'une application de nuit.
+//
+// Les icônes de lieux restent VISIBLES : ce sont elles qu'on touche pour ajouter
+// un point d'intérêt du fond de carte, les éteindre retirerait la fonction.
+//
+// Ce style ne vaut que pour le rendu raster. Avec un identifiant de carte
+// vectorielle, Google ignore `styles` et le style se règle dans sa console.
+const STYLE_CARTE_SOMBRE = [
+  { elementType: "geometry", stylers: [{ color: "#1B2735" }] },
+  { elementType: "labels.text.fill", stylers: [{ color: "#9FB3C8" }] },
+  { elementType: "labels.text.stroke", stylers: [{ color: "#0E1620" }] },
+  { featureType: "administrative", elementType: "geometry", stylers: [{ color: "#2A3B4D" }] },
+  { featureType: "poi", elementType: "labels.text.fill", stylers: [{ color: "#8AA0B6" }] },
+  { featureType: "poi.park", elementType: "geometry", stylers: [{ color: "#16301F" }] },
+  { featureType: "road", elementType: "geometry", stylers: [{ color: "#26333F" }] },
+  { featureType: "road", elementType: "geometry.stroke", stylers: [{ color: "#1B2735" }] },
+  { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#3A4A5C" }] },
+  { featureType: "transit", elementType: "geometry", stylers: [{ color: "#2B3947" }] },
+  { featureType: "water", elementType: "geometry", stylers: [{ color: "#0B1A26" }] },
+  { featureType: "water", elementType: "labels.text.fill", stylers: [{ color: "#4D6B82" }] },
+];
+// Le thème EN COURS, lu sur l'attribut que pose appliqueTheme(). La carte n'a
+// pas besoin d'y réagir en direct : changer de thème passe par l'écran Compte,
+// qui referme la carte. Elle est donc toujours construite à jour.
+const themeSombreActif = () =>
+  typeof document !== "undefined" && document.documentElement.getAttribute("data-theme") === "dark";
+
+// Couleurs des REPÈRES de la carte, en hexadécimal et non en variable : elles
+// partent dans un SVG encodé en data-URI, où aucune variable CSS ne se résout.
+// Elles ne suivent pas le thème, et c'est correct — ces repères se posent sur
+// des tuiles Google rendues par Google, claires dans les deux cas.
+const MARQUEUR_ETAPE = "#0F8A80";
+const MARQUEUR_STAY = "#2F3E8F";
 const STAY_AM = "am", STAY_PM = "pm";
 
 // Entrée d'affichage dérivée d'une réservation. Son id porte le créneau pour
@@ -421,7 +528,7 @@ const dayMarkers = (acts) => {
     }
     out.push({
       lat: p.lat, lng: p.lng,
-      color: isStay(a) ? STAY_COLOR : C.teal,
+      color: isStay(a) ? MARQUEUR_STAY : MARQUEUR_ETAPE,
       label: socle ? null : MAP_LABELS[numero++], // null : repère sans numéro
       name: a.name || "",
       url: googlePlaceUrl(a),
@@ -1536,7 +1643,7 @@ function BottomNav({ tab, setTab, onSignOut }) {
 }
 
 /* --- Onglet Compte ------------------------------------------------- */
-function AccountPanel({ userEmail, home, onSaveHome, navApp, onSaveNavApp, defaultChecklist, onSaveDefaultChecklist }) {
+function AccountPanel({ userEmail, home, onSaveHome, navApp, onSaveNavApp, defaultChecklist, onSaveDefaultChecklist, theme, onSaveTheme }) {
   const [label, setLabel] = useState(home?.label || "Maison");
   const [address, setAddress] = useState(home?.address || "");
   const [saving, setSaving] = useState(false);
@@ -1580,7 +1687,7 @@ function AccountPanel({ userEmail, home, onSaveHome, navApp, onSaveNavApp, defau
         </Field>
         <button onClick={save} disabled={saving}
           style={{ background: C.teal, opacity: saving ? 0.7 : 1 }}
-          className="w-full text-white rounded-xl py-2.5 font-medium active:scale-95 transition">
+          className="w-full surAccent rounded-xl py-2.5 font-medium active:scale-95 transition">
           {saving ? "Enregistrement…" : "Enregistrer"}
         </button>
         {saved && <div style={{ color: C.teal }} className="text-xs flex items-center gap-1"><Check size={13} /> Enregistré</div>}
@@ -1608,6 +1715,30 @@ function AccountPanel({ userEmail, home, onSaveHome, navApp, onSaveNavApp, defau
           title="Checklist par défaut" subtitle="Reprise dans chaque nouveau séjour" />
       )}
 
+      {/* thème — appliqué à l'instant du choix, comme l'application d'itinéraire */}
+      <div style={{ background: C.card, border: `1px solid ${C.line}` }} className="rounded-2xl p-4 mt-4 space-y-3">
+        <div style={{ color: C.ink }} className="text-sm font-medium flex items-center gap-1.5">
+          <Sun size={15} style={{ color: C.teal }} /> Thème
+        </div>
+        <div className="flex gap-2">
+          {THEMES.map((t) => {
+            const active = theme === t.id;
+            const Icone = t.icon;
+            return (
+              <button key={t.id} type="button" onClick={() => onSaveTheme(t.id)}
+                aria-pressed={active}
+                style={{ background: active ? C.teal : C.surface, color: active ? C.surAccent : C.ink, border: `1px solid ${active ? C.teal : C.line}` }}
+                className="flex-1 rounded-xl py-2.5 text-sm font-medium active:scale-95 transition inline-flex items-center justify-center gap-1.5">
+                <Icone size={14} /> {t.label}
+              </button>
+            );
+          })}
+        </div>
+        <div style={{ color: C.inkSoft }} className="t11">
+          « Système » suit le réglage clair ou sombre du téléphone, et change avec lui.
+        </div>
+      </div>
+
       {/* application d'itinéraire — le choix s'applique tout de suite, sans bouton */}
       <div style={{ background: C.card, border: `1px solid ${C.line}` }} className="rounded-2xl p-4 mt-4 space-y-3">
         <div style={{ color: C.ink }} className="text-sm font-medium flex items-center gap-1.5">
@@ -1618,7 +1749,7 @@ function AccountPanel({ userEmail, home, onSaveHome, navApp, onSaveNavApp, defau
             const active = navApp === a.id;
             return (
               <button key={a.id} type="button" onClick={() => onSaveNavApp(a.id)}
-                style={{ background: active ? C.teal : "#fff", color: active ? "#fff" : C.ink, border: `1px solid ${active ? C.teal : C.line}` }}
+                style={{ background: active ? C.teal : C.surface, color: active ? C.surAccent : C.ink, border: `1px solid ${active ? C.teal : C.line}` }}
                 className="flex-1 rounded-xl py-2.5 text-sm font-medium active:scale-95 transition">
                 {a.label}
               </button>
@@ -1764,7 +1895,7 @@ function CarteSejour({ trip: t, passe, onOpen, onEdit, onShare }) {
 }
 
 /* --- Accueil : liste des séjours + navigation ---------------------- */
-function Home({ trips, archives, onOpen, onEdit, onShare, onNew, onExample, userEmail, onSignOut, home, onSaveHome, sharedLink, onDismissShared, navApp, onSaveNavApp, defaultChecklist, onSaveDefaultChecklist }) {
+function Home({ trips, archives, onOpen, onEdit, onShare, onNew, onExample, userEmail, onSignOut, home, onSaveHome, sharedLink, onDismissShared, navApp, onSaveNavApp, defaultChecklist, onSaveDefaultChecklist, theme, onSaveTheme }) {
   const [tab, setTab] = useState("trips");
   const [archivesOuvertes, setArchivesOuvertes] = useState(false);
   return (
@@ -1773,6 +1904,7 @@ function Home({ trips, archives, onOpen, onEdit, onShare, onNew, onExample, user
         {tab === "account" ? (
           <AccountPanel userEmail={userEmail} home={home} onSaveHome={onSaveHome}
             navApp={navApp} onSaveNavApp={onSaveNavApp}
+            theme={theme} onSaveTheme={onSaveTheme}
             defaultChecklist={defaultChecklist} onSaveDefaultChecklist={onSaveDefaultChecklist} />
         ) : (
           <>
@@ -1781,7 +1913,7 @@ function Home({ trips, archives, onOpen, onEdit, onShare, onNew, onExample, user
                 /planification-sejour/, un chemin absolu manquerait sa cible. */}
             <div className="mb-6">
               <img src={`${import.meta.env.BASE_URL}logo-periplo.png`} alt="Periplo"
-                width={600} height={437} className="h-auto mx-auto" style={{ width: 168 }} />
+                width={600} height={437} className="h-auto mx-auto" style={{ width: 168, filter: "var(--logo-filtre)" }} />
             </div>
 
             {/* Lien reçu par partage, mais plusieurs séjours possibles : c'est à
@@ -1808,7 +1940,7 @@ function Home({ trips, archives, onOpen, onEdit, onShare, onNew, onExample, user
           </div>
           <div style={{ color: C.ink }} className="font-semibold mt-4">Aucun séjour pour le moment</div>
           <p style={{ color: C.inkSoft }} className="text-sm mt-1">Créez un séjour sur une plage de dates, puis ajoutez vos étapes jour par jour.</p>
-          <button onClick={onNew} style={{ background: C.teal }} className="mt-5 w-full text-white rounded-xl py-3 font-medium active:scale-95 transition">
+          <button onClick={onNew} style={{ background: C.teal }} className="mt-5 w-full surAccent rounded-xl py-3 font-medium active:scale-95 transition">
             Créer un séjour
           </button>
           <button onClick={onExample} style={{ color: C.teal, border: `1px solid ${C.line}` }} className="mt-2 w-full rounded-xl py-3 font-medium bg-white active:scale-95 transition">
@@ -1828,7 +1960,7 @@ function Home({ trips, archives, onOpen, onEdit, onShare, onNew, onExample, user
             );
           })}
           <button onClick={onNew} style={{ background: C.teal }}
-            className="w-full text-white rounded-xl py-3 font-medium active:scale-95 transition inline-flex items-center justify-center gap-2 mt-1">
+            className="w-full surAccent rounded-xl py-3 font-medium active:scale-95 transition inline-flex items-center justify-center gap-2 mt-1">
             <Plus size={18} /> Nouveau séjour
           </button>
         </div>
@@ -1883,7 +2015,7 @@ function DateStrip({ days, current, onSelect, counts }) {
             <button key={d} ref={active ? actifRef : undefined} onClick={() => onSelect(d)}
               style={{
                 background: active ? C.teal : C.paper,
-                color: active ? (passe ? "rgba(255,255,255,0.65)" : "#fff") : (passe ? C.inkSoft : C.ink),
+                color: active ? (passe ? C.surAccentDoux : C.surAccent) : (passe ? C.inkSoft : C.ink),
                 border: `1px solid ${active ? C.teal : C.line}`,
                 opacity: active || !passe ? 1 : 0.55,
               }}
@@ -2012,7 +2144,7 @@ function ActivityCard({ act, onEdit, onEditDuration, onGuide, startMin, endMin, 
           <div style={{ background: C.line }} className="absolute w-0.5 h-full" />
           {!stay && (
             <button onClick={() => canEdit && onEditDuration(act)} disabled={!canEdit} aria-label="Modifier la durée"
-              style={{ color: C.inkSoft, border: `1px solid ${C.line}`, background: "#fff" }}
+              style={{ color: C.inkSoft, border: `1px solid ${C.line}`, background: C.surface }}
               className="relative inline-flex items-center gap-1 rounded-full px-2.5 py-2 text-xs font-medium leading-none shadow-sm active:scale-95 transition">
               <Clock size={12} /> {compactDur(act.durationMin)}
             </button>
@@ -2202,7 +2334,7 @@ function DurationPicker({ initial, onCancel, onValidate }) {
             const active = total === d;
             return (
               <button key={d} onClick={() => setChip(d)}
-                style={{ background: active ? C.ink : "#fff", color: active ? "#fff" : C.ink, border: `1px solid ${active ? C.ink : C.line}`, fontFamily: MONO }}
+                style={{ background: active ? C.encre : C.surface, color: active ? C.surAccent : C.ink, border: `1px solid ${active ? C.encre : C.line}`, fontFamily: MONO }}
                 className="rounded-full px-1 py-1 text-xs active:scale-95 transition">{compactDur(d)}</button>
             );
           })}
@@ -2211,18 +2343,18 @@ function DurationPicker({ initial, onCancel, onValidate }) {
           <label className="flex-1">
             <div style={{ color: C.inkSoft }} className="text-xs mb-1">Heures</div>
             <input type="number" min="0" value={h} onChange={(e) => setH(e.target.value)}
-              style={{ background: "#fff", border: `1px solid ${C.line}`, color: C.ink, fontFamily: MONO }} className="w-full rounded-xl px-3 py-2 outline-none" />
+              style={{ background: C.surface, border: `1px solid ${C.line}`, color: C.ink, fontFamily: MONO }} className="w-full rounded-xl px-3 py-2 outline-none" />
           </label>
           <label className="flex-1">
             <div style={{ color: C.inkSoft }} className="text-xs mb-1">Minutes</div>
             <input type="number" min="0" max="59" value={m} onChange={(e) => setM(e.target.value)}
-              style={{ background: "#fff", border: `1px solid ${C.line}`, color: C.ink, fontFamily: MONO }} className="w-full rounded-xl px-3 py-2 outline-none" />
+              style={{ background: C.surface, border: `1px solid ${C.line}`, color: C.ink, fontFamily: MONO }} className="w-full rounded-xl px-3 py-2 outline-none" />
           </label>
         </div>
         <div style={{ color: C.inkSoft }} className="text-xs mt-2">Total : {fmtDur(total)}</div>
         <div className="flex gap-2 mt-4">
           <button onClick={onCancel} style={{ border: `1px solid ${C.line}`, color: C.ink }} className="flex-1 rounded-xl py-2.5 bg-white">Annuler</button>
-          <button onClick={() => onValidate(total)} style={{ background: C.teal }} className="flex-1 rounded-xl py-2.5 text-white font-medium">Valider</button>
+          <button onClick={() => onValidate(total)} style={{ background: C.teal }} className="flex-1 rounded-xl py-2.5 surAccent font-medium">Valider</button>
         </div>
       </div>
     </div>
@@ -2280,7 +2412,7 @@ function TravelLeg({
             aria-label={ajoutOuvert
               ? "Fermer le menu d'ajout après ce trajet"
               : `Ajouter une étape après ${from.name || "cette étape"}`}
-            style={{ background: "#fff", border: `1px solid ${C.line}`, color: C.teal, height: 30, width: 30, marginTop: 6 }}
+            style={{ background: C.surface, border: `1px solid ${C.line}`, color: C.teal, height: 30, width: 30, marginTop: 6 }}
             className="relative rounded-full shadow-sm flex items-center justify-center active:scale-95 transition shrink-0">
             <Plus size={16} style={{ transform: ajoutOuvert ? "rotate(45deg)" : "none", transition: "transform .18s" }} />
           </button>
@@ -2314,24 +2446,24 @@ function TravelLeg({
             « + » touché — et c'est exactement la règle du bouton flottant. */}
         {ajoutOuvert && (
           <div className="mt-2 flex flex-col items-start gap-2">
-            <button onClick={onAjoutSuggestion} style={{ background: C.ink }}
-              className="text-white rounded-full pl-4 pr-5 py-2.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
+            <button onClick={onAjoutSuggestion} style={{ background: C.encre }}
+              className="surAccent rounded-full pl-4 pr-5 py-2.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
               <Sparkles size={18} /> Suggestions
             </button>
             {onAjoutHebergement && (
               <button onClick={onAjoutHebergement} style={{ background: STAY_COLOR }}
-                className="text-white rounded-full pl-4 pr-5 py-2.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
+                className="surAccent rounded-full pl-4 pr-5 py-2.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
                 <Plus size={18} /> Hébergement
               </button>
             )}
             {onAjoutCarte && (
               <button onClick={onAjoutCarte} style={{ background: C.bleu }}
-                className="text-white rounded-full pl-4 pr-5 py-2.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
+                className="surAccent rounded-full pl-4 pr-5 py-2.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
                 <MapIcon size={18} /> Activité depuis la carte
               </button>
             )}
             <button onClick={onAjoutActivite} style={{ background: C.teal }}
-              className="text-white rounded-full pl-4 pr-5 py-2.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
+              className="surAccent rounded-full pl-4 pr-5 py-2.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
               <Plus size={18} /> Activité
             </button>
           </div>
@@ -2398,7 +2530,7 @@ function AjoutEtape({ apres, ouvert, onOuvrir, onFermer, onActivite, onSuggestio
           aria-label={ouvert
             ? "Fermer le menu d'ajout"
             : `Ajouter une étape après ${apres || "cette étape"}`}
-          style={{ background: "#fff", border: `1px solid ${C.line}`, color: C.teal, height: 30, width: 30, marginTop: 6 }}
+          style={{ background: C.surface, border: `1px solid ${C.line}`, color: C.teal, height: 30, width: 30, marginTop: 6 }}
           className="relative rounded-full shadow-sm flex items-center justify-center active:scale-95 transition shrink-0">
           <Plus size={16} style={{ transform: ouvert ? "rotate(45deg)" : "none", transition: "transform .18s" }} />
         </button>
@@ -2411,24 +2543,24 @@ function AjoutEtape({ apres, ouvert, onOuvrir, onFermer, onActivite, onSuggestio
             l'applique déjà, et le proposer ici n'y change rien. */}
         {ouvert && (
           <div className="flex flex-col items-start gap-2">
-            <button onClick={onSuggestion} style={{ background: C.ink }}
-              className="text-white rounded-full pl-4 pr-5 py-2.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
+            <button onClick={onSuggestion} style={{ background: C.encre }}
+              className="surAccent rounded-full pl-4 pr-5 py-2.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
               <Sparkles size={18} /> Suggestions
             </button>
             {onHebergement && (
               <button onClick={onHebergement} style={{ background: STAY_COLOR }}
-                className="text-white rounded-full pl-4 pr-5 py-2.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
+                className="surAccent rounded-full pl-4 pr-5 py-2.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
                 <Plus size={18} /> Hébergement
               </button>
             )}
             {onCarte && (
               <button onClick={onCarte} style={{ background: C.bleu }}
-                className="text-white rounded-full pl-4 pr-5 py-2.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
+                className="surAccent rounded-full pl-4 pr-5 py-2.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
                 <MapIcon size={18} /> Activité depuis la carte
               </button>
             )}
             <button onClick={onActivite} style={{ background: C.teal }}
-              className="text-white rounded-full pl-4 pr-5 py-2.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
+              className="surAccent rounded-full pl-4 pr-5 py-2.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
               <Plus size={18} /> Activité
             </button>
           </div>
@@ -2881,6 +3013,9 @@ function DayMapSheet({ markers, dayLabel, jourLabelCourt, onClose, onAdd, insert
             headingInteractionEnabled: true,
             tiltInteractionEnabled: false,
           } : {}),
+          // `styles` et `mapId` s'excluent : Google ignore le premier dès que le
+          // second est posé, le rendu vectoriel tirant son style de la console.
+          ...(!carteTournante() && themeSombreActif() ? { styles: STYLE_CARTE_SOMBRE } : {}),
         });
         carteRef.current = carte;
         // Une seule bulle à la fois : deux fiches ouvertes masqueraient la carte.
@@ -3138,7 +3273,7 @@ function DayMapSheet({ markers, dayLabel, jourLabelCourt, onClose, onAdd, insert
           doigt doit atteindre la carte. */}
       <div className="absolute top-0 inset-x-0 p-3 pointer-events-none">
         <div className="flex items-start gap-2">
-          <div style={{ background: "rgba(255,255,255,0.94)", border: `1px solid ${C.line}` }}
+          <div style={{ background: C.voile, border: `1px solid ${C.line}` }}
             className="pointer-events-auto rounded-xl px-3 py-2 shadow-sm min-w-0">
             <div style={{ color: C.ink }} className="text-sm font-semibold leading-tight">Carte de la journée</div>
             <div style={{ color: C.inkSoft }} className="t11 capitalize truncate">{dayLabel}</div>
@@ -3154,7 +3289,7 @@ function DayMapSheet({ markers, dayLabel, jourLabelCourt, onClose, onAdd, insert
           <div className="flex-1" />
           <div className="flex flex-col items-end gap-2">
             <button onClick={onClose} aria-label="Fermer la carte"
-              style={{ background: "rgba(255,255,255,0.94)", border: `1px solid ${C.line}`, color: C.ink }}
+              style={{ background: C.voile, border: `1px solid ${C.line}`, color: C.ink }}
               className="pointer-events-auto h-10 w-10 rounded-full flex items-center justify-center shadow-sm active:scale-95 transition">
               <X size={20} />
             </button>
@@ -3163,7 +3298,7 @@ function DayMapSheet({ markers, dayLabel, jourLabelCourt, onClose, onAdd, insert
                 PASSÉ — la carte a tourné de `cap`, le nord est donc à -cap. */}
             {cap !== 0 && (
               <button onClick={remetLeNord} aria-label="Remettre la carte au nord"
-                style={{ background: "rgba(255,255,255,0.94)", border: `1px solid ${C.line}`, color: C.ink }}
+                style={{ background: C.voile, border: `1px solid ${C.line}`, color: C.ink }}
                 className="pointer-events-auto h-10 w-10 rounded-full flex items-center justify-center shadow-sm active:scale-95 transition">
                 <Compass size={20} style={{ transform: `rotate(${-cap}deg)` }} />
               </button>
@@ -3180,8 +3315,8 @@ function DayMapSheet({ markers, dayLabel, jourLabelCourt, onClose, onAdd, insert
             return (
               <button key={s.cle} onClick={() => cherche(s)} disabled={chargement}
                 style={{
-                  background: actif ? catOf(s.categorie).color : "rgba(255,255,255,0.94)",
-                  color: actif ? "#fff" : C.ink,
+                  background: actif ? catOf(s.categorie).color : C.voile,
+                  color: actif ? C.surAccent : C.ink,
                   border: `1px solid ${actif ? catOf(s.categorie).color : C.line}`,
                 }}
                 className="shrink-0 rounded-full pl-2.5 pr-3 py-1.5 text-xs font-medium shadow-sm inline-flex items-center gap-1.5 active:scale-95 transition capitalize">
@@ -3204,7 +3339,7 @@ function DayMapSheet({ markers, dayLabel, jourLabelCourt, onClose, onAdd, insert
         )}
         {chargement && (
           <div className="pointer-events-none mt-2 flex justify-center">
-            <div style={{ background: "rgba(255,255,255,0.94)", border: `1px solid ${C.line}`, color: C.inkSoft }}
+            <div style={{ background: C.voile, border: `1px solid ${C.line}`, color: C.inkSoft }}
               className="rounded-full px-3 py-1.5 t11 inline-flex items-center gap-1.5 shadow-sm">
               <Loader2 size={13} className="animate-spin" /> Recherche…
             </div>
@@ -3212,7 +3347,7 @@ function DayMapSheet({ markers, dayLabel, jourLabelCourt, onClose, onAdd, insert
         )}
         {ficheEnCours && (
           <div className="pointer-events-none mt-2 flex justify-center">
-            <div style={{ background: "rgba(255,255,255,0.94)", border: `1px solid ${C.line}`, color: C.inkSoft }}
+            <div style={{ background: C.voile, border: `1px solid ${C.line}`, color: C.inkSoft }}
               className="rounded-full px-3 py-1.5 t11 inline-flex items-center gap-1.5 shadow-sm">
               <Loader2 size={13} className="animate-spin" /> Fiche du lieu…
             </div>
@@ -3275,7 +3410,7 @@ function DayMapSheet({ markers, dayLabel, jourLabelCourt, onClose, onAdd, insert
                   <button onClick={() => ajoute(choisi)} disabled={!onAdd || !!ajoutes[choisi.cle]}
                     style={{
                       background: ajoutes[choisi.cle] ? C.tealSoft : C.teal,
-                      color: ajoutes[choisi.cle] ? C.teal : "#fff",
+                      color: ajoutes[choisi.cle] ? C.teal : C.surface,
                       border: `1px solid ${ajoutes[choisi.cle] ? C.teal : "transparent"}`,
                     }}
                     className="flex-1 rounded-xl py-2 text-sm font-medium inline-flex items-center justify-center gap-1.5 active:scale-95 transition">
@@ -3286,7 +3421,7 @@ function DayMapSheet({ markers, dayLabel, jourLabelCourt, onClose, onAdd, insert
                   <a href={mapsFicheUrl(choisi)}
                     target="_blank" rel="noopener noreferrer"
                     aria-label="Ouvrir ce lieu dans Google Maps" title="Ouvrir dans Google Maps"
-                    style={{ border: `1px solid ${C.line}`, background: "#fff", color: C.teal }}
+                    style={{ border: `1px solid ${C.line}`, background: C.surface, color: C.teal }}
                     className="shrink-0 h-10 w-10 rounded-xl flex items-center justify-center active:scale-95 transition">
                     <MapPin size={18} />
                   </a>
@@ -3331,7 +3466,7 @@ function TravelPicker({ from, to, onCancel, onValidate }) {
             const active = mode === id;
             return (
               <button key={id} onClick={() => setMode(id)}
-                style={{ background: active ? color : "#fff", color: active ? "#fff" : C.ink, border: `1px solid ${active ? color : C.line}` }}
+                style={{ background: active ? color : C.surface, color: active ? C.surAccent : C.ink, border: `1px solid ${active ? color : C.line}` }}
                 className="flex-1 min-w-0 inline-flex flex-col items-center justify-center gap-1 rounded-xl py-2 t11 font-medium active:scale-95 transition">
                 <Icon size={17} /> <span className="truncate max-w-full">{label}</span>
               </button>
@@ -3349,7 +3484,7 @@ function TravelPicker({ from, to, onCancel, onValidate }) {
         <div className="mt-3">
           <div style={{ color: C.inkSoft }} className="text-xs mb-1">Durée manuelle (min)</div>
           <input type="number" min="0" value={manual} onChange={(e) => setManual(e.target.value)} placeholder={est ? `auto (${est.min})` : "auto"}
-            style={{ background: "#fff", border: `1px solid ${C.line}`, color: C.ink, fontFamily: MONO }} className="w-full rounded-xl px-3 py-2 outline-none" />
+            style={{ background: C.surface, border: `1px solid ${C.line}`, color: C.ink, fontFamily: MONO }} className="w-full rounded-xl px-3 py-2 outline-none" />
           <div style={{ color: C.inkSoft }} className="t11 mt-1">Laisser vide pour utiliser l'estimation automatique.</div>
         </div>
 
@@ -3364,7 +3499,7 @@ function TravelPicker({ from, to, onCancel, onValidate }) {
           <div style={{ color: C.inkSoft }} className="text-xs mb-1">Commentaire</div>
           <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3}
             placeholder="Ex. Ligne A jusqu'à Jean Jaurès, puis tram T1"
-            style={{ background: "#fff", border: `1px solid ${C.line}`, color: C.ink }}
+            style={{ background: C.surface, border: `1px solid ${C.line}`, color: C.ink }}
             className="w-full rounded-xl px-3 py-2 outline-none text-sm resize-none" />
           <div style={{ color: C.inkSoft }} className="t11 mt-1">Affiché sous le trajet, trois lignes au plus.</div>
         </div>
@@ -3374,7 +3509,7 @@ function TravelPicker({ from, to, onCancel, onValidate }) {
         <div className="flex gap-2 mt-4">
           <button onClick={onCancel} style={{ border: `1px solid ${C.line}`, color: C.ink }} className="flex-1 rounded-xl py-2.5 bg-white">Annuler</button>
           <button onClick={() => onValidate({ travelMode: mode, travelMinutes: manual === "" ? null : Math.max(0, parseInt(manual, 10) || 0), travelNotes: notes.trim() })}
-            style={{ background: C.teal }} className="flex-1 rounded-xl py-2.5 text-white font-medium">Valider</button>
+            style={{ background: C.teal }} className="flex-1 rounded-xl py-2.5 surAccent font-medium">Valider</button>
         </div>
       </div>
     </div>
@@ -3408,9 +3543,9 @@ function ChecklistItemRow({ item, canEdit, onToggle, onDelete, onRename }) {
     <div style={{ borderBottom: `1px solid ${C.line}` }} className="flex items-center gap-3 py-2.5">
       <button onClick={() => canEdit && onToggle()} disabled={!canEdit}
         aria-label={item.done ? "Décocher cet élément" : "Cocher cet élément"}
-        style={{ background: item.done ? C.teal : "#fff", border: `1.5px solid ${item.done ? C.teal : C.line}` }}
+        style={{ background: item.done ? C.teal : C.surface, border: `1.5px solid ${item.done ? C.teal : C.line}` }}
         className="shrink-0 h-6 w-6 rounded-md flex items-center justify-center active:scale-95 transition">
-        {item.done && <Check size={15} color="#fff" />}
+        {item.done && <Check size={15} color={C.surAccent} />}
       </button>
       {editing ? (
         <input
@@ -3422,7 +3557,7 @@ function ChecklistItemRow({ item, canEdit, onToggle, onDelete, onRename }) {
             if (e.key === "Enter") { e.preventDefault(); e.currentTarget.blur(); }
             else if (e.key === "Escape") { setTexte(item.text); setEditing(false); }
           }}
-          style={{ background: "#fff", border: `1px solid ${C.teal}`, color: C.ink, userSelect: "text", WebkitUserSelect: "text" }}
+          style={{ background: C.surface, border: `1px solid ${C.teal}`, color: C.ink, userSelect: "text", WebkitUserSelect: "text" }}
           className="flex-1 min-w-0 rounded-lg px-2 py-1 text-sm outline-none"
         />
       ) : (
@@ -3665,13 +3800,13 @@ function SuggestionCard({ s, ajoutee, onAdd, onRemove, canEdit }) {
     <button onClick={onRemove} aria-label={`Retirer ${s.nom} de la journée`}
       title="Ajoutée à la journée — toucher pour la retirer"
       style={{ background: C.warn }}
-      className="h-10 w-10 rounded-full text-white flex items-center justify-center shadow active:scale-95 transition shrink-0">
+      className="h-10 w-10 rounded-full surAccent flex items-center justify-center shadow active:scale-95 transition shrink-0">
       <X size={20} />
     </button>
   ) : (
     <button onClick={onAdd} aria-label={`Ajouter ${s.nom} à la journée`}
       style={{ background: C.teal }}
-      className="h-10 w-10 rounded-full text-white flex items-center justify-center shadow active:scale-95 transition shrink-0">
+      className="h-10 w-10 rounded-full surAccent flex items-center justify-center shadow active:scale-95 transition shrink-0">
       <Plus size={20} />
     </button>
   );
@@ -3847,7 +3982,7 @@ function GuideSheet({ act, onClose }) {
               <div style={{ color: C.ink }} className="text-sm font-medium">Guide indisponible</div>
               <div style={{ color: C.inkSoft }} className="text-xs mt-1">{etat.erreur}</div>
               <button type="button" onClick={relance} style={{ background: C.teal }}
-                className="mt-3 text-white rounded-xl px-3 py-2 text-sm active:scale-95 transition">
+                className="mt-3 surAccent rounded-xl px-3 py-2 text-sm active:scale-95 transition">
                 Réessayer
               </button>
             </div>
@@ -4130,15 +4265,15 @@ function SuggestionsSheet({ trip, jour, onAdd, onRemove, onClose, canEdit, promp
           <div className="flex gap-2">
             <button type="button" onClick={() => setMode("gmaps")}
               aria-pressed={mode === "gmaps"}
-              style={{ background: mode === "gmaps" ? C.teal : "#fff", color: mode === "gmaps" ? "#fff" : C.ink, border: `1px solid ${mode === "gmaps" ? C.teal : C.line}` }}
+              style={{ background: mode === "gmaps" ? C.teal : C.surface, color: mode === "gmaps" ? C.surAccent : C.ink, border: `1px solid ${mode === "gmaps" ? C.teal : C.line}` }}
               className="flex-1 rounded-xl py-2 text-sm active:scale-95 transition">Google Maps</button>
             <button type="button" onClick={() => setMode("auto")}
               aria-pressed={mode === "auto"}
-              style={{ background: mode === "auto" ? C.teal : "#fff", color: mode === "auto" ? "#fff" : C.ink, border: `1px solid ${mode === "auto" ? C.teal : C.line}` }}
+              style={{ background: mode === "auto" ? C.teal : C.surface, color: mode === "auto" ? C.surAccent : C.ink, border: `1px solid ${mode === "auto" ? C.teal : C.line}` }}
               className="flex-1 rounded-xl py-2 text-sm active:scale-95 transition">Automatique</button>
             <button type="button" onClick={() => setMode("manuel")}
               aria-pressed={mode === "manuel"}
-              style={{ background: mode === "manuel" ? C.teal : "#fff", color: mode === "manuel" ? "#fff" : C.ink, border: `1px solid ${mode === "manuel" ? C.teal : C.line}` }}
+              style={{ background: mode === "manuel" ? C.teal : C.surface, color: mode === "manuel" ? C.surAccent : C.ink, border: `1px solid ${mode === "manuel" ? C.teal : C.line}` }}
               className="flex-1 rounded-xl py-2 text-sm active:scale-95 transition">Manuel</button>
           </div>
 
@@ -4161,8 +4296,8 @@ function SuggestionsSheet({ trip, jour, onAdd, onRemove, onClose, canEdit, promp
                           disabled={chargement}
                           aria-label={`Rechercher ${sujet.libelle} autour de ${repere.texte}`}
                           style={{
-                            background: actif ? C.teal : "#fff",
-                            color: actif ? "#fff" : C.ink,
+                            background: actif ? C.teal : C.surface,
+                            color: actif ? C.surAccent : C.ink,
                             border: `1px solid ${actif ? C.teal : C.line}`,
                             opacity: chargement && !actif ? 0.5 : 1,
                           }}
@@ -4200,7 +4335,7 @@ function SuggestionsSheet({ trip, jour, onAdd, onRemove, onClose, canEdit, promp
                   {!attente && (
                     <button type="button" onClick={() => setMode("manuel")}
                       style={{ background: C.teal }}
-                      className="mt-3 text-white rounded-xl px-3 py-2 text-sm active:scale-95 transition">
+                      className="mt-3 surAccent rounded-xl px-3 py-2 text-sm active:scale-95 transition">
                       Passer en mode Manuel
                     </button>
                   )}
@@ -4235,7 +4370,7 @@ function SuggestionsSheet({ trip, jour, onAdd, onRemove, onClose, canEdit, promp
               )}
               <button onClick={cherche} disabled={!prompt.trim() || chargement}
                 style={{ background: (!prompt.trim() || chargement) ? C.inkSoft : C.teal, opacity: (!prompt.trim() || chargement) ? 0.6 : 1 }}
-                className="mt-2 w-full text-white rounded-xl py-3 font-medium inline-flex items-center justify-center gap-2 active:scale-95 transition">
+                className="mt-2 w-full surAccent rounded-xl py-3 font-medium inline-flex items-center justify-center gap-2 active:scale-95 transition">
                 {chargement
                   ? <><Loader2 size={18} className="animate-spin" /> Recherche…</>
                   : <><Search size={18} /> Rechercher</>}
@@ -4740,25 +4875,25 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
           )}
           <div className="fixed bottom-0 inset-x-0 z-30 pointer-events-none">
             <div className="mx-auto max-w-md px-4 pb-5 pt-2 flex flex-col items-end gap-2"
-              style={{ background: ajoutOuvert ? "transparent" : "linear-gradient(to top, rgba(244,246,247,0.95), rgba(244,246,247,0))" }}>
+              style={{ background: ajoutOuvert ? "transparent" : "linear-gradient(to top, var(--c-degrade), var(--c-degrade-0))" }}>
               {/* L'ordre du DOM est celui de haut en bas : l'activité, de loin le
                   plus fréquent, reste au plus près du pouce, juste au-dessus du « + ». */}
               {ajoutOuvert && (
                 <>
-                  <button onClick={() => choisitAjout(() => ouvreSuggestions(null))} style={{ background: C.ink }}
-                    className="pointer-events-auto text-white rounded-full pl-4 pr-5 py-3.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
+                  <button onClick={() => choisitAjout(() => ouvreSuggestions(null))} style={{ background: C.encre }}
+                    className="pointer-events-auto surAccent rounded-full pl-4 pr-5 py-3.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
                     <Sparkles size={20} /> Suggestions
                   </button>
                   <button onClick={() => choisitAjout(onAddStay)} style={{ background: STAY_COLOR }}
-                    className="pointer-events-auto text-white rounded-full pl-4 pr-5 py-3.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
+                    className="pointer-events-auto surAccent rounded-full pl-4 pr-5 py-3.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
                     <Plus size={20} /> Hébergement
                   </button>
                   <button onClick={() => choisitAjout(() => ouvreCarte(null))} style={{ background: C.bleu }}
-                    className="pointer-events-auto text-white rounded-full pl-4 pr-5 py-3.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
+                    className="pointer-events-auto surAccent rounded-full pl-4 pr-5 py-3.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
                     <MapIcon size={20} /> Activité depuis la carte
                   </button>
                   <button onClick={() => choisitAjout(onAddAct)} style={{ background: C.teal }}
-                    className="pointer-events-auto text-white rounded-full pl-4 pr-5 py-3.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
+                    className="pointer-events-auto surAccent rounded-full pl-4 pr-5 py-3.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
                     <Plus size={20} /> Activité
                   </button>
                 </>
@@ -4770,7 +4905,7 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
               <button onClick={() => (ajoutOuvert ? fermeAjout() : setAjoutOuvert(true))}
                 aria-expanded={ajoutOuvert}
                 aria-label={ajoutOuvert ? "Fermer le menu d'ajout" : "Ajouter une étape"}
-                style={{ background: "#fff", border: `1px solid ${C.line}`, color: C.teal }}
+                style={{ background: C.surface, border: `1px solid ${C.line}`, color: C.teal }}
                 className="pointer-events-auto h-14 w-14 rounded-full shadow-lg flex items-center justify-center active:scale-95 transition">
                 {/* La croix n'est que le « + » pivoté : même dessin, l'état se lit
                     d'un coup d'œil sans changer d'icône. */}
@@ -4974,18 +5109,18 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
               {lienLieu && (
                 <a href={lienLieu} target="_blank" rel="noopener noreferrer"
                   aria-label="Ouvrir ce lieu dans Google Maps" title="Ouvrir dans Google Maps"
-                  style={{ border: `1px solid ${C.line}`, background: "#fff", color: C.teal }}
+                  style={{ border: `1px solid ${C.line}`, background: C.surface, color: C.teal }}
                   className="shrink-0 w-11 rounded-xl flex items-center justify-center active:scale-95 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300">
                   <MapPin size={18} />
                 </a>
               )}
               <button type="button" onClick={pasteFromClipboard} aria-label="Coller depuis le presse-papier" title="Coller"
-                style={{ border: `1px solid ${C.line}`, background: "#fff", color: C.teal }}
+                style={{ border: `1px solid ${C.line}`, background: C.surface, color: C.teal }}
                 className="shrink-0 w-11 rounded-xl flex items-center justify-center active:scale-95 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300">
                 <ClipboardPaste size={18} />
               </button>
               <button type="button" onClick={copierLieu} aria-label="Copier le lieu dans le presse-papier" title="Copier"
-                style={{ border: `1px solid ${C.line}`, background: "#fff", color: C.teal }}
+                style={{ border: `1px solid ${C.line}`, background: C.surface, color: C.teal }}
                 className="shrink-0 w-11 rounded-xl flex items-center justify-center active:scale-95 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300">
                 <Copy size={18} />
               </button>
@@ -5026,7 +5161,7 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
                 const active = draft.durationMin === d;
                 return (
                   <button key={d} onClick={() => upd("durationMin", d)}
-                    style={{ background: active ? C.ink : "#fff", color: active ? "#fff" : C.ink, border: `1px solid ${active ? C.ink : C.line}`, fontFamily: MONO }}
+                    style={{ background: active ? C.encre : C.surface, color: active ? C.surAccent : C.ink, border: `1px solid ${active ? C.encre : C.line}`, fontFamily: MONO }}
                     className="rounded-full px-1 py-1 text-xs active:scale-95 transition">{compactDur(d)}</button>
                 );
               })}
@@ -5034,7 +5169,7 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
                   saisie : quand rien n'est encore choisi, aucune ne doit paraître
                   sélectionnée. */}
               <button onClick={openCustom}
-                style={{ background: (!isPreset && !sansDuree) ? C.ink : "#fff", color: (!isPreset && !sansDuree) ? "#fff" : C.ink, border: `1px solid ${(!isPreset && !sansDuree) ? C.ink : C.line}`, fontFamily: MONO }}
+                style={{ background: (!isPreset && !sansDuree) ? C.encre : C.surface, color: (!isPreset && !sansDuree) ? C.surAccent : C.ink, border: `1px solid ${(!isPreset && !sansDuree) ? C.encre : C.line}`, fontFamily: MONO }}
                 className="rounded-full px-1 py-1 text-xs active:scale-95 transition">{(!isPreset && !sansDuree) ? compactDur(draft.durationMin) : "…"}</button>
             </div>
           </Field>
@@ -5062,12 +5197,12 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
                   const active = nuits === n;
                   return (
                     <button key={n} type="button" onClick={() => upd("nights", n)}
-                      style={{ background: active ? STAY_COLOR : "#fff", color: active ? "#fff" : C.ink, border: `1px solid ${active ? STAY_COLOR : C.line}`, fontFamily: MONO }}
+                      style={{ background: active ? STAY_COLOR : C.surface, color: active ? C.surAccent : C.ink, border: `1px solid ${active ? STAY_COLOR : C.line}`, fontFamily: MONO }}
                       className="rounded-full px-1 py-1 text-xs active:scale-95 transition">{n}</button>
                   );
                 })}
                 <button type="button" onClick={openNuits}
-                  style={{ background: !nuitsPreset ? STAY_COLOR : "#fff", color: !nuitsPreset ? "#fff" : C.ink, border: `1px solid ${!nuitsPreset ? STAY_COLOR : C.line}`, fontFamily: MONO }}
+                  style={{ background: !nuitsPreset ? STAY_COLOR : C.surface, color: !nuitsPreset ? C.surAccent : C.ink, border: `1px solid ${!nuitsPreset ? STAY_COLOR : C.line}`, fontFamily: MONO }}
                   className="rounded-full px-1 py-1 text-xs active:scale-95 transition">{!nuitsPreset ? nuits : "…"}</button>
               </div>
             </Field>
@@ -5095,10 +5230,10 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
             <Field label="Heure d'arrivée le soir">
               <div className="flex items-center gap-2">
                 <button type="button" onClick={() => upd("arriveTime", AUTO)}
-                  style={{ background: arriveeAuto ? C.teal : "#fff", color: arriveeAuto ? "#fff" : C.ink, border: `1px solid ${arriveeAuto ? C.teal : C.line}` }}
+                  style={{ background: arriveeAuto ? C.teal : C.surface, color: arriveeAuto ? C.surAccent : C.ink, border: `1px solid ${arriveeAuto ? C.teal : C.line}` }}
                   className="shrink-0 rounded-xl px-3 py-1.5 text-sm active:scale-95 transition">Auto</button>
                 <button type="button" onClick={() => { if (arriveeAuto) upd("arriveTime", arriveeSuggeree); }}
-                  style={{ background: !arriveeAuto ? C.teal : "#fff", color: !arriveeAuto ? "#fff" : C.ink, border: `1px solid ${!arriveeAuto ? C.teal : C.line}` }}
+                  style={{ background: !arriveeAuto ? C.teal : C.surface, color: !arriveeAuto ? C.surAccent : C.ink, border: `1px solid ${!arriveeAuto ? C.teal : C.line}` }}
                   className="shrink-0 rounded-xl px-3 py-1.5 text-sm active:scale-95 transition">Heure fixe</button>
                 {!arriveeAuto && (
                   <TimeFields value={draft.arriveTime} defaut={arriveeSuggeree}
@@ -5125,10 +5260,10 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
               <>
                 <div className="flex gap-2">
                   <button type="button" onClick={() => upd("startTime", AUTO)}
-                    style={{ background: timeAuto ? C.teal : "#fff", color: timeAuto ? "#fff" : C.ink, border: `1px solid ${timeAuto ? C.teal : C.line}` }}
+                    style={{ background: timeAuto ? C.teal : C.surface, color: timeAuto ? C.surAccent : C.ink, border: `1px solid ${timeAuto ? C.teal : C.line}` }}
                     className="flex-1 rounded-xl py-2 text-sm active:scale-95 transition">Auto</button>
                   <button type="button" onClick={() => { if (isAutoTime(draft.startTime)) upd("startTime", suggestedTime); }}
-                    style={{ background: !timeAuto ? C.teal : "#fff", color: !timeAuto ? "#fff" : C.ink, border: `1px solid ${!timeAuto ? C.teal : C.line}` }}
+                    style={{ background: !timeAuto ? C.teal : C.surface, color: !timeAuto ? C.surAccent : C.ink, border: `1px solid ${!timeAuto ? C.teal : C.line}` }}
                     className="flex-1 rounded-xl py-2 text-sm active:scale-95 transition">Heure fixe</button>
                 </div>
                 {!timeAuto && (
@@ -5151,7 +5286,7 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
         <div style={{ background: C.paper, borderColor: C.line, paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }} className="px-4 pt-3 border-t space-y-2">
           <button onClick={handleSave} disabled={nameError || sansDuree || saving}
             style={{ background: (nameError || sansDuree || saving) ? C.inkSoft : C.teal, opacity: (nameError || sansDuree || saving) ? 0.6 : 1 }}
-            className="w-full text-white rounded-xl py-3 font-medium active:scale-95 transition">
+            className="w-full surAccent rounded-xl py-3 font-medium active:scale-95 transition">
             {saving ? "Enregistrement…" : (draft.mode === "new" ? (stay ? "Ajouter l'hébergement" : "Ajouter l'activité") : "Enregistrer")}
           </button>
           {nameError && <div style={{ color: C.warn }} className="text-xs">Le nom est requis.</div>}
@@ -5185,7 +5320,7 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
             <div style={{ color: C.inkSoft }} className="text-xs mt-2">Total : {fmtDur(Math.max(0, (Number(ch) || 0) * 60 + (Number(cm) || 0)))}</div>
             <div className="flex gap-2 mt-4">
               <button onClick={() => setCustomOpen(false)} style={{ border: `1px solid ${C.line}`, color: C.ink }} className="flex-1 rounded-xl py-2.5 bg-white">Annuler</button>
-              <button onClick={applyCustom} style={{ background: C.teal }} className="flex-1 rounded-xl py-2.5 text-white font-medium">Valider</button>
+              <button onClick={applyCustom} style={{ background: C.teal }} className="flex-1 rounded-xl py-2.5 surAccent font-medium">Valider</button>
             </div>
           </div>
         </div>
@@ -5208,7 +5343,7 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
             </div>
             <div className="flex gap-2 mt-4">
               <button onClick={() => setNuitsOpen(false)} style={{ border: `1px solid ${C.line}`, color: C.ink }} className="flex-1 rounded-xl py-2.5 bg-white">Annuler</button>
-              <button onClick={applyNuits} style={{ background: STAY_COLOR }} className="flex-1 rounded-xl py-2.5 text-white font-medium">Valider</button>
+              <button onClick={applyNuits} style={{ background: STAY_COLOR }} className="flex-1 rounded-xl py-2.5 surAccent font-medium">Valider</button>
             </div>
           </div>
         </div>
@@ -5217,7 +5352,7 @@ function EditorSheet({ draft, setDraft, days, allActs = [], onSave, onClose, onD
   );
 }
 
-const inputStyle = { background: "#fff", border: `1px solid ${C.line}`, color: C.ink };
+const inputStyle = { background: C.surface, border: `1px solid ${C.line}`, color: C.ink };
 
 /* --- Heure fixe en deux champs : heure et minute -------------------- */
 // Un <input type="time"> ouvre le sélecteur en roue d'Android, pénible pour
@@ -5357,7 +5492,7 @@ function DateRangeCalendar({ startDate, endDate, onChange, awaitingEnd, setAwait
             <button key={iso} onClick={() => pick(iso)}
               style={{
                 background: edge ? C.teal : inside ? C.tealSoft : "transparent",
-                color: edge ? "#fff" : C.ink,
+                color: edge ? C.surAccent : C.ink,
                 fontFamily: MONO,
                 ...(iso === today && !edge ? { boxShadow: `inset 0 0 0 1px ${C.teal}`, borderRadius: 999 } : {}),
               }}
@@ -5396,7 +5531,7 @@ function DateRangeSheet({ startDate, endDate, onValidate, onCancel }) {
 
         <div style={{ background: C.paper, borderColor: C.line, paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }} className="px-4 pt-3 border-t space-y-2">
           <button onClick={() => onValidate(range)} style={{ background: C.teal }}
-            className="w-full text-white rounded-xl py-3 font-medium active:scale-95 transition">Valider</button>
+            className="w-full surAccent rounded-xl py-3 font-medium active:scale-95 transition">Valider</button>
           <button onClick={onCancel} style={{ border: `1px solid ${C.line}`, color: C.ink }}
             className="w-full rounded-xl py-3 font-medium bg-white active:scale-95 transition">Annuler</button>
         </div>
@@ -5453,7 +5588,7 @@ function TripModal({ draft, setDraft, onSave, onClose, onDelete, onToggleArchive
           {dateError && <div style={{ color: C.warn }} className="text-xs -mt-2">La date de fin doit être postérieure ou égale à la date de début.</div>}
 
           {isNew && (
-            <div style={{ background: "#fff", border: `1px solid ${C.line}` }} className="rounded-2xl p-3 space-y-3">
+            <div style={{ background: C.surface, border: `1px solid ${C.line}` }} className="rounded-2xl p-3 space-y-3">
               <div style={{ color: C.ink }} className="text-sm font-medium flex items-center gap-1.5"><MapPin size={15} style={{ color: C.teal }} /> Point de départ (1er jour)</div>
               <input value={draft.startName} onChange={(e) => upd("startName", e.target.value)} placeholder="Nom (ex. Maison)"
                 style={inputStyle} className="w-full rounded-xl px-3 py-2.5 outline-none" />
@@ -5472,7 +5607,7 @@ function TripModal({ draft, setDraft, onSave, onClose, onDelete, onToggleArchive
 
           {/* actions : à la suite du formulaire, pas en barre fixe */}
           <div style={{ paddingBottom: "env(safe-area-inset-bottom)" }} className="pt-2 space-y-2">
-            <button onClick={onSave} disabled={nameError || dateError} style={{ background: nameError || dateError ? C.inkSoft : C.teal, opacity: nameError || dateError ? 0.6 : 1 }} className="w-full text-white rounded-xl py-3 font-medium active:scale-95 transition">
+            <button onClick={onSave} disabled={nameError || dateError} style={{ background: nameError || dateError ? C.inkSoft : C.teal, opacity: nameError || dateError ? 0.6 : 1 }} className="w-full surAccent rounded-xl py-3 font-medium active:scale-95 transition">
               {isNew ? "Créer le séjour" : "Enregistrer"}
             </button>
             <button onClick={onClose} style={{ border: `1px solid ${C.line}`, color: C.ink }} className="w-full rounded-xl py-3 font-medium bg-white active:scale-95 transition">
@@ -5495,7 +5630,7 @@ function TripModal({ draft, setDraft, onSave, onClose, onDelete, onToggleArchive
               confirmDel ? (
                 <div className="flex gap-2">
                   <button onClick={() => setConfirmDel(false)} style={{ border: `1px solid ${C.line}`, color: C.ink }} className="flex-1 rounded-xl py-2.5 bg-white">Garder</button>
-                  <button onClick={onDelete} style={{ background: C.warn }} className="flex-1 rounded-xl py-2.5 text-white font-medium">Supprimer le séjour</button>
+                  <button onClick={onDelete} style={{ background: C.warn }} className="flex-1 rounded-xl py-2.5 surAccent font-medium">Supprimer le séjour</button>
                 </div>
               ) : (
                 <button onClick={() => setConfirmDel(true)} style={{ color: C.warn }} className="w-full rounded-xl py-2.5 font-medium inline-flex items-center justify-center gap-1.5"><Trash2 size={16} /> Supprimer le séjour</button>
@@ -5606,7 +5741,7 @@ function ShareModal({ trip, myEmail, onClose, onAdd, onChangeRole, onRemove, onL
                   </div>
                   {canManage ? (
                     <select value={m.role} onChange={(e) => onChangeRole(m.id, e.target.value)}
-                      style={{ background: "#fff", border: `1px solid ${C.line}`, color: C.ink }}
+                      style={{ background: C.surface, border: `1px solid ${C.line}`, color: C.ink }}
                       className="rounded-lg px-2 py-1 text-xs outline-none">
                       <option value="editor">Éditeur</option>
                       <option value="viewer">Lecteur</option>
@@ -5641,14 +5776,14 @@ function ShareModal({ trip, myEmail, onClose, onAdd, onChangeRole, onRemove, onL
           <form onSubmit={invite} className="mt-4">
             <div style={{ color: C.inkSoft }} className="text-xs font-medium uppercase tracking-wide mb-1.5">Inviter par email</div>
             <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="collaborateur@exemple.com"
-              style={{ background: "#fff", border: `1px solid ${C.line}`, color: C.ink }}
+              style={{ background: C.surface, border: `1px solid ${C.line}`, color: C.ink }}
               className="w-full rounded-xl px-3 py-2.5 outline-none" />
             <div className="flex gap-2 mt-2">
               {[{ id: "editor", label: "Éditeur" }, { id: "viewer", label: "Lecteur" }].map((r) => {
                 const active = role === r.id;
                 return (
                   <button type="button" key={r.id} onClick={() => setRole(r.id)}
-                    style={{ background: active ? C.teal : "#fff", color: active ? "#fff" : C.ink, border: `1px solid ${active ? C.teal : C.line}` }}
+                    style={{ background: active ? C.teal : C.surface, color: active ? C.surAccent : C.ink, border: `1px solid ${active ? C.teal : C.line}` }}
                     className="flex-1 rounded-xl py-2 text-sm active:scale-95 transition">{r.label}</button>
                 );
               })}
@@ -5659,7 +5794,7 @@ function ShareModal({ trip, myEmail, onClose, onAdd, onChangeRole, onRemove, onL
               </div>
             )}
             <button type="submit" disabled={busy} style={{ background: C.teal, opacity: busy ? 0.7 : 1 }}
-              className="mt-3 w-full text-white rounded-xl py-2.5 font-medium inline-flex items-center justify-center gap-2 active:scale-95 transition">
+              className="mt-3 w-full surAccent rounded-xl py-2.5 font-medium inline-flex items-center justify-center gap-2 active:scale-95 transition">
               <UserPlus size={16} /> {busy ? "Envoi…" : "Donner l'accès"}
             </button>
             <div style={{ color: C.inkSoft }} className="t11 mt-2">
@@ -5703,6 +5838,10 @@ function SejourApp() {
   const [shareTripId, setShareTripId] = useState(null);
   const [home, setHome] = useState({ label: "Maison", address: "20 rue des grillons 31700 BEAUZELLE" });
   const [navApp, setNavApp] = useState("gmaps");
+  // Amorcé sur le miroir local, celui-là même que lit le script d'index.html
+  // avant le premier rendu : l'état de React part donc d'accord avec ce que
+  // l'écran affiche déjà, sans le faire clignoter.
+  const [theme, setTheme] = useState(themeLocal);
   // Checklist par défaut (Compte) : reprise telle quelle (nouveaux id, décochée)
   // dans les activités de chaque nouveau séjour créé. Propre au compte, comme
   // le lieu de départ ou l'application d'itinéraire.
@@ -5741,6 +5880,12 @@ function SejourApp() {
       address: md.home_address != null ? md.home_address : "20 rue des grillons 31700 BEAUZELLE",
     });
     if (NAV_APPS.some((a) => a.id === md.nav_app)) setNavApp(md.nav_app);
+    // Le compte fait autorité d'un appareil à l'autre ; le miroir local le suit
+    // pour que la prochaine ouverture parte du bon thème dès le premier rendu.
+    if (THEMES.some((t) => t.id === md.theme)) {
+      setTheme(md.theme);
+      try { localStorage.setItem(CLE_THEME, md.theme); } catch { /* stockage refusé */ }
+    }
     // Un objet inattendu (compte jamais écrit par cette fonctionnalité, ou
     // altéré à la main) ne doit pas empêcher l'application de démarrer.
     if (md.last_day_by_trip && typeof md.last_day_by_trip === "object") setLastDayByTrip(md.last_day_by_trip);
@@ -5778,6 +5923,30 @@ function SejourApp() {
 
   // Application d'itinéraire : appliquée aussitôt à l'écran, puis mémorisée sur
   // le compte pour être retrouvée sur les autres appareils.
+  // Le thème posé sur <html>, et re-posé si le téléphone change d'avis — ce qui
+  // arrive tout seul en « Système », au coucher du soleil sur certains appareils.
+  // L'écoute n'existe que dans ce mode : un choix explicite n'a rien à suivre.
+  useEffect(() => {
+    appliqueTheme(theme);
+    if (theme !== "systeme") return undefined;
+    const mq = requeteSombre();
+    if (!mq) return undefined;
+    const suit = () => appliqueTheme("systeme");
+    mq.addEventListener("change", suit);
+    return () => mq.removeEventListener("change", suit);
+  }, [theme]);
+
+  const saveTheme = (t) => {
+    const choix = themeValide(t);
+    setTheme(choix);
+    // Le miroir local d'abord : il est sans réseau, et c'est lui qui évite
+    // l'éclair blanc à la prochaine ouverture. Le compte ensuite, pour les
+    // autres appareils — son échec ne doit pas empêcher le thème de s'appliquer.
+    try { localStorage.setItem(CLE_THEME, choix); } catch { /* stockage refusé */ }
+    supabase.auth.updateUser({ data: { theme: choix } })
+      .catch((e) => console.error("Sauvegarde du thème:", e));
+  };
+
   const saveNavApp = async (app) => {
     setNavApp(app);
     try { await supabase.auth.updateUser({ data: { nav_app: app } }); }
@@ -6348,6 +6517,7 @@ function SejourApp() {
           userEmail={userEmail} onSignOut={signOut} home={home} onSaveHome={saveHome}
           sharedLink={sharedLink} onDismissShared={() => setSharedLink(null)}
           navApp={navApp} onSaveNavApp={saveNavApp}
+          theme={theme} onSaveTheme={saveTheme}
           defaultChecklist={defaultChecklist} onSaveDefaultChecklist={saveDefaultChecklist} />
       ) : (
         <TripView
@@ -6444,7 +6614,7 @@ class ErrorBoundary extends React.Component {
             <div style={{ background: C.warnSoft, color: C.warn, fontFamily: MONO, wordBreak: "break-word" }} className="mt-3 rounded-xl p-3 text-xs">
               v{APP_VERSION} — {msg}
             </div>
-            <button onClick={this.reset} style={{ background: C.teal }} className="mt-4 w-full text-white rounded-xl py-3 font-medium">Réessayer</button>
+            <button onClick={this.reset} style={{ background: C.teal }} className="mt-4 w-full surAccent rounded-xl py-3 font-medium">Réessayer</button>
             <button onClick={() => window.location.reload()} style={{ color: C.ink, border: `1px solid ${C.line}` }} className="mt-2 w-full rounded-xl py-3 font-medium bg-white">Recharger l'application</button>
             {/* Option destructive : deux temps, formulation sans ambiguïté. */}
             {this.state.confirmWipe ? (
@@ -6452,7 +6622,7 @@ class ErrorBoundary extends React.Component {
                 <div style={{ color: C.warn }} className="text-xs">Cette action supprime définitivement tous vos séjours, pour vous et pour les personnes avec qui vous les avez partagés.</div>
                 <div className="flex gap-2 mt-2">
                   <button onClick={() => this.setState({ confirmWipe: false })} style={{ border: `1px solid ${C.line}`, color: C.ink }} className="flex-1 rounded-xl py-2.5 bg-white">Garder mes séjours</button>
-                  <button onClick={this.clearData} style={{ background: C.warn }} className="flex-1 rounded-xl py-2.5 text-white font-medium">Tout supprimer</button>
+                  <button onClick={this.clearData} style={{ background: C.warn }} className="flex-1 rounded-xl py-2.5 surAccent font-medium">Tout supprimer</button>
                 </div>
               </div>
             ) : (
@@ -6493,7 +6663,7 @@ function LoginScreen() {
       <div className="w-full max-w-sm">
         {/* Le logo tient lieu de titre, comme sur l'accueil des séjours. */}
         <img src={`${import.meta.env.BASE_URL}logo-periplo.png`} alt="Periplo"
-          width={600} height={437} className="h-auto mx-auto mb-2" style={{ width: 168 }} />
+          width={600} height={437} className="h-auto mx-auto mb-2" style={{ width: 168, filter: "var(--logo-filtre)" }} />
         <p style={{ color: C.inkSoft }} className="text-sm mb-6">Connectez-vous pour retrouver vos séjours sur tous vos appareils.</p>
 
         <div style={{ background: C.card, border: `1px solid ${C.line}` }} className="rounded-2xl p-5">
@@ -6526,7 +6696,7 @@ function LoginScreen() {
               <button
                 type="submit" disabled={status === "sending"}
                 style={{ background: C.teal, opacity: status === "sending" ? 0.7 : 1 }}
-                className="mt-4 w-full text-white rounded-xl py-3 font-medium active:scale-95 transition">
+                className="mt-4 w-full surAccent rounded-xl py-3 font-medium active:scale-95 transition">
                 {status === "sending" ? "Envoi…" : "Recevoir le lien de connexion"}
               </button>
             </form>

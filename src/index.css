@@ -2,5 +2,141 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ------------------------------------------------------------------ */
+/* Palette                                                             */
+/*                                                                     */
+/* Les couleurs sont des VARIABLES CSS, et non plus des valeurs figées  */
+/* dans le JavaScript. C'est ce qui rend le thème sombre possible sans  */
+/* toucher aux quelque cinq cents endroits qui les emploient : le objet */
+/* `C` de escale.jsx rend désormais `var(--c-…)`, le navigateur résout, */
+/* et changer de thème ne demande qu'à poser `data-theme` sur <html>.   */
+/* Aucun rendu React n'est nécessaire — le basculement est immédiat et  */
+/* atteint jusqu'aux écrans qui ne se redessinent pas.                  */
+/*                                                                      */
+/* Une limite à connaître : une `var()` ne se résout PAS dans une image */
+/* en data-URI. Les repères de la carte, dessinés en SVG, gardent donc  */
+/* des valeurs hexadécimales (voir MARQUEUR_* dans escale.jsx).         */
+/* ------------------------------------------------------------------ */
+:root {
+  color-scheme: light;
+
+  --c-paper: #F4F6F7;
+  --c-card: #FFFFFF;
+  --c-ink: #16324A;
+  --c-ink-soft: #5B6B7A;
+  --c-line: #E4EAEC;
+  --c-teal: #0F8A80;
+  --c-teal-soft: #E4F2F0;
+  --c-amber: #DE8A1E;
+  --c-amber-soft: #FBEBD6;
+  --c-rose: #C0559B;
+  --c-bleu: #2E8BC0;
+  --c-bleu-soft: #E2EFF7;
+  --c-warn: #D0453B;
+  --c-warn-soft: #FBE6E4;
+
+  /* Hébergement : sa propre gamme, distincte des huit catégories. */
+  --stay: #2F3E8F;
+  --stay-soft: #E7EAF7;
+  --stay-line: #CFD4E9;
+
+  /* Surfaces posées SUR le papier : boutons ronds, pastilles. En clair
+     c'est le blanc des cartes ; le voile sert au-dessus de la carte
+     Google, qui reste rendue par Google dans les deux thèmes. */
+  --c-surface: #FFFFFF;
+  --c-voile: rgba(255, 255, 255, 0.94);
+
+  /* L'encre employée comme APLAT — la pastille active d'un sélecteur, le
+     bouton Suggestions. À ne pas confondre avec --c-ink, qui est la couleur
+     du TEXTE : en thème sombre les deux s'inversent, l'encre du texte devient
+     claire et l'aplat doit le rester aussi, sans quoi il disparaîtrait.
+     --c-sur-accent est ce qu'on écrit PAR-DESSUS un aplat d'accent (teal,
+     encre, indigo, alerte). Blanc en clair ; sur les accents éclaircis du
+     thème sombre, du blanc tomberait à 2,3:1 — c'est donc le fond de nuit
+     qui sert d'encre, autour de 8:1. */
+  --c-ink-fond: #16324A;
+  --c-sur-accent: #FFFFFF;
+  /* Même encre, éteinte : le jour SÉLECTIONNÉ d'une journée déjà passée. */
+  --c-sur-accent-doux: rgba(255, 255, 255, 0.65);
+  --c-degrade: rgba(244, 246, 247, 0.95);
+  --c-degrade-0: rgba(244, 246, 247, 0);
+
+  /* Accents de catégorie, pour l'INTERFACE. Les repères de la carte ont
+     leurs propres valeurs en dur : un SVG en data-URI ne résout pas une
+     variable, et il se pose de toute façon sur une carte claire. */
+  /* Le logo est une image monochrome (#434343 sur transparence), pas du
+     texte : aucune variable ne l'atteint. Un filtre, si — et il évite
+     d'entretenir un second fichier qui pourrait diverger du premier. */
+  --logo-filtre: none;
+
+  --cat-visite: #0F8A80;
+  --cat-repas: #DE8A1E;
+  --cat-cafe: #B4763B;
+  --cat-nature: #2E8BC0;
+  --cat-shopping: #C0559B;
+  --cat-transport: #5B6B7A;
+  --cat-autre: #7A8A55;
+  --cat-dormir: #2F3E8F;
+}
+
+/* Thème sombre. Le fond n'est pas un gris neutre mais un bleu de nuit :
+   l'encre de l'application est un marine (#16324A), et garder cette
+   teinte évite que le sombre ressemble à une autre application.
+   Les accents sont ÉCLAIRCIS — un #0F8A80 posé sur du #0E1620 tombe
+   sous le seuil de lisibilité — et les teintes douces, qui étaient des
+   quasi-blancs, deviennent des fonds profonds de la même famille. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --c-paper: #0E1620;
+  --c-card: #17222E;
+  --c-ink: #E6EDF3;
+  --c-ink-soft: #94A6B8;
+  --c-line: #263442;
+  --c-teal: #2FB3A6;
+  --c-teal-soft: #123330;
+  --c-amber: #E8A44A;
+  --c-amber-soft: #382914;
+  --c-rose: #D97BB8;
+  --c-bleu: #58A9DA;
+  --c-bleu-soft: #14293A;
+  --c-warn: #F0685D;
+  --c-warn-soft: #3B1A17;
+
+  --stay: #7C8AD9;
+  --stay-soft: #1C2340;
+  --stay-line: #2E3860;
+
+  --c-surface: #17222E;
+  --c-voile: rgba(23, 34, 46, 0.94);
+  --c-ink-fond: #E6EDF3;
+  --c-sur-accent: #0E1620;
+  --c-sur-accent-doux: rgba(14, 22, 32, 0.6);
+  --c-degrade: rgba(14, 22, 32, 0.95);
+  --c-degrade-0: rgba(14, 22, 32, 0);
+
+  /* Noirci puis inversé à 88 % : un gris clair, aussi en retrait sur le fond
+     de nuit que le #434343 d'origine l'est sur le papier. Le blanc pur
+     tirerait davantage l'œil que le logo n'en demande. */
+  --logo-filtre: brightness(0) invert(0.88);
+
+  --cat-visite: #2FB3A6;
+  --cat-repas: #E8A44A;
+  --cat-cafe: #C99A63;
+  --cat-nature: #58A9DA;
+  --cat-shopping: #D97BB8;
+  --cat-transport: #93A5B5;
+  --cat-autre: #A3B37A;
+  --cat-dormir: #7C8AD9;
+}
+
 html, body, #root { height: 100%; }
-body { margin: 0; background: #F4F6F7; -webkit-font-smoothing: antialiased; }
+body {
+  margin: 0;
+  background: var(--c-paper);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Texte et icônes posés sur un aplat d'accent. Remplace `text-white`, qui
+   supposait que tout aplat est sombre — faux dès que la palette s'inverse. */
+.surAccent { color: var(--c-sur-accent); }

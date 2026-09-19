@@ -12,6 +12,28 @@
     <title>Periplo — planificateur de séjours</title>
   </head>
   <body>
+    <script>
+      // Le thème est posé AVANT le premier rendu. Attendre React, puis la
+      // session Supabase, puis les métadonnées du compte ferait commencer
+      // chaque ouverture par un éclair blanc — d'autant plus visible que
+      // l'application démarre en plein écran sur téléphone.
+      //
+      // D'où le miroir local écrit par l'écran Compte : il n'est pas la source
+      // de vérité — le compte l'est, pour valoir d'un appareil à l'autre — mais
+      // il est le seul lisible à cet instant.
+      (function () {
+        try {
+          var p = localStorage.getItem("periplo.theme") || "systeme";
+          var sombre = p === "sombre"
+            || (p === "systeme" && window.matchMedia
+                && window.matchMedia("(prefers-color-scheme: dark)").matches);
+          document.documentElement.setAttribute("data-theme", sombre ? "dark" : "light");
+        } catch (e) {
+          // Stockage refusé (navigation privée, site bloqué) : thème clair.
+          document.documentElement.setAttribute("data-theme", "light");
+        }
+      })();
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
