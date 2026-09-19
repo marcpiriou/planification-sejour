@@ -1185,8 +1185,28 @@ avec l'icône d'un monument. `categorieDepuisTypes` fait la conversion — un
 restaurant devient un repas, un parking un transport — et ce qui n'est pas
 reconnu retombe sur « visite », le défaut déjà retenu pour une recherche libre.
 
+### Un hébergement s'ajoute depuis n'importe quel « + »
+Les menus « + » de la timeline — celui d'un trajet, celui posé entre le réveil et
+le coucher d'un même hébergement, celui de fin de journée — offraient trois choix
+quand le bouton flottant en offrait quatre : l'hébergement leur manquait. Le motif
+inscrit dans le code était qu'« un hébergement ne s'insère pas au milieu d'une
+journée, sa place y est déduite de ses nuits ».
+
+C'est exact, mais cela ne justifiait pas de retirer le choix. La place d'un
+hébergement se déduit en effet de ses nuits, et **le bouton flottant ne fait pas
+autrement** : `newStay()` ne prend aucune position, il ouvre l'éditeur sur la
+journée affichée. Proposer l'hébergement depuis un « + » de la timeline n'y
+change donc rien — le même appel, la même règle, le même résultat. Ce qui
+manquait n'était pas une possibilité, c'était un chemin pour y accéder.
+
+Les quatre menus affichent maintenant les mêmes quatre choix, dans le même
+ordre : Suggestions, Hébergement, Activité depuis la carte, Activité. La seule
+différence tient à ce que la position VEUT dire pour chacun — une activité et une
+suggestion se glissent après l'étape touchée, un hébergement se range selon ses
+nuits. Cette différence-là est celle de l'hébergement, pas celle du menu.
+
 ### « Activité depuis la carte », dans les menus d'ajout
-Les trois menus « + » — le bouton flottant, celui d'un trajet, celui de fin de
+Les menus « + » — le bouton flottant, celui d'un trajet, celui de fin de
 journée — proposent un choix de plus, qui ouvre la carte pour y CHERCHER l'étape
 plutôt que de la saisir.
 

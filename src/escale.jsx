@@ -2244,6 +2244,7 @@ const ASPECT_TRAJET = (mode) => (
 function TravelLeg({
   from, to, leg, onEdit, variant, fromEndMin, toStartMin,
   ajoutOuvert, onOuvrirAjout, onFermerAjout, onAjoutActivite, onAjoutSuggestion, onAjoutCarte,
+  onAjoutHebergement,
 }) {
   const { color, soft, Icon } = ASPECT_TRAJET(leg.mode);
   const isStart = variant === "start";
@@ -2306,14 +2307,23 @@ function TravelLeg({
           <div style={{ color: C.inkSoft, whiteSpace: "pre-line" }} className="text-xs mt-1.5 clamp3">{from.travelNotes}</div>
         )}
 
-        {/* Deux choix seulement : un hébergement ne s'insère pas au milieu d'une
-            journée, sa place y est déduite de ses nuits. */}
+        {/* Les mêmes choix qu'au bouton flottant, dans le même ordre : ce menu-ci
+            n'a pas à en offrir moins parce qu'on l'a ouvert plus près de
+            l'endroit visé. L'hébergement, lui, ne tient pas compte de cet
+            endroit — sa place dans la journée se déduit de ses nuits, pas du
+            « + » touché — et c'est exactement la règle du bouton flottant. */}
         {ajoutOuvert && (
           <div className="mt-2 flex flex-col items-start gap-2">
             <button onClick={onAjoutSuggestion} style={{ background: C.ink }}
               className="text-white rounded-full pl-4 pr-5 py-2.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
               <Sparkles size={18} /> Suggestions
             </button>
+            {onAjoutHebergement && (
+              <button onClick={onAjoutHebergement} style={{ background: STAY_COLOR }}
+                className="text-white rounded-full pl-4 pr-5 py-2.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
+                <Plus size={18} /> Hébergement
+              </button>
+            )}
             {onAjoutCarte && (
               <button onClick={onAjoutCarte} style={{ background: C.bleu }}
                 className="text-white rounded-full pl-4 pr-5 py-2.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
@@ -2374,7 +2384,7 @@ function TravelLeg({
 // `traitContinu` distingue les deux emplois : entre deux cartes le rail traverse
 // de haut en bas, alors qu'en fin de journée il s'arrête à la pastille — rien ne
 // suit, et un trait qui continuerait dans le vide annoncerait une étape absente.
-function AjoutEtape({ apres, ouvert, onOuvrir, onFermer, onActivite, onSuggestion, onCarte, traitContinu = false }) {
+function AjoutEtape({ apres, ouvert, onOuvrir, onFermer, onActivite, onSuggestion, onCarte, onHebergement, traitContinu = false }) {
   return (
     <div className="flex gap-3" style={ouvert ? { position: "relative", zIndex: 30 } : undefined}>
       <div className="shrink-0 relative flex justify-center items-start" style={{ width: 66 }}>
@@ -2394,14 +2404,23 @@ function AjoutEtape({ apres, ouvert, onOuvrir, onFermer, onActivite, onSuggestio
         </button>
       </div>
       <div className="flex-1 mt-2">
-        {/* Deux choix, les mêmes qu'entre deux étapes : un hébergement ne s'ajoute
-            pas ici, sa place se déduit de ses nuits. */}
+        {/* Les mêmes choix qu'au bouton flottant, et dans le même ordre. Un
+            hébergement ne se glisse PAS à l'endroit du « + » touché : sa place
+            dans la journée se déduit de ses nuits. Ce n'est pas une limite de ce
+            menu-ci, c'est la règle de l'hébergement — le bouton flottant
+            l'applique déjà, et le proposer ici n'y change rien. */}
         {ouvert && (
           <div className="flex flex-col items-start gap-2">
             <button onClick={onSuggestion} style={{ background: C.ink }}
               className="text-white rounded-full pl-4 pr-5 py-2.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
               <Sparkles size={18} /> Suggestions
             </button>
+            {onHebergement && (
+              <button onClick={onHebergement} style={{ background: STAY_COLOR }}
+                className="text-white rounded-full pl-4 pr-5 py-2.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
+                <Plus size={18} /> Hébergement
+              </button>
+            )}
             {onCarte && (
               <button onClick={onCarte} style={{ background: C.bleu }}
                 className="text-white rounded-full pl-4 pr-5 py-2.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
@@ -4608,7 +4627,8 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
                   onFermerAjout={fermeTrajet}
                   onAjoutActivite={canEdit && !drag ? () => choisitTrajet(() => onAddAct(a.id)) : undefined}
                   onAjoutSuggestion={() => choisitTrajet(() => ouvreSuggestions(a.id))}
-                  onAjoutCarte={canEdit && !drag ? () => choisitTrajet(() => ouvreCarte(a.id)) : undefined} />}
+                  onAjoutCarte={canEdit && !drag ? () => choisitTrajet(() => ouvreCarte(a.id)) : undefined}
+                  onAjoutHebergement={canEdit && !drag ? () => choisitTrajet(() => onAddStay()) : undefined} />}
                 {/* Deux entrées du MÊME hébergement : le réveil et le coucher.
                     Aucun trajet à afficher — on ne va pas d'un lieu à lui-même —
                     mais toute la journée s'écoule entre les deux, et c'est là
@@ -4621,7 +4641,8 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
                     onFermer={fermeTrajet}
                     onActivite={() => choisitTrajet(() => onAddAct(a.id))}
                     onSuggestion={() => choisitTrajet(() => ouvreSuggestions(a.id))}
-                    onCarte={() => choisitTrajet(() => ouvreCarte(a.id))} />
+                    onCarte={() => choisitTrajet(() => ouvreCarte(a.id))}
+                    onHebergement={() => choisitTrajet(() => onAddStay())} />
                 )}
                 {drag && drag.over === acts.length && i === acts.length - 1 && <InsertBar />}
               </div>
@@ -4637,7 +4658,8 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
                 onFermer={fermeTrajet}
                 onActivite={() => choisitTrajet(() => onAddAct(acts[acts.length - 1].id))}
                 onSuggestion={() => choisitTrajet(() => ouvreSuggestions(acts[acts.length - 1].id))}
-                onCarte={() => choisitTrajet(() => ouvreCarte(acts[acts.length - 1].id))} />
+                onCarte={() => choisitTrajet(() => ouvreCarte(acts[acts.length - 1].id))}
+                onHebergement={() => choisitTrajet(() => onAddStay())} />
             )}
             {canEdit && acts.filter((a) => !isStay(a)).length > 1 && (
               <div style={{ color: C.inkSoft }} className="t11 mt-5 flex items-center gap-1">
