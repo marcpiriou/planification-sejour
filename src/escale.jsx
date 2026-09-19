@@ -6210,6 +6210,15 @@ function SejourApp() {
         : Math.max(1, Math.min(60, Number(d.nights) || 1)),
       nightTimes: isStayDraft ? nightTimes : {},
       nightArrivals: isStayDraft ? nightArrivals : {},
+      // Les trajets du matin, repris tels quels — même raison que `travelNotes`
+      // ci-dessus, et c'est le même piège : ce formulaire RECONSTRUIT l'étape de
+      // zéro, si bien que tout champ oublié ici est effacé en base. `nightTravel`
+      // l'était. Régler l'heure de départ d'un matin faisait donc perdre, pour
+      // TOUS les matins de l'hébergement, le mode de transport, la durée saisie
+      // à la main et le commentaire du trajet — réglages qui ne se font pas dans
+      // ce formulaire mais dans le popup du trajet (`reglageTrajetMatin`), et
+      // qu'il n'a donc aucune raison de toucher.
+      nightTravel: prevAct.nightTravel || {},
     };
     // Une activité modifiée reprend SA place dans la liste. L'ordre du tableau
     // porte la cascade des heures « auto » (chacune part de la fin de la

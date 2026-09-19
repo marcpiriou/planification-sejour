@@ -637,6 +637,22 @@ Le trajet automatique, lui, était déjà correct : il se calcule des coordonné
 l'hébergement à celles de la première étape du jour, qui diffèrent bien d'un jour
 à l'autre. Seules les valeurs saisies à la main étaient partagées.
 
+**Et ces réglages ne doivent pas disparaître en réglant autre chose.** Modifier
+l'heure de départ d'un matin les effaçait — mode, durée et commentaire, pour tous
+les matins de l'hébergement. Le formulaire d'étape RECONSTRUIT l'étape de zéro à
+l'enregistrement, champ par champ, si bien que tout champ oublié dans cette
+reconstruction est effacé en base. `nightTravel` l'était : il n'y figurait pas.
+
+Le piège n'est pas nouveau — `travelNotes` le portait déjà, avec sa propre ligne
+de reprise et son commentaire — mais il est structurel : la liste des champs
+reconstruits doit rester alignée sur celle des champs persistés (`actRow`), et
+rien dans le code ne le garantit. Les deux listes ont donc été comparées
+explicitement ; `nightTravel` était le seul manquant.
+
+Ces réglages se font dans le popup du trajet (`reglageTrajetMatin`), jamais dans
+le formulaire d'étape : celui-ci n'a aucune raison d'y toucher, il les reprend
+tels quels.
+
 ### Checklist avant le départ
 Un encart au-dessus de la timeline du **premier jour** d'un séjour ouvre une page
 dédiée, plein écran, listant des éléments à cocher — papiers, valises, tout ce
