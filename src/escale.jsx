@@ -6237,7 +6237,17 @@ function SejourApp() {
         ? trip.activities.map((a) => (a.id === d.id ? act : a))
         : [...trip.activities.filter((a) => a.id !== d.id), act];
     const next = trips.map((t) => t.id === trip.id ? { ...t, activities: nextActs } : t);
-    commit(next); if (d.date !== curDay) setCurDay(d.date); setEditor(null);
+    // On ne suit l'étape que si sa DATE a changé DANS LE FORMULAIRE. La comparer
+    // au jour affiché, comme avant, faisait sauter la vue à chaque enregistrement
+    // d'un hébergement : sa date stockée est celle de l'ARRIVÉE, alors qu'on
+    // l'édite depuis n'importe lequel de ses jours — le matin du 16 d'une
+    // réservation arrivée le 15. Corriger cette heure-là renvoyait au 15, et le
+    // jour qu'on regardait était perdu sans l'avoir demandé.
+    //
+    // Déplacer une étape d'un jour à l'autre continue, elle, de suivre : c'est
+    // le seul cas où rester sur place ferait perdre de vue ce qu'on vient de
+    // faire. Une étape nouvelle n'a pas de date précédente, donc on la suit.
+    commit(next); if (d.date !== prevAct.date) setCurDay(d.date); setEditor(null);
   };
   const deleteActivity = () => {
     const id = editor.id;

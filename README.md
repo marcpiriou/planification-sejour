@@ -653,6 +653,19 @@ Ces réglages se font dans le popup du trajet (`reglageTrajetMatin`), jamais dan
 le formulaire d'étape : celui-ci n'a aucune raison d'y toucher, il les reprend
 tels quels.
 
+**Et la vue ne change plus de jour toute seule.** Enregistrer renvoyait à la date
+STOCKÉE de l'étape dès qu'elle différait du jour affiché. Pour une activité cela
+ne se voyait pas — on l'édite depuis son propre jour — mais la date stockée d'un
+hébergement est celle de son **arrivée**, alors qu'on l'édite depuis n'importe
+lequel de ses jours. Corriger l'heure de départ du matin du 16 d'une réservation
+arrivée le 15 ramenait donc au 15, sans l'avoir demandé.
+
+La comparaison porte désormais sur la date que l'étape avait **à l'ouverture du
+formulaire**, et non sur le jour affiché : on ne suit l'étape que si sa date a
+vraiment changé. Déplacer une étape d'un jour à l'autre continue de suivre —
+c'est le seul cas où rester sur place ferait perdre de vue ce qu'on vient de
+faire — et déplacer l'arrivée d'un hébergement aussi.
+
 ### Checklist avant le départ
 Un encart au-dessus de la timeline du **premier jour** d'un séjour ouvre une page
 dédiée, plein écran, listant des éléments à cocher — papiers, valises, tout ce
