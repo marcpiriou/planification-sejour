@@ -1762,11 +1762,7 @@ function AccountPanel({ userEmail, home, onSaveHome, navApp, onSaveNavApp, defau
         </div>
       </div>
 
-      {/* Version de l'application : le logo a pris la place où elle s'affichait,
-          et savoir quelle version tourne sert au moindre doute sur une mise à jour. */}
-      <div style={{ color: C.inkSoft, fontFamily: MONO }} className="t11 mt-6 text-center">
-        Periplo v{APP_VERSION}
-      </div>
+
     </div>
   );
 }
