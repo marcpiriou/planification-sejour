@@ -1045,6 +1045,16 @@ en se refermant et l'éditeur pose la sienne ; enchaînés dans le même rendu, 
 retrait aurait emporté l'entrée de l'éditeur au lieu de celle du menu. La
 fermeture passe donc par l'historique, et l'action attend le rappel.
 
+**Octobre 2026 : le bouton flottant est retiré.** Les « + » posés dans la
+timeline — sur chaque trajet, entre réveil et coucher d'un hébergement, en fin
+de journée — portent tous les mêmes choix, et ajoutent là où l'on regarde. Le
+bouton flottant ne faisait plus que doubler celui de fin de journée, en
+recouvrant le bas de l'écran. Seule une journée **vide** n'avait aucun autre
+« + » : elle en reçoit un sous son message, sans ancre (l'ajout part de la
+journée elle-même, comme le faisait le bouton flottant) et sans trait de rail,
+puisque rien ne le précède. La marge basse de la timeline, qui laissait la
+place au bouton, est réduite d'autant. Ce qui suit décrit l'historique.
+
 ### Un « + » sur chaque trajet
 Le bouton flottant ne sait ajouter qu'**en fin de journée**. Or c'est en lisant
 un trajet qu'on se dit « il manque quelque chose entre ces deux étapes » : chaque

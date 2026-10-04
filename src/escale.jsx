@@ -2437,8 +2437,7 @@ const ASPECT_TRAJET = (mode) => (
 );
 
 // Le trajet porte aussi un « + » : c'est là qu'on se dit « il manque quelque
-// chose entre ces deux étapes », et le bouton flottant du bas, lui, ne sait
-// ajouter qu'en fin de journée.
+// chose entre ces deux étapes », donc là qu'on veut pouvoir l'ajouter.
 function TravelLeg({
   from, to, leg, onEdit, variant, fromEndMin, toStartMin,
   ajoutOuvert, onOuvrirAjout, onFermerAjout, onAjoutActivite, onAjoutSuggestion, onAjoutCarte,
@@ -2505,11 +2504,11 @@ function TravelLeg({
           <div style={{ color: C.inkSoft, whiteSpace: "pre-line" }} className="text-xs mt-1.5 clamp3">{from.travelNotes}</div>
         )}
 
-        {/* Les mêmes choix qu'au bouton flottant, dans le même ordre : ce menu-ci
+        {/* Les mêmes choix que les autres « + », dans le même ordre : ce menu-ci
             n'a pas à en offrir moins parce qu'on l'a ouvert plus près de
             l'endroit visé. L'hébergement, lui, ne tient pas compte de cet
             endroit — sa place dans la journée se déduit de ses nuits, pas du
-            « + » touché — et c'est exactement la règle du bouton flottant. */}
+            « + » touché : c'est la règle de l'hébergement, pas celle du menu. */}
         {ajoutOuvert && (
           <div className="mt-2 flex flex-col items-start gap-2">
             {onAjoutPlan && (
@@ -2588,27 +2587,32 @@ function TravelLeg({
 // `traitContinu` distingue les deux emplois : entre deux cartes le rail traverse
 // de haut en bas, alors qu'en fin de journée il s'arrête à la pastille — rien ne
 // suit, et un trait qui continuerait dans le vide annoncerait une étape absente.
-function AjoutEtape({ apres, ouvert, onOuvrir, onFermer, onActivite, onSuggestion, onCarte, onHebergement, onPlan, traitContinu = false }) {
+// Clé de `ajoutTrajet` pour le « + » d'une journée vide : aucune étape ne le
+// précède, et un identifiant d'activité n'a jamais cette forme.
+const AJOUT_JOUR_VIDE = "#jour-vide";
+
+function AjoutEtape({ apres, ouvert, onOuvrir, onFermer, onActivite, onSuggestion, onCarte, onHebergement, onPlan, traitContinu = false, sansTrait = false }) {
   return (
     <div className="flex gap-3" style={ouvert ? { position: "relative", zIndex: 30 } : undefined}>
       <div className="shrink-0 relative flex justify-center items-start" style={{ width: 66 }}>
         {/* Arrêté au centre de la pastille (6 de marge + 15 de rayon) quand rien
             ne suit : le trait conduit l'œil de la dernière carte au « + », et
             pas au-delà. Continu quand une carte vient après. */}
-        {traitContinu
+        {/* Aucun trait sur une journée vide : rien au-dessus à quoi le relier. */}
+        {sansTrait ? null : traitContinu
           ? <div style={{ background: C.line }} className="absolute inset-y-0 w-0.5" />
           : <div style={{ background: C.line, height: 21 }} className="absolute top-0 w-0.5" />}
         <button onClick={() => (ouvert ? onFermer() : onOuvrir())} aria-expanded={ouvert}
           aria-label={ouvert
             ? "Fermer le menu d'ajout"
-            : `Ajouter une étape après ${apres || "cette étape"}`}
+            : (apres ? `Ajouter une étape après ${apres}` : "Ajouter une étape")}
           style={{ background: C.surface, border: `1px solid ${C.line}`, color: C.teal, height: 30, width: 30, marginTop: 6 }}
           className="relative rounded-full shadow-sm flex items-center justify-center active:scale-95 transition shrink-0">
           <Plus size={16} style={{ transform: ouvert ? "rotate(45deg)" : "none", transition: "transform .18s" }} />
         </button>
       </div>
       <div className="flex-1 mt-2">
-        {/* Les mêmes choix qu'au bouton flottant, et dans le même ordre. Un
+        {/* Les mêmes choix que les autres « + », et dans le même ordre. Un
             hébergement ne se glisse PAS à l'endroit du « + » touché : sa place
             dans la journée se déduit de ses nuits. Ce n'est pas une limite de ce
             menu-ci, c'est la règle de l'hébergement — le bouton flottant
@@ -5388,27 +5392,8 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
   const [guideAct, setGuideAct] = useState(null);
   useRetour(!!guideAct, () => setGuideAct(null));
 
-  /* --- Menu d'ajout (bouton « + » flottant) ------------------------- */
-  const [ajoutOuvert, setAjoutOuvert] = useState(false);
-  // L'action choisie n'est lancée qu'APRÈS la fermeture du menu. Le menu retire
-  // son entrée d'historique en se refermant, et l'écran qu'il ouvre pose la
-  // sienne : lancer les deux dans le même rendu ferait retirer l'entrée du
-  // nouvel écran au lieu de celle du menu.
-  const ajoutChoisi = useRef(null);
-  useRetour(ajoutOuvert, () => {
-    setAjoutOuvert(false);
-    const action = ajoutChoisi.current;
-    ajoutChoisi.current = null;
-    if (action) action();
-  });
-  // Toute fermeture passe par l'historique : c'est lui qui porte l'entrée du
-  // menu, et le rappel ci-dessus fait le reste. Le menu étant toujours la couche
-  // du dessus quand il est ouvert, ce retour ne peut refermer que lui.
-  const fermeAjout = () => window.history.back();
-  const choisitAjout = (action) => { ajoutChoisi.current = action; window.history.back(); };
-
   /* --- Menu d'ajout d'un trajet ------------------------------------- */
-  // Même mécanique que le menu flottant, sur une autre couche : `ajoutTrajet`
+  // Menu d'un « + » de la timeline, couche d'historique à part : `ajoutTrajet`
   // porte l'identifiant AFFICHÉ de l'étape qui précède le trajet touché, donc
   // celle après laquelle la nouvelle étape s'insérera. Un seul menu ouvert à la
   // fois, cet état étant unique.
@@ -5433,7 +5418,7 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
 
   // Demande préremplie à l'ouverture de l'écran Suggestions, à partir du lieu
   // qui précédera l'étape ajoutée : celui du trajet touché, ou la dernière étape
-  // de la journée quand la demande vient du bouton flottant, qui ajoute en fin
+  // de la journée quand la demande vient d'un « + » sans ancre (journée vide), qui ajoute en fin
   // de journée. L'amorce est écrite dans tous les cas : sans repère utilisable —
   // lieu sans adresse ni lien, journée encore vide — la phrase s'arrête après
   // les deux-points, et il n'y a plus qu'à compléter.
@@ -5442,7 +5427,7 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
   // l'attend repartirait sans fin.
   const [amorce, setAmorce] = useState({ promptInitial: "", repereAttendu: null, repereInitial: null });
   // Ouvre la carte pour y CHERCHER une étape, en retenant après quoi l'insérer.
-  // `apresId` vient du « + » touché dans la timeline ; le bouton flottant, lui,
+  // `apresId` vient du « + » touché dans la timeline ; celui d'une journée vide, lui,
   // n'en donne pas et l'ajout tombe alors en fin de journée, comme pour ses
   // autres choix.
   const ouvreCarte = (apresId) => {
@@ -5469,9 +5454,9 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
   // Le COUCHER d'un hébergement n'est jamais l'ancre : le soir, on y rentre. Un
   // programme posé « après » lui se rangerait de toute façon avant, les entrées
   // d'hébergement étant fixées en fin de journée — on recule donc d'une entrée,
-  // et le coucher devient l'arrivée du programme. Le bouton flottant, qui
-  // désigne la dernière entrée du jour, tombe ainsi sur la dernière étape avant
-  // le retour à l'hébergement.
+  // et le coucher devient l'arrivée du programme. Le « + » de fin de journée,
+  // posé après ce coucher, tombe ainsi sur la dernière étape avant le retour à
+  // l'hébergement.
   const [planContexte, setPlanContexte] = useState(null);
   useRetour(!!planContexte, () => setPlanContexte(null));
   const ouvrePlan = (apresId) => {
@@ -5632,7 +5617,7 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
           y compris sous la dernière activité d'une journée courte — un <div> qui
           s'arrête à son contenu laisserait cette zone basse hors de portée du
           geste. */}
-      <div {...swipeJour} className="mx-auto max-w-md px-4 pt-4 pb-28 min-h-screen" style={{ touchAction: "pan-y" }}>
+      <div {...swipeJour} className="mx-auto max-w-md px-4 pt-4 pb-12 min-h-screen" style={{ touchAction: "pan-y" }}>
         {/* Uniquement le premier jour : c'est celui d'où l'on part. */}
         {safeCurrent === days[0] && (
           <button onClick={() => setChecklistOpen(true)}
@@ -5655,16 +5640,33 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
         {acts.length === 0 ? (
           <div style={{ background: C.card, border: `1px dashed ${C.line}` }} className="rounded-2xl p-8 text-center">
             <div style={{ color: C.inkSoft }} className="text-sm">Aucune activité ce jour.</div>
-            {/* La consigne désigne le bouton flottant, qui n'existe qu'en écriture :
-                un invité en lecture seule n'a pas de « + » à toucher, et on ne lui
-                demande donc rien. */}
+            {/* La consigne désigne le « + » ci-dessous, qui n'existe qu'en
+                écriture : un invité en lecture seule n'a rien à toucher, et on
+                ne lui demande donc rien. */}
             {canEdit && (
               <div style={{ color: C.inkSoft }} className="text-sm mt-2">
-                Cliquez sur le bouton « + » en bas à droite pour commencer à remplir cette journée.
+                Touchez le « + » ci-dessous pour commencer à remplir cette journée.
               </div>
             )}
           </div>
-        ) : (
+        ) : null}
+        {/* Journée vide : sans bouton flottant, c'est le seul « + » du jour. Il
+            n'a pas d'étape à suivre — son ancre est nulle, comme l'était celle
+            du bouton flottant —, d'où une clé à part pour `ajoutTrajet`. */}
+        {acts.length === 0 && canEdit && (
+          <div className="mt-3">
+            <AjoutEtape apres={null} sansTrait
+              ouvert={ajoutTrajet === AJOUT_JOUR_VIDE}
+              onOuvrir={() => setAjoutTrajet(AJOUT_JOUR_VIDE)}
+              onFermer={fermeTrajet}
+              onActivite={() => choisitTrajet(() => onAddAct(null))}
+              onSuggestion={() => choisitTrajet(() => ouvreSuggestions(null))}
+              onCarte={() => choisitTrajet(() => ouvreCarte(null))}
+              onHebergement={() => choisitTrajet(() => onAddStay())}
+              onPlan={onAddPlan ? () => choisitTrajet(() => ouvrePlan(null)) : undefined} />
+          </div>
+        )}
+        {acts.length > 0 && (
           <div>
             {acts.map((a, i) => {
               const isDragged = drag && drag.id === a.id;
@@ -5799,67 +5801,12 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
           onClose={() => setPlanContexte(null)} />
       )}
 
-      {/* Bouton « + » flottant, masqué en lecture seule. Les deux ajouts ne
-          s'affichent qu'à la demande : côte à côte, ils occupaient en permanence
-          le bas de l'écran et recouvraient la fin de la journée. */}
-      {canEdit && (
-        <>
-          {/* Voile : toucher à côté referme le menu sans rien ajouter. Le même
-              geste vaut pour le menu d'un trajet, qui se dresse au-dessus. */}
-          {(ajoutOuvert || ajoutTrajet) && (
-            <button type="button" onClick={ajoutTrajet ? fermeTrajet : fermeAjout} aria-label="Fermer le menu d'ajout"
-              className="fixed inset-0 z-20" style={{ background: "rgba(15,23,42,0.20)" }} />
-          )}
-          <div className="fixed bottom-0 inset-x-0 z-30 pointer-events-none">
-            <div className="mx-auto max-w-md px-4 pb-5 pt-2 flex flex-col items-end gap-2"
-              style={{ background: ajoutOuvert ? "transparent" : "linear-gradient(to top, var(--c-degrade), var(--c-degrade-0))" }}>
-              {/* L'ordre du DOM est celui de haut en bas : l'activité, de loin le
-                  plus fréquent, reste au plus près du pouce, juste au-dessus du « + ». */}
-              {ajoutOuvert && (
-                <>
-                  {/* En haut de la pile : de tous les ajouts, c'est le moins
-                      fréquent — on ne planifie pas une journée toutes les cinq
-                      minutes. */}
-                  {onAddPlan && (
-                    <button onClick={() => choisitAjout(() => ouvrePlan(null))} style={{ background: C.rose }}
-                      className="pointer-events-auto surAccent rounded-full pl-4 pr-5 py-3.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
-                      <Wand2 size={20} /> Planifier la journée
-                    </button>
-                  )}
-                  <button onClick={() => choisitAjout(() => ouvreSuggestions(null))} style={{ background: C.encre }}
-                    className="pointer-events-auto surAccent rounded-full pl-4 pr-5 py-3.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
-                    <Sparkles size={20} /> Suggestions
-                  </button>
-                  <button onClick={() => choisitAjout(onAddStay)} style={{ background: STAY_COLOR }}
-                    className="pointer-events-auto surAccent rounded-full pl-4 pr-5 py-3.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
-                    <Plus size={20} /> Hébergement
-                  </button>
-                  <button onClick={() => choisitAjout(() => ouvreCarte(null))} style={{ background: C.bleu }}
-                    className="pointer-events-auto surAccent rounded-full pl-4 pr-5 py-3.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
-                    <MapIcon size={20} /> Activité depuis la carte
-                  </button>
-                  <button onClick={() => choisitAjout(onAddAct)} style={{ background: C.teal }}
-                    className="pointer-events-auto surAccent rounded-full pl-4 pr-5 py-3.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
-                    <Plus size={20} /> Activité
-                  </button>
-                </>
-              )}
-              {/* Blanc cerclé, « + » teal : même dessin que le bouton d'ajout
-                  d'un trajet, et que les pastilles de la timeline. L'ombre
-                  portée, plus marquée qu'ailleurs, reste ce qui le décolle du
-                  fond — un aplat teal n'y est plus nécessaire. */}
-              <button onClick={() => (ajoutOuvert ? fermeAjout() : setAjoutOuvert(true))}
-                aria-expanded={ajoutOuvert}
-                aria-label={ajoutOuvert ? "Fermer le menu d'ajout" : "Ajouter une étape"}
-                style={{ background: C.surface, border: `1px solid ${C.line}`, color: C.teal }}
-                className="pointer-events-auto h-14 w-14 rounded-full shadow-lg flex items-center justify-center active:scale-95 transition">
-                {/* La croix n'est que le « + » pivoté : même dessin, l'état se lit
-                    d'un coup d'œil sans changer d'icône. */}
-                <Plus size={26} style={{ transform: ajoutOuvert ? "rotate(45deg)" : "none", transition: "transform .18s" }} />
-              </button>
-            </div>
-          </div>
-        </>
+      {/* Voile : toucher à côté referme le menu d'un « + » de la timeline sans
+          rien ajouter. Il n'y a plus de bouton flottant : chaque « + » est posé
+          dans la timeline, là où l'étape ira. */}
+      {ajoutTrajet && (
+        <button type="button" onClick={fermeTrajet} aria-label="Fermer le menu d'ajout"
+          className="fixed inset-0 z-20" style={{ background: "rgba(15,23,42,0.20)" }} />
       )}
     </div>
   );
