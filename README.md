@@ -216,11 +216,11 @@ d'autre à changer. Attention au type : un identifiant de rendu raster, ou d'une
 autre plateforme, ne donnera pas la rotation.
 
 ### Accès aux Edge Functions
-Les huit fonctions (`maps-key`, `resolve-place`, `travel-time`, `place-photo`,
-`places-around`, `suggestions`, `place-reviews`, `place-guide`) consomment un quota
-facturé — Google, Gemini, ou les deux pour `place-reviews` : elles vérifient donc
-chacune, en première instruction, que l'appel vient d'une **session utilisateur**
-(`_shared/auth.ts`).
+Les neuf fonctions (`maps-key`, `resolve-place`, `travel-time`, `place-photo`,
+`places-around`, `suggestions`, `place-reviews`, `place-guide`, `day-plan`)
+consomment un quota facturé — Google, Gemini, ou les deux pour `place-reviews` :
+elles vérifient donc chacune, en première instruction, que l'appel vient d'une
+**session utilisateur** (`_shared/auth.ts`).
 
 `verify_jwt` ne suffisait pas : la passerelle Supabase accepte aussi la clé
 publiable comme jeton, et cette clé est dans le bundle public — les fonctions
@@ -565,9 +565,9 @@ la console Cloud impose sinon un `gcloud beta services api-keys create
 règle d'organisation, et dont on n'a pas besoin ici.
 
 L'appel à Gemini — liste de modèles, repli, sortie contrainte par un schéma —
-est mutualisé dans `_shared/gemini.ts` : `suggestions`, `place-reviews` et
-`place-guide` s'en servent, et une mise à la retraite de modèle ne se corrige
-qu'à un seul endroit.
+est mutualisé dans `_shared/gemini.ts` : `suggestions`, `place-reviews`,
+`place-guide` et `day-plan` s'en servent, et une mise à la retraite de modèle ne
+se corrige qu'à un seul endroit.
 
 ### Le modèle, et pourquoi il y en a deux
 `gemini-3.5-flash`, avec `gemini-2.5-flash` en repli. Google retire ses modèles
@@ -600,6 +600,188 @@ alors le geste de l'utilisateur, en un toucher sur la même pastille.
 L'appel passe par `:generateContent`, que Google qualifie désormais de
 « legacy » au profit de l'*Interactions API*, mais qu'il déclare pleinement
 supporté et sans date de fin. Rien à migrer tant que c'est vrai.
+
+## Planifier la journée
+Le choix **Planifier la journée**, en tête des menus « + », compose une journée
+entière — ou le créneau compris entre deux étapes — à partir d'un point de
+départ et de quelques réponses, puis l'insère dans la timeline. Suggestions
+propose des lieux un par un autour d'un repère ; ici, c'est l'enchaînement qui
+compte : l'ordre, les durées, le repas de midi, le retour à l'hébergement.
+
+Les menus « + » portent donc cinq choix : Planifier la journée, Suggestions,
+Hébergement, Activité depuis la carte, Activité. Le nouveau se place **en
+haut**, loin du pouce : on ne planifie pas une journée toutes les cinq minutes.
+
+### Un questionnaire, pas une conversation
+Un seul écran, déjà rempli : départ, créneau, envies (randonnée, nature,
+activités enfants, culture, baignade, gastronomie, sport, détente), avec qui —
+et l'âge des enfants —, rythme, déplacement et rayon, repas de midi, budget, et
+une précision libre de 300 caractères au plus. Chaque réponse se donne d'un
+toucher, et l'ensemble se relit avant de lancer un appel facturé : c'est la
+règle de l'écran Suggestions. Une conversation avec Gemini aurait coûté un appel
+par échange, pour une attente impossible à prévoir.
+
+Rien n'est mémorisé d'une fois sur l'autre : les valeurs par défaut reviennent à
+chaque ouverture (rythme équilibré, voiture, 30 minutes, restaurant). C'est un
+choix ; le jour où retaper « En famille, 3-6 ans » pèsera, ce sera une
+préférence du compte, dans ses métadonnées — sans migration.
+
+La question du repas n'apparaît que si le créneau couvre midi : sinon la demande
+part sans étape repas.
+
+### D'où part le programme, et où il s'arrête
+L'**ancre** est l'étape qui précède le « + » touché ; le programme s'insère juste
+après elle. Deux cas particuliers :
+
+- le **coucher** d'un hébergement n'est jamais l'ancre : le soir, on y rentre. On
+  recule d'une entrée, et le coucher devient l'arrivée du programme. Le bouton
+  flottant, qui désigne la dernière entrée du jour, tombe ainsi sur la dernière
+  étape avant le retour à l'hébergement ;
+- une journée **vide**, sans hébergement : rien n'ancre le programme. Le départ
+  se tape, l'heure de début se choisit, et la première étape la porte en heure
+  fixe — comme la première étape saisie à la main.
+
+Le **début** du créneau découle de l'ancre — sa fin, ou l'heure de départ d'un
+matin — et ne se règle pas dans le questionnaire : le départ d'un matin se règle
+sur l'hébergement, et deux réglages pour une même heure finiraient par
+diverger. La **fin** proposée est l'heure fixe de l'étape suivante quand elle en
+a une (réservation, arrivée réglée), sinon 18 h, l'heure d'arrivée proposée pour
+un hébergement. Une étape suivante en « auto » sera simplement décalée, et
+l'écran le dit.
+
+Le **départ** est l'adresse de l'ancre, calculée comme l'amorce de Suggestions
+(`repereDepuis`, remontée de la journée comprise quand l'ancre n'a pas de
+coordonnées). Il reste modifiable : un départ réécrit est situé chez Google au
+moment de la demande, pas à chaque frappe.
+
+### Gemini écrit, Google vérifie
+L'Edge Function `day-plan` appelle Gemini par `_shared/gemini.ts` (mêmes
+modèles, même repli). Sa sortie est contrainte par un `responseSchema` :
+`titre`, `resume`, `etapes[]` (`nom`, `lieu`, `categorie`, `duree_min`,
+`description`, `conseil`, `rando`) et `avertissements[]`, chaque champ étant
+vérifié et borné avant de repartir.
+
+- **Le navigateur n'envoie que des mots-clés** — `randonnee`, `famille`,
+  `equilibre` —, que la fonction traduit en phrases. Une clé inconnue est
+  refusée en 400 **sans appeler Gemini** : la page ne décide ni de ce qu'on
+  demande, ni donc de ce qu'on paie. C'est le principe des sujets de
+  `places-around`.
+- **Les textes libres restent dans le message**, jamais dans la consigne : la
+  précision et l'affinage disent des préférences, ils ne réécrivent pas les
+  règles.
+- **Le rythme devient un nombre d'étapes** (2-3, 3-4 ou 5-6, repas non compris) :
+  c'est ce qu'un modèle sait respecter, là où « tranquille » se lit de mille
+  façons.
+- **La date en toutes lettres** — « dimanche 11 octobre 2026 » — donne le jour
+  de la semaine et la saison, qu'une date ISO obligerait à calculer.
+- **Les lieux déjà au programme du séjour** sont envoyés pour ne pas être
+  reproposés : le lac de la veille n'a pas à revenir.
+- **Randonnée** : `lieu` est le départ du sentier. Distance, dénivelé et niveau
+  ne sont donnés que si le modèle les connaît avec assurance, et s'affichent
+  précédés d'un « ≈ » — ils viennent de sa mémoire, pas d'un relevé de terrain.
+  La consigne lui interdit d'inventer un sentier.
+- **Ni horaire ni tarif** dans ce qu'écrit Gemini : les horaires viennent de
+  Google.
+- **40 s par modèle** au lieu de 25 (option `delaiMs` de `demandeJson`) : une
+  journée s'écrit plus lentement que six suggestions. Deux essais restent sous
+  les 150 s d'inactivité au-delà desquelles la passerelle Supabase répond 504.
+  L'option est facultative et sa valeur par défaut inchangée : les trois autres
+  fonctions n'ont pas à être redéployées pour elle.
+
+Chaque étape est ensuite située par `place-photo` — position, photo, note,
+horaires —, en parallèle, comme les propositions de Suggestions ; l'écran attend
+que tout soit revenu avant d'afficher.
+
+L'**ancrage de Gemini sur Google Maps** a été écarté : 25 $ les 1 000 requêtes,
+obligation d'afficher les sources Google Maps juste sous le texte, compatibilité
+avec une sortie contrainte par un schéma non documentée, et une documentation
+qui le dit limité aux demandes en anglais.
+
+### Les horaires, sans surcoût
+`place-photo` accepte `avecHoraires` : `places.regularOpeningHours` rejoint alors
+le masque de champs. Ce champ est du **même palier « Text Search Enterprise »**
+que la note, déjà demandée : il ne coûte rien de plus. `fetchLieu` le demande
+donc à chaque fois — un seul cache sert Suggestions et ce nouvel écran —, tandis
+que les vignettes de la timeline restent au palier Pro. Sans le drapeau, la
+réponse est exactement celle d'avant.
+
+L'aperçu en tire, pour l'heure estimée de chaque visite : « Ouvert 10:00–19:00 »,
+« Ouvert le dimanche 14:00–18:00 seulement » quand la visite déborde, « Fermé le
+lundi ». Une période qui passe minuit est rattachée au bon jour, du samedi au
+dimanche compris. Un lieu sans horaires déclarés — un sentier, une plage — n'a
+aucune mention, plutôt que d'être cru fermé. Limite assumée : ce sont les
+horaires **habituels**, une fermeture exceptionnelle n'est pas vue.
+
+### L'aperçu : écarter, affiner
+Les étapes gardent l'ordre de Gemini : c'est un itinéraire, pas une liste à
+trier par distance. Chaque carte porte une case, l'heure estimée, la durée, la
+distance au départ et la note.
+
+Sont **décochées d'office**, la raison écrite sur la carte :
+
+- ce que Google ne reconnaît pas — sans doute inventé, et sans position il n'y
+  aurait aucun trajet à calculer ;
+- ce qui est fermé ce jour-là ;
+- ce qui est à plus d'une fois et demie le rayon demandé — un homonyme reconnu
+  ailleurs.
+
+Rien n'est supprimé : la case se recoche d'un toucher.
+
+Les **heures estimées** se calculent comme la timeline les calculera — même
+`legBetween`, même départ depuis l'ancre —, et les trajets réels sont demandés à
+`travel-time` dès l'aperçu. Mis en cache, ils servent tels quels à la timeline
+après l'insertion : rien n'est payé deux fois. Décocher une étape recalcule
+tout. La fin estimée est comparée à l'heure fixe de l'étape suivante — la
+dépasser la ferait repasser en « auto » à l'insertion, et une réservation
+glisserait sans qu'on l'ait voulu — ou, à défaut, à la fin souhaitée.
+
+**Affiner** renvoie les mêmes réponses, le programme affiché et une demande libre
+(« moins de route »). Les cases décochées y comptent comme un avis : Gemini
+reçoit ces étapes marquées « écartée par l'utilisateur », et la consigne lui
+interdit de les reproposer. Une étape inchangée est déjà dans le cache de
+`fetchLieu` : la situer ne repaie rien.
+
+Le bouton **retour** du téléphone ramène de l'aperçu au questionnaire, réponses
+intactes ; une réponse qui arriverait ensuite est ignorée, comme une recherche
+chassée par la suivante dans Suggestions.
+
+### Une insertion, une sauvegarde
+« Ajouter N étapes à la journée » pose toutes les étapes retenues après l'ancre,
+dans l'ordre du programme, puis referme l'écran.
+
+Boucler sur `addSuggestion` ne convenait pas : il part du séjour tel qu'au
+dernier rendu, si bien que chaque ajout aurait effacé le précédent et que seule
+la dernière étape aurait survécu. `insereEtapes` enchaîne donc les insertions —
+chacune part du résultat de la précédente, l'ancre avançant d'étape en étape —
+et `addPlan` n'appelle `commit` qu'une fois : une sauvegarde, un seul `upsert`.
+`activitesAvecInsertion` est sortie de `SejourApp` pour cela ; elle ne dépendait
+que de ses paramètres.
+
+Chaque étape est bâtie comme une proposition de Suggestions
+(`etapesEnActivites`) : nom Google gardé dans `place.mapsName` pour retrouver la
+photo, cache des vignettes amorcé, description, conseil et fiche de randonnée en
+notes. Le mode de trajet suit le questionnaire, à une nuance près : « Voiture »
+vaut le mode **automatique** et non la voiture — entre le parking et le départ du
+sentier, on marche.
+
+Aucune donnée nouvelle n'est enregistrée : ce sont des activités ordinaires,
+**sans migration**.
+
+### Coût d'un programme
+| Poste | Volume | Gratuit / mois | Au-delà |
+|---|---|---|---|
+| Gemini (`day-plan`) | 1 appel, +1 par affinage | quota Gemini du projet | — |
+| Text Search Enterprise (`place-photo`) | 8 au plus, en cache | 1 000 | 35 $ / 1 000 |
+| Compute Routes (`travel-time`) | 9 au plus, en cache, réutilisés par la timeline | 10 000 | 5 $ / 1 000 |
+
+Soit environ 120 programmes par mois dans la franchise Enterprise, partagée avec
+Suggestions, et environ 0,33 $ le programme au-delà.
+
+### Déploiement
+Deux fonctions à déployer **avant** que le front n'arrive en ligne : `day-plan`,
+nouvelle, et `place-photo`, rétrocompatible. Sans la première, l'écran
+afficherait son message d'erreur ; sans la seconde, les horaires manqueraient
+simplement à l'aperçu.
 
 ## Activités « Hébergement »
 Un hébergement est enregistré **une seule fois**, à sa date d'arrivée, avec son nombre
