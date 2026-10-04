@@ -6,7 +6,7 @@ import {
   Check, MoreVertical, Route, Mail, LogOut,
   Users, Share2, UserPlus, User, Home as HomeIcon, Building2, ClipboardPaste, Copy,
   ListChecks, ChevronRight, ChevronDown, Search, Loader2, Archive, ArchiveRestore,
-  Compass, Sun, Moon, Smartphone,
+  Compass, Sun, Moon, Smartphone, Wand2,
   // Alias obligatoire : « Map » masquerait le constructeur Map de JavaScript,
   // dont se servent les caches de trajets et de photos.
   Map as MapIcon
@@ -1158,6 +1158,29 @@ async function fetchSuggestions(prompt) {
   }
 }
 
+// Programme d'une journée écrit par Gemini (Edge Function `day-plan`), à partir
+// des réponses du questionnaire. Jamais mis en cache : chaque demande — et
+// chaque affinage — attend un programme nouveau.
+async function fetchPlanJournee(demande) {
+  try {
+    const { data, error } = await supabase.functions.invoke("day-plan", { body: demande });
+    const MUET = "service indisponible pour l'instant — réessayez dans un instant";
+    if (error) return { erreur: (await messageFonction(error)) || MUET };
+    if (!data) return { erreur: MUET };
+    if (data.error) return { erreur: data.detail ? `${data.error} (${data.detail})` : data.error };
+    return {
+      plan: {
+        titre: typeof data.titre === "string" ? data.titre : "",
+        resume: typeof data.resume === "string" ? data.resume : "",
+        etapes: Array.isArray(data.etapes) ? data.etapes : [],
+        avertissements: Array.isArray(data.avertissements) ? data.avertissements : [],
+      },
+    };
+  } catch (e) {
+    return { erreur: e?.message || String(e) };
+  }
+}
+
 // Les lieux d'un type donné autour d'un point, par Google Maps (Edge Function
 // `places-around`). Contrairement aux suggestions de Gemini, rien n'est à situer
 // ensuite : une seule requête rend des lieux qui existent, déjà positionnés,
@@ -1188,7 +1211,11 @@ function fetchLieu(requete) {
       // avecNote : seule cette recherche-ci paie le palier Google qui donne la
       // note, parce que seule elle l'affiche. Les vignettes de la timeline
       // passent par fetchPlaceInfo, sans ce drapeau.
-      const { data, error } = await supabase.functions.invoke("place-photo", { body: { query: q, avecNote: true } });
+      // avecHoraires : du même palier que la note, donc sans surcoût — c'est
+      // ce qui permet à l'aperçu d'un programme de dire « fermé ce jour-là ».
+      // Demandés à chaque fois plutôt qu'au seul écran qui les lit : un cache
+      // unique sert ainsi Suggestions et « Planifier la journée ».
+      const { data, error } = await supabase.functions.invoke("place-photo", { body: { query: q, avecNote: true, avecHoraires: true } });
       if (error || !data) return null;
       return {
         photoUri: data.photoUri || null,
@@ -1202,6 +1229,9 @@ function fetchLieu(requete) {
         // publiques ou un petit parking.
         note: typeof data.note === "number" ? data.note : null,
         nbAvis: typeof data.nbAvis === "number" ? data.nbAvis : null,
+        // Périodes d'ouverture de la semaine, telles que Google les donne.
+        // Absentes pour un lieu qui n'en déclare pas — un sentier, une plage.
+        horaires: Array.isArray(data.horaires) ? data.horaires : null,
       };
     } catch { return null; }
   })();
@@ -1407,6 +1437,46 @@ function enforceManualOrder(dayActs, firstStartMin) {
     cursorEnd = startMin + (a.durationMin || 0);
   }
   return out;
+}
+
+// Insère une étape juste après celle qui porte l'identifiant AFFICHÉ `apresId`
+// (un hébergement du matin s'affiche sous « id#am », d'où l'identifiant de la
+// séquence et non celui de la base). On travaille sur la séquence affichée,
+// comme le déplacement manuel : c'est l'ordre du tableau qui porte la cascade
+// des heures « auto », et enforceManualOrder la recalcule ensuite de proche en
+// proche — trajets compris. Sans ancre reconnue, l'étape rejoint la fin du jour.
+// Hors de SejourApp : elle ne dépend que de ses paramètres, et insereEtapes
+// s'en sert à son tour.
+function activitesAvecInsertion(t, date, apresId, act) {
+  const seq = scheduleForDay(dayList(t.activities, date, t.endDate));
+  const i = seq.findIndex((x) => x.id === apresId);
+  if (i < 0) return [...t.activities.filter((a) => a.id !== act.id), act];
+  const firstStart = seq.length ? seq[0]._startMin : null;
+  const suite = seq.map(({ _startMin, _endMin, _auto, ...rest }) => rest);
+  suite.splice(i + 1, 0, act);
+  // Les entrées d'hébergement sont dérivées, elles ne s'enregistrent pas :
+  // on les retire après le recalcul, les vraies lignes étant dans `autres`.
+  const recalcule = enforceManualOrder(suite, firstStart).filter((a) => !isStay(a));
+  const autres = t.activities.filter((a) => isStay(a) || (a.date !== date && a.id !== act.id));
+  return [...autres, ...recalcule];
+}
+
+// Plusieurs étapes d'affilée, chacune à la suite de la précédente — un
+// programme entier. Boucler sur l'ajout d'UNE étape (addSuggestion) ne convient
+// pas : il part du séjour tel qu'au dernier rendu, si bien que chaque ajout
+// effacerait le précédent et que seule la dernière étape survivrait. Ici chaque
+// insertion part du résultat de la précédente, et l'appelant n'enregistre
+// qu'une fois.
+function insereEtapes(t, date, apresId, acts) {
+  let activities = t.activities || [];
+  let ancre = apresId;
+  for (const act of acts) {
+    activities = ancre
+      ? activitesAvecInsertion({ ...t, activities }, date, ancre, act)
+      : [...activities, act];
+    ancre = act.id;
+  }
+  return activities;
 }
 
 // Réordonne les activités de chaque jour par heure effective (ordre chronologique stable).
@@ -2372,7 +2442,7 @@ const ASPECT_TRAJET = (mode) => (
 function TravelLeg({
   from, to, leg, onEdit, variant, fromEndMin, toStartMin,
   ajoutOuvert, onOuvrirAjout, onFermerAjout, onAjoutActivite, onAjoutSuggestion, onAjoutCarte,
-  onAjoutHebergement,
+  onAjoutHebergement, onAjoutPlan,
 }) {
   const { color, soft, Icon } = ASPECT_TRAJET(leg.mode);
   const isStart = variant === "start";
@@ -2442,6 +2512,12 @@ function TravelLeg({
             « + » touché — et c'est exactement la règle du bouton flottant. */}
         {ajoutOuvert && (
           <div className="mt-2 flex flex-col items-start gap-2">
+            {onAjoutPlan && (
+              <button onClick={onAjoutPlan} style={{ background: C.rose }}
+                className="surAccent rounded-full pl-4 pr-5 py-2.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
+                <Wand2 size={18} /> Planifier la journée
+              </button>
+            )}
             <button onClick={onAjoutSuggestion} style={{ background: C.encre }}
               className="surAccent rounded-full pl-4 pr-5 py-2.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
               <Sparkles size={18} /> Suggestions
@@ -2512,7 +2588,7 @@ function TravelLeg({
 // `traitContinu` distingue les deux emplois : entre deux cartes le rail traverse
 // de haut en bas, alors qu'en fin de journée il s'arrête à la pastille — rien ne
 // suit, et un trait qui continuerait dans le vide annoncerait une étape absente.
-function AjoutEtape({ apres, ouvert, onOuvrir, onFermer, onActivite, onSuggestion, onCarte, onHebergement, traitContinu = false }) {
+function AjoutEtape({ apres, ouvert, onOuvrir, onFermer, onActivite, onSuggestion, onCarte, onHebergement, onPlan, traitContinu = false }) {
   return (
     <div className="flex gap-3" style={ouvert ? { position: "relative", zIndex: 30 } : undefined}>
       <div className="shrink-0 relative flex justify-center items-start" style={{ width: 66 }}>
@@ -2539,6 +2615,12 @@ function AjoutEtape({ apres, ouvert, onOuvrir, onFermer, onActivite, onSuggestio
             l'applique déjà, et le proposer ici n'y change rien. */}
         {ouvert && (
           <div className="flex flex-col items-start gap-2">
+            {onPlan && (
+              <button onClick={onPlan} style={{ background: C.rose }}
+                className="surAccent rounded-full pl-4 pr-5 py-2.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
+                <Wand2 size={18} /> Planifier la journée
+              </button>
+            )}
             <button onClick={onSuggestion} style={{ background: C.encre }}
               className="surAccent rounded-full pl-4 pr-5 py-2.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
               <Sparkles size={18} /> Suggestions
@@ -3911,6 +3993,22 @@ function repereLieu(etape) {
   };
 }
 
+// Le repère de l'étape `i` d'une journée ordonnancée, pour les écrans qui
+// cherchent « autour » d'elle — Suggestions, Planifier la journée. Faute de
+// coordonnées sur cette étape, on remonte la journée : la position de l'étape
+// d'avant est un point de mesure presque aussi juste, et elle est déjà connue
+// — bien mieux que de renoncer aux distances, ou de payer une recherche pour
+// les obtenir.
+function repereDepuis(acts, i) {
+  const { texte, lat, lng, attente } = repereLieu(i >= 0 ? acts[i] : null);
+  let pos = { lat, lng };
+  for (let k = i - 1; k >= 0 && pos.lat == null; k--) {
+    const pl = acts[k] && acts[k].place;
+    if (pl && pl.lat != null && pl.lng != null) pos = { lat: pl.lat, lng: pl.lng };
+  }
+  return { texte, ...pos, attente };
+}
+
 /* --- Guide du lieu : le texte écrit par l'IA -------------------- */
 // La puce que la fonction place-guide pose devant chaque anecdote, et le retrait
 // qui aligne les lignes suivantes sur le texte plutôt que sous elle. En « em »
@@ -4430,8 +4528,813 @@ function SuggestionsSheet({ trip, jour, onAdd, onRemove, onClose, canEdit, promp
   );
 }
 
+/* --- Planifier la journée ----------------------------------------- */
+// Les choix du questionnaire. Le navigateur n'envoie que la `cle` : c'est
+// l'Edge Function day-plan qui la traduit en phrase pour Gemini, et qui refuse
+// une clé qu'elle ne connaît pas — la page ne décide ni de ce qu'on demande, ni
+// donc de ce qu'on paie. Libellés courts : ils tiennent sur des pastilles.
+const PLAN_ENVIES = [
+  { cle: "randonnee", libelle: "Randonnée" },
+  { cle: "nature", libelle: "Nature & panoramas" },
+  { cle: "enfants", libelle: "Activités enfants" },
+  { cle: "culture", libelle: "Patrimoine & culture" },
+  { cle: "baignade", libelle: "Baignade" },
+  { cle: "gastronomie", libelle: "Gastronomie & marchés" },
+  { cle: "sport", libelle: "Sport & sensations" },
+  { cle: "detente", libelle: "Détente" },
+];
+const PLAN_GROUPES = [
+  { cle: "seul", libelle: "Seul" },
+  { cle: "couple", libelle: "En couple" },
+  { cle: "famille", libelle: "En famille" },
+  { cle: "amis", libelle: "Entre amis" },
+];
+const PLAN_AGES = [
+  { cle: "0-2", libelle: "0-2 ans" },
+  { cle: "3-6", libelle: "3-6 ans" },
+  { cle: "7-12", libelle: "7-12 ans" },
+  { cle: "13+", libelle: "13 ans et +" },
+];
+const PLAN_RYTHMES = [
+  { cle: "tranquille", libelle: "Tranquille" },
+  { cle: "equilibre", libelle: "Équilibré" },
+  { cle: "soutenu", libelle: "Soutenu" },
+];
+// `trajet` : le mode que prennent les étapes créées. « Voiture » vaut le mode
+// automatique et non "car" — entre le parking et le départ du sentier on
+// marche, et l'automatique en décide de lui-même. `mesure` : le mode dans
+// lequel on estime l'éloignement d'une étape, pour la comparer au rayon.
+const PLAN_MOBILITES = [
+  { cle: "voiture", libelle: "Voiture", trajet: MODE_AUTO, mesure: "car" },
+  { cle: "pied", libelle: "À pied", trajet: "walk", mesure: "walk" },
+  { cle: "transports", libelle: "Transports", trajet: "transit", mesure: "transit" },
+];
+const PLAN_RAYONS = [
+  { cle: 15, libelle: "15 min" },
+  { cle: 30, libelle: "30 min" },
+  { cle: 60, libelle: "1 h" },
+  { cle: 90, libelle: "1 h 30" },
+];
+const PLAN_REPAS = [
+  { cle: "piquenique", libelle: "Pique-nique" },
+  { cle: "restaurant", libelle: "Restaurant" },
+  { cle: "aucun", libelle: "Pas d'étape repas" },
+];
+const PLAN_BUDGETS = [
+  { cle: "gratuit", libelle: "Gratuit de préférence" },
+  { cle: "modere", libelle: "Modéré" },
+  { cle: "indifferent", libelle: "Indifférent" },
+];
+// Rien n'est mémorisé d'une fois sur l'autre : ce sont ces valeurs qu'on
+// retrouve à chaque ouverture.
+const PLAN_DEFAUTS = {
+  envies: [], groupe: null, ages: [], rythme: "equilibre", mobilite: "voiture",
+  rayon: 30, repas: "restaurant", budget: "indifferent", precision: "",
+};
+// Même borne que côté serveur : au-delà, le texte serait coupé sans prévenir.
+const PLAN_TEXTE_MAX = 300;
+// Une étape à plus d'une fois et demie le rayon demandé est suspecte : Google
+// a sans doute reconnu un homonyme, ailleurs.
+const PLAN_LOIN = 1.5;
+// Moins de trois quarts d'heure ne fait pas un programme ; l'Edge Function le
+// refuserait de toute façon.
+const PLAN_CRENEAU_MIN = 45;
+
+// Le déjeuner ne se demande que si le créneau le couvre : sinon la question
+// disparaît, et la demande part sans étape repas.
+const couvreMidi = (debut, fin) => debut < timeToMin("13:30") && fin > timeToMin("12:00");
+const nomJour = (iso) => new Intl.DateTimeFormat("fr-FR", { weekday: "long" }).format(parseDate(iso));
+
+// Ce qui borne le créneau, dit sous ses deux heures. Le matin d'un hébergement
+// n'a pas de « fin » : c'est l'heure à laquelle on en part, et elle se règle
+// sur l'hébergement lui-même, pas ici. Le soir, on y rentre. Une étape suivante
+// à heure fixe borne le programme ; une étape « auto » sera simplement décalée.
+function aideCreneau(ctx) {
+  const { ancre, suivante, finFixe } = ctx;
+  const debut = !ancre ? null
+    : isStay(ancre) ? `Départ de « ${ancre.name} » : l'heure se règle sur l'hébergement.`
+    : `Début à la fin de « ${ancre.name} ».`;
+  let fin = null;
+  if (suivante && isStay(suivante)) {
+    fin = finFixe != null
+      ? `Retour à « ${suivante.name} » à ${minToTime(finFixe)}, heure fixée.`
+      : `Retour à « ${suivante.name} ».`;
+  } else if (suivante) {
+    fin = finFixe != null
+      ? `« ${suivante.name} » est fixé à ${minToTime(finFixe)}.`
+      : `Les étapes suivantes, à partir de « ${suivante.name} », seront décalées d'autant.`;
+  }
+  return [debut, fin].filter(Boolean).join(" ");
+}
+
+// « ≈ 5,6 km · 350 m D+ · facile ». Le « ≈ » n'est pas décoratif : ces chiffres
+// viennent de la mémoire d'un modèle de langue, pas d'un relevé de terrain.
+const ligneRando = (r) => {
+  if (!r) return "";
+  const parts = [
+    r.distance_km != null ? `≈ ${String(r.distance_km).replace(".", ",")} km` : null,
+    r.denivele_m != null ? `${r.denivele_m} m D+` : null,
+    r.niveau || null,
+  ].filter(Boolean);
+  return parts.length ? `Randonnée ${parts.join(" · ")}` : "";
+};
+
+// Les étapes retenues d'un programme, bâties en activités du jour `jour`.
+// Chacune comme une proposition de Suggestions : lieu déjà situé par Google —
+// rien à géocoder —, nom Google gardé pour retrouver la photo, cache des
+// vignettes amorcé pour que la timeline ne repaie pas la recherche.
+function etapesEnActivites(etapes, jour, apresId, { debut, trajet } = {}) {
+  return (etapes || [])
+    .filter((s) => (s.nom || "").trim())
+    .map((s, i) => {
+      const nom = s.nom.trim();
+      const place = {
+        name: nom,
+        mapsName: s.nomGoogle || nom,
+        address: s.adresse || null,
+        lat: typeof s.lat === "number" ? s.lat : null,
+        lng: typeof s.lng === "number" ? s.lng : null,
+        url: null,
+      };
+      amorcePlaceInfo(place, {
+        photoUri: s.photoUri, placeId: s.placeId, adresse: s.adresse,
+        lat: place.lat, lng: place.lng,
+      });
+      return {
+        id: uid(), date: jour, name: nom, category: s.categorie || "visite",
+        // Sans ancre, rien ne précède le programme dans la journée : sa
+        // première étape porte l'heure choisie dans le questionnaire, comme la
+        // première étape saisie à la main porte la sienne. Toutes les autres
+        // s'enchaînent en « auto », trajets compris.
+        startTime: !apresId && i === 0 && debut ? debut : AUTO,
+        arriveTime: null,
+        durationMin: Number(s.duree_min) || 60,
+        place,
+        travelMode: trajet || MODE_AUTO,
+        travelMinutes: null,
+        // Ce que l'aperçu montrait, gardé sur l'étape : la description, le
+        // conseil pratique, la fiche de randonnée.
+        notes: [s.description, s.conseil, ligneRando(s.rando)].filter(Boolean).join("\n"),
+        nights: null, nightTimes: {}, nightArrivals: {},
+      };
+    });
+}
+
+// Créneaux d'ouverture d'une date, en minutes depuis minuit, tirés des périodes
+// hebdomadaires de Google (jour 0 = dimanche). Une période qui passe minuit
+// déborde sur le lendemain : sa part d'après minuit appartient au jour suivant
+// — y compris du samedi au dimanche, d'où les trois positions dans la semaine.
+// null : Google ne connaît pas d'horaires.
+function horairesDuJour(periodes, iso) {
+  if (!Array.isArray(periodes) || !periodes.length) return null;
+  // Ouvert en permanence : c'est ainsi que Google l'écrit, une ouverture sans
+  // fermeture.
+  if (periodes.some((p) => p && p.open && !p.close)) return [[0, 1440]];
+  const SEMAINE = 7 * 1440;
+  const debutJour = parseDate(iso).getDay() * 1440;
+  const finJour = debutJour + 1440;
+  const creneaux = [];
+  for (const p of periodes) {
+    if (!p || !p.open || !p.close) continue;
+    const o = p.open.day * 1440 + p.open.hour * 60 + p.open.minute;
+    let f = p.close.day * 1440 + p.close.hour * 60 + p.close.minute;
+    if (f <= o) f += SEMAINE;
+    for (const decalage of [-SEMAINE, 0, SEMAINE]) {
+      const a = Math.max(o + decalage, debutJour), b = Math.min(f + decalage, finJour);
+      if (b > a) creneaux.push([a - debutJour, b - debutJour]);
+    }
+  }
+  // Deux périodes qui se touchent — 10-14 puis 14-18 — font une seule
+  // ouverture : une visite à cheval sur les deux n'est pas « hors horaires ».
+  const fusion = [];
+  for (const [a, b] of creneaux.sort((x, y) => x[0] - y[0])) {
+    const der = fusion[fusion.length - 1];
+    if (der && a <= der[1]) der[1] = Math.max(der[1], b);
+    else fusion.push([a, b]);
+  }
+  return fusion;
+}
+
+// Ce que les horaires disent d'une visite prévue de `debut` à `fin` (minutes) :
+// fermé ce jour-là, une visite qui déborde des heures d'ouverture, ou les
+// horaires du jour à titre indicatif. null quand Google n'en connaît pas — un
+// sentier, une plage : on n'en dit rien, plutôt que de les croire fermés.
+function etatOuverture(periodes, iso, debut, fin) {
+  const creneaux = horairesDuJour(periodes, iso);
+  if (!creneaux) return null;
+  if (!creneaux.length) return { ferme: true, texte: `Fermé le ${nomJour(iso)}, d'après Google` };
+  if (creneaux.some(([a, b]) => a === 0 && b === 1440)) return { texte: "Ouvert 24 h/24" };
+  const lisible = creneaux.map(([a, b]) => `${minToTime(a)}–${b >= 1440 ? "24:00" : minToTime(b)}`).join(", ");
+  if (debut == null || fin == null) return { texte: `Ouvert ${lisible}` };
+  if (creneaux.some(([a, b]) => debut >= a && fin <= b)) return { texte: `Ouvert ${lisible}` };
+  return { alerte: true, texte: `Ouvert le ${nomJour(iso)} ${lisible} seulement` };
+}
+
+// Une pastille du questionnaire : même dessin que celles de l'écran Suggestions.
+function PastillePlan({ actif, onClick, children }) {
+  return (
+    <button type="button" onClick={onClick} aria-pressed={actif}
+      style={{
+        background: actif ? C.teal : C.surface,
+        color: actif ? C.surAccent : C.ink,
+        border: `1px solid ${actif ? C.teal : C.line}`,
+      }}
+      className="rounded-full px-3.5 py-2 text-sm active:scale-95 transition">
+      {children}
+    </button>
+  );
+}
+
+// Une rubrique du questionnaire. Pas `Field` : celui-ci est un <label>, et un
+// toucher sur son titre activerait la PREMIÈRE pastille du groupe.
+function RubriquePlan({ titre, aide, children }) {
+  return (
+    <div role="group" aria-label={titre}>
+      <div style={{ color: C.inkSoft }} className="text-xs font-medium uppercase tracking-wide mb-1.5">{titre}</div>
+      {children}
+      {aide && <div style={{ color: C.inkSoft }} className="t11 mt-1.5">{aide}</div>}
+    </div>
+  );
+}
+
+// Une étape du programme proposé. La case est la seule commande : la carte se
+// lit, et toucher son texte ne doit pas écarter une étape par mégarde.
+function PlanEtapeCard({ e, creneau, ouverture, onBascule }) {
+  const cat = catOf(e.categorie);
+  const Icone = cat.icon;
+  const reperes = [
+    e.km != null ? fmtKm(e.km) : null,
+    e.note != null ? `${e.note.toFixed(1).replace(".", ",")} ★` : null,
+  ].filter(Boolean);
+  const rando = ligneRando(e.rando);
+  return (
+    <div style={{ background: C.card, border: `1px solid ${C.line}`, opacity: e.retenue ? 1 : 0.6 }}
+      className="rounded-2xl overflow-hidden flex items-stretch mb-3">
+      {/* Toute la hauteur de la carte est la cible : une case de 24 px se
+          manque au doigt. */}
+      <button type="button" onClick={onBascule} role="checkbox" aria-checked={e.retenue}
+        aria-label={e.retenue ? `Écarter ${e.nom}` : `Garder ${e.nom}`}
+        className="shrink-0 w-11 flex justify-center pt-3 active:scale-95 transition">
+        <span style={{
+          background: e.retenue ? C.teal : C.surface,
+          border: `1.5px solid ${e.retenue ? C.teal : C.line}`,
+          color: C.surAccent,
+        }} className="h-6 w-6 rounded-md flex items-center justify-center">
+          {e.retenue && <Check size={16} />}
+        </span>
+      </button>
+      <div className="flex-1 min-w-0 py-3 pr-2">
+        <div style={{ color: C.inkSoft, fontFamily: MONO }} className="t11 flex items-baseline justify-between gap-2">
+          <span className="whitespace-nowrap">
+            {e.retenue && creneau ? `${minToTime(creneau.debut)}–${minToTime(creneau.fin)} · ` : (e.retenue ? "" : "écartée · ")}
+            {fmtDur(e.duree_min)}
+          </span>
+          {reperes.length > 0 && <span className="whitespace-nowrap">{reperes.join(" · ")}</span>}
+        </div>
+        <div style={{ color: C.ink }} className="font-semibold leading-tight mt-0.5">{e.nom}</div>
+        {e.description && <div style={{ color: C.inkSoft }} className="text-xs mt-1 clamp3">{e.description}</div>}
+        {rando && <div style={{ color: C.ink }} className="t11 mt-1">{rando}</div>}
+        {e.conseil && <div style={{ color: C.inkSoft }} className="t11 mt-1">{e.conseil}</div>}
+        {e.retenue && ouverture && (
+          <div style={{ color: ouverture.alerte || ouverture.ferme ? C.warn : C.inkSoft }}
+            className="t11 mt-1 flex items-start gap-1">
+            <Clock size={11} className="mt-0.5 shrink-0" /> <span>{ouverture.texte}</span>
+          </div>
+        )}
+        {e.raison && (
+          <div style={{ background: C.warnSoft, color: C.warn }} className="t11 mt-1.5 rounded-lg px-2 py-1 flex items-start gap-1">
+            <AlertTriangle size={11} className="mt-0.5 shrink-0" /> <span>{e.raison}</span>
+          </div>
+        )}
+      </div>
+      {/* La photo de Google quand il en a une, sinon l'icône de la catégorie
+          dans sa couleur — le même repli que la vignette d'une étape. */}
+      <div className="shrink-0 w-20 self-stretch flex items-center justify-center"
+        style={{
+          background: e.photoUri ? undefined : C.line,
+          borderLeft: `1px solid ${C.line}`,
+          ...(e.photoUri ? { backgroundImage: `url("${e.photoUri}")`, backgroundSize: "cover", backgroundPosition: "center" } : {}),
+        }}>
+        {!e.photoUri && <Icone size={22} style={{ color: cat.teinte }} />}
+      </div>
+    </div>
+  );
+}
+
+// L'écran « Planifier la journée », ouvert depuis un « + » de la timeline.
+// Deux temps : le questionnaire, puis l'aperçu du programme proposé, où l'on
+// écarte des étapes et où l'on affine avant d'insérer.
+//
+// `contexte` est figé à l'ouverture par TripView : l'étape après laquelle le
+// programme s'insère (`ancre`), celle qui le suit (`suivante`), l'heure de
+// début qui en découle, le repère du départ et de l'arrivée, et les lieux déjà
+// au programme du séjour.
+function PlanJourneeSheet({ jour, contexte: ctx, onAjouter, onClose }) {
+  const debutImpose = ctx.debutMin != null;
+  const [rep, setRep] = useState(() => {
+    const debut = debutImpose ? ctx.debutMin : timeToMin("09:00");
+    // La fin proposée : l'heure fixe de l'étape qui suit s'il y en a une — une
+    // réservation, une arrivée réglée —, sinon 18 h, l'heure d'arrivée
+    // proposée pour un hébergement. Au moins trois heures si rien ne l'impose :
+    // planifier à partir de 17 h ne doit pas s'arrêter à 18 h.
+    let fin = ctx.finFixe != null ? ctx.finFixe : timeToMin(STAY_ARRIVE_TIME);
+    if (ctx.finFixe == null && fin - debut < 180) fin = Math.min(debut + 180, timeToMin("23:30"));
+    return {
+      ...PLAN_DEFAUTS,
+      depart: ctx.depart.texte || "",
+      debut: minToTime(Math.min(debut, timeToMin("23:59"))),
+      fin: minToTime(Math.min(fin, timeToMin("23:59"))),
+    };
+  });
+  const maj = (k, v) => setRep((r) => ({ ...r, [k]: v }));
+  // Position du départ, attachée au TEXTE qu'elle situe : réécrire le départ la
+  // rend caduque, et il faudra alors le situer à nouveau chez Google.
+  const [posDepart, setPosDepart] = useState({ texte: ctx.depart.texte || "", lat: ctx.depart.lat, lng: ctx.depart.lng });
+  const [attenteDepart, setAttenteDepart] = useState(!!ctx.departAttendu);
+  const [arrivee, setArrivee] = useState(ctx.arrivee);
+  const [phase, setPhase] = useState("questions");
+  // "" au repos, "gemini" pendant l'écriture du programme, "google" pendant
+  // que ses étapes sont situées. Deux temps annoncés à part : le second dure.
+  const [chargement, setChargement] = useState("");
+  const [erreur, setErreur] = useState("");
+  const [plan, setPlan] = useState(null);
+  const [affinage, setAffinage] = useState("");
+  const [travelTick, setTravelTick] = useState(0);
+  // Une demande chassant la précédente — un affinage, un retour au
+  // questionnaire —, la réponse de l'ancienne ne doit pas se poser sur l'écran.
+  const course = useRef(0);
+
+  const retourQuestions = () => { course.current += 1; setChargement(""); setPhase("questions"); };
+  // Le retour du téléphone, depuis l'aperçu, ramène au questionnaire avec ses
+  // réponses intactes ; un second retour referme l'écran.
+  useRetour(phase === "apercu", retourQuestions);
+
+  // Le départ n'est connu que par un lien Google Maps : son adresse arrive
+  // après coup. Elle ne remplace le champ que s'il n'a pas été touché —
+  // écraser ce que l'utilisateur vient de taper serait pire que d'y renoncer.
+  useEffect(() => {
+    if (!ctx.departAttendu) return undefined;
+    let vivant = true;
+    ctx.departAttendu.then((r) => {
+      if (!vivant) return;
+      setAttenteDepart(false);
+      const t = ((r && r.texte) || "").trim();
+      if (!t) return;
+      setRep((actuel) => (actuel.depart === (ctx.depart.texte || "") ? { ...actuel, depart: t } : actuel));
+      setPosDepart((actuel) => (actuel.texte === (ctx.depart.texte || "")
+        ? { texte: t, lat: actuel.lat != null ? actuel.lat : r.lat, lng: actuel.lng != null ? actuel.lng : r.lng }
+        : actuel));
+    });
+    return () => { vivant = false; };
+  }, [ctx]);
+  useEffect(() => {
+    if (!ctx.arriveeAttendue) return undefined;
+    let vivant = true;
+    ctx.arriveeAttendue.then((r) => {
+      if (!vivant || !r || !(r.texte || "").trim()) return;
+      setArrivee((a) => ({
+        texte: (a && a.texte) || r.texte.trim(),
+        lat: a && a.lat != null ? a.lat : r.lat,
+        lng: a && a.lng != null ? a.lng : r.lng,
+      }));
+    });
+    return () => { vivant = false; };
+  }, [ctx]);
+
+  const debutMin = debutImpose ? ctx.debutMin : timeToMin(rep.debut);
+  const finMin = timeToMin(rep.fin);
+  const creneauCourt = finMin - debutMin < PLAN_CRENEAU_MIN;
+  const midi = couvreMidi(debutMin, finMin);
+  const mobilite = PLAN_MOBILITES.find((m) => m.cle === rep.mobilite) || PLAN_MOBILITES[0];
+  // L'adresse du départ est encore demandée à Google : on l'attend, sauf si
+  // l'utilisateur a tapé son propre départ entre-temps.
+  const enAttente = attenteDepart && rep.depart === (ctx.depart.texte || "");
+  const peutProposer = !!rep.depart.trim() && !creneauCourt && !enAttente && !chargement;
+
+  const genere = async (affiner) => {
+    if (chargement) return;
+    const moi = ++course.current;
+    setErreur("");
+    setChargement("gemini");
+    if (!affiner) { setPlan(null); setPhase("apercu"); }
+
+    // Le départ situé : ses coordonnées quand le texte est celui qu'elles
+    // situent — cas courant, et gratuit —, sinon une recherche Google sur ce
+    // qu'on a tapé, faite maintenant et pas à chaque frappe.
+    const texteDepart = rep.depart.trim();
+    let dep = posDepart.texte.trim() === texteDepart && posDepart.lat != null
+      ? { lat: posDepart.lat, lng: posDepart.lng } : null;
+    if (!dep) {
+      const info = await fetchLieu(texteDepart);
+      if (course.current !== moi) return;
+      if (info && info.lat != null) {
+        dep = { lat: info.lat, lng: info.lng };
+        setPosDepart({ texte: texteDepart, ...dep });
+      }
+    }
+
+    const demande = {
+      depart: { texte: texteDepart, ...(dep || {}) },
+      arrivee: arrivee && arrivee.texte
+        ? { texte: arrivee.texte, ...(arrivee.lat != null ? { lat: arrivee.lat, lng: arrivee.lng } : {}) }
+        : null,
+      date: jour,
+      debut: minToTime(debutMin),
+      fin: rep.fin,
+      envies: rep.envies,
+      groupe: rep.groupe,
+      ages: rep.groupe === "famille" ? rep.ages : [],
+      rythme: rep.rythme,
+      mobilite: rep.mobilite,
+      rayon: rep.rayon,
+      repas: midi ? rep.repas : "aucun",
+      budget: rep.budget,
+      precision: rep.precision.trim(),
+      exclure: ctx.exclure,
+      // L'affinage repart du programme affiché, cases comprises : une étape
+      // décochée est un avis, que Gemini doit entendre — « ne la repropose pas ».
+      ...(affiner && plan ? {
+        affinage: affinage.trim(),
+        precedent: plan.etapes.map((e) => ({
+          nom: e.nom, lieu: e.lieu, duree_min: e.duree_min, categorie: e.categorie, ecartee: !e.retenue,
+        })),
+      } : {}),
+    };
+    const r = await fetchPlanJournee(demande);
+    if (course.current !== moi) return;
+    if (r.erreur) { setChargement(""); setErreur(r.erreur); return; }
+
+    // Second temps : chaque étape est située chez Google — position, photo,
+    // note, horaires — en une seule recherche par étape, toutes en parallèle.
+    // Une étape inchangée par un affinage est déjà en cache : rien à repayer.
+    setChargement("google");
+    const infos = await Promise.all(r.plan.etapes.map((e) => fetchLieu(e.lieu || e.nom)));
+    if (course.current !== moi) return;
+    const loinMax = rep.rayon * PLAN_LOIN;
+    const etapes = r.plan.etapes.map((e, i) => {
+      const info = infos[i];
+      const reconnue = !!(info && info.placeId && info.lat != null);
+      const situee = reconnue ? {
+        // Le nom affiché reste celui de Gemini ; celui de Google est gardé à
+        // part, car c'est lui qui retrouvera la photo sur la timeline.
+        nomGoogle: info.nom || null, adresse: info.adresse, lat: info.lat, lng: info.lng,
+        photoUri: info.photoUri, placeId: info.placeId, note: info.note, nbAvis: info.nbAvis,
+        horaires: info.horaires,
+      } : {};
+      const e2 = { ...e, ...situee, cle: `${moi}-${i}`, km: reconnue && dep ? haversineKm(dep, situee) : null };
+      // Écartées d'office, raison écrite : ce que Google ne reconnaît pas, ce
+      // qui est fermé ce jour-là, ce qui est bien plus loin que demandé. Rien
+      // n'est supprimé — la case se recoche d'un toucher.
+      let raison = null;
+      if (!reconnue) raison = "Lieu non reconnu par Google : à vérifier avant de le garder.";
+      else {
+        const creneaux = horairesDuJour(e2.horaires, jour);
+        if (creneaux && creneaux.length === 0) raison = `Fermé le ${nomJour(jour)}, d'après Google.`;
+        else if (dep) {
+          const t = estimateTravel(dep, e2, mobilite.mesure);
+          if (t && t.min > loinMax) raison = `À ${fmtDur(t.min)} du départ, bien au-delà du rayon demandé : sans doute un homonyme.`;
+        }
+      }
+      return { ...e2, raison, retenue: !raison };
+    });
+    setPlan({ ...r.plan, etapes, depart: dep, trajet: mobilite.trajet });
+    setChargement("");
+    if (affiner) setAffinage("");
+  };
+
+  const bascule = (cle) => setPlan((p) => (p
+    ? { ...p, etapes: p.etapes.map((e) => (e.cle === cle ? { ...e, retenue: !e.retenue } : e)) }
+    : p));
+
+  // Les étapes retenues, sous la forme qu'elles auront sur la timeline : c'est
+  // ce qui permet de les mesurer avec legBetween, exactement comme la journée
+  // le fera une fois l'insertion faite.
+  const actsPlan = useMemo(() => (plan ? plan.etapes.filter((e) => e.retenue).map((e) => ({
+    id: e.cle, name: e.nom,
+    place: e.lat != null ? { lat: e.lat, lng: e.lng } : null,
+    travelMode: plan.trajet, travelMinutes: null, durationMin: e.duree_min, startTime: AUTO,
+  })) : []), [plan]);
+  // D'où part le premier trajet : l'étape d'ancrage quand elle est située — la
+  // timeline mesurera depuis elle —, sinon le départ tapé dans le questionnaire.
+  const origine = useMemo(() => {
+    if (ctx.ancre && ctx.ancre.place && ctx.ancre.place.lat != null) return ctx.ancre;
+    if (plan && plan.depart) return { id: "depart", place: plan.depart, travelMode: plan.trajet, travelMinutes: null };
+    return ctx.ancre;
+  }, [ctx, plan]);
+
+  // Temps de trajet réels pour les étapes retenues. Mis en cache, ils serviront
+  // tels quels à la timeline après l'insertion : rien n'est payé deux fois.
+  useEffect(() => {
+    if (!actsPlan.length) return undefined;
+    let vivant = true;
+    // Une étape non située reste dans la séquence : ses deux trajets sont alors
+    // inconnus, comme ils le seront sur la timeline, au lieu de relier à tort
+    // ses deux voisines.
+    const seq = [origine, ...actsPlan, ctx.suivante].filter(Boolean);
+    const legs = [];
+    for (let i = 0; i < seq.length - 1; i++) {
+      const l = travelRequestFor(seq[i], seq[i + 1]);
+      if (l) legs.push(l);
+    }
+    if (!legs.length) return undefined;
+    fetchTravelTimes(legs).then((change) => { if (vivant && change) setTravelTick((t) => t + 1); });
+    return () => { vivant = false; };
+  }, [actsPlan, origine, ctx]);
+
+  // Heures estimées, calculées comme scheduleForDay le fera : sans ancre, la
+  // première étape porte l'heure de début ; ensuite chacune suit la précédente
+  // et son trajet.
+  const horaire = useMemo(() => {
+    const parCle = {};
+    let curseur = debutMin;
+    let prec = ctx.ancre ? origine : null;
+    actsPlan.forEach((a) => {
+      let debut = curseur;
+      if (prec) {
+        const leg = legBetween(prec, a);
+        if (leg && leg.min != null) debut += leg.min;
+      }
+      parCle[a.id] = { debut, fin: debut + (a.durationMin || 0) };
+      curseur = debut + (a.durationMin || 0);
+      prec = a;
+    });
+    let finEstimee = curseur;
+    if (ctx.suivante && prec && actsPlan.length) {
+      const leg = legBetween(prec, ctx.suivante);
+      if (leg && leg.min != null) finEstimee += leg.min;
+    }
+    return { parCle, finEstimee };
+    // travelTick : les temps réels arrivés changent les heures.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [actsPlan, origine, ctx, debutMin, travelTick]);
+
+  const retenues = plan ? plan.etapes.filter((e) => e.retenue) : [];
+  // Ce que dit la fin estimée. L'heure fixe de l'étape suivante d'abord : la
+  // dépasser la ferait repasser en « auto » à l'insertion, et une réservation
+  // glisserait sans qu'on l'ait voulu.
+  let depassement = null;
+  if (plan && retenues.length) {
+    const fe = horaire.finEstimee;
+    if (ctx.finFixe != null && fe > ctx.finFixe) {
+      depassement = `Dépasse l'heure fixe de « ${ctx.suivante.name} » (${minToTime(ctx.finFixe)}) : écartez une étape ou affinez.`;
+    } else if (ctx.finFixe == null && fe > finMin + 15) {
+      depassement = `Fin estimée à ${minToTime(fe)}, après la fin souhaitée (${rep.fin}) : écartez une étape ou affinez.`;
+    }
+  }
+
+  const ajoute = () => {
+    if (!retenues.length || chargement) return;
+    const ids = onAjouter(retenues, { debut: minToTime(debutMin), trajet: plan.trajet });
+    if (ids && ids.length) onClose();
+  };
+
+  const enApercu = phase === "apercu";
+  const choixUnique = (k, options) => (
+    <div className="flex flex-wrap gap-2">
+      {options.map((o) => (
+        <PastillePlan key={o.cle} actif={rep[k] === o.cle} onClick={() => maj(k, o.cle)}>{o.libelle}</PastillePlan>
+      ))}
+    </div>
+  );
+  const choixMultiple = (k, options) => (
+    <div className="flex flex-wrap gap-2">
+      {options.map((o) => {
+        const actif = rep[k].includes(o.cle);
+        return (
+          <PastillePlan key={o.cle} actif={actif}
+            onClick={() => maj(k, actif ? rep[k].filter((x) => x !== o.cle) : [...rep[k], o.cle])}>
+            {o.libelle}
+          </PastillePlan>
+        );
+      })}
+    </div>
+  );
+
+  return (
+    <div className="fixed inset-0 z-40 flex flex-col" style={{ background: C.paper }}>
+      <TopBar
+        left={<IconBtn onClick={enApercu ? retourQuestions : onClose} label={enApercu ? "Revenir au questionnaire" : "Retour"}><ChevronLeft size={22} /></IconBtn>}
+        title={enApercu ? "Programme proposé" : "Planifier la journée"}
+        subtitle={fmtLong(jour)}
+      />
+      <div className="flex-1 overflow-y-auto">
+        <div className="mx-auto max-w-md px-4 py-4 space-y-5">
+          {!enApercu && (
+            <>
+              <RubriquePlan titre="Départ"
+                aide={ctx.ancre ? `Après « ${ctx.ancre.name} »` : "Aucune étape avant : la journée part d'ici."}>
+                <input value={rep.depart} onChange={(e) => maj("depart", e.target.value)}
+                  placeholder="Adresse, ville ou lieu de départ" aria-label="Point de départ"
+                  style={inputStyle} className="w-full rounded-xl px-3 py-2.5 outline-none" />
+                {enAttente && (
+                  <div style={{ color: C.inkSoft }} className="mt-1.5 flex items-center gap-1.5 t11">
+                    <Loader2 size={12} className="animate-spin" /> Recherche de l'adresse de l'étape précédente…
+                  </div>
+                )}
+              </RubriquePlan>
+
+              <RubriquePlan titre="Créneau" aide={aideCreneau(ctx) || null}>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span style={{ color: C.inkSoft }} className="text-sm">De</span>
+                  {debutImpose ? (
+                    <span style={{ ...inputStyle, fontFamily: MONO }} className="rounded-xl px-3 py-1.5 text-sm">
+                      {debutMin >= 1440 ? "—" : minToTime(debutMin)}
+                    </span>
+                  ) : (
+                    <TimeFields compact value={rep.debut} onChange={(v) => maj("debut", v)} />
+                  )}
+                  <span style={{ color: C.inkSoft }} className="text-sm">à</span>
+                  <TimeFields compact value={rep.fin} onChange={(v) => maj("fin", v)} />
+                </div>
+              </RubriquePlan>
+
+              <RubriquePlan titre="Envies" aide={rep.envies.length ? null : "Aucune envie choisie : un programme varié."}>
+                {choixMultiple("envies", PLAN_ENVIES)}
+              </RubriquePlan>
+
+              <RubriquePlan titre="Avec qui">
+                <div className="flex flex-wrap gap-2">
+                  {PLAN_GROUPES.map((o) => (
+                    // Un second toucher désélectionne : « non précisé » est une
+                    // réponse, qui ne doit pas demander de rouvrir l'écran.
+                    <PastillePlan key={o.cle} actif={rep.groupe === o.cle}
+                      onClick={() => maj("groupe", rep.groupe === o.cle ? null : o.cle)}>{o.libelle}</PastillePlan>
+                  ))}
+                </div>
+                {rep.groupe === "famille" && (
+                  <div className="mt-3">
+                    <div style={{ color: C.inkSoft }} className="t11 mb-1.5">Âge des enfants</div>
+                    {choixMultiple("ages", PLAN_AGES)}
+                  </div>
+                )}
+              </RubriquePlan>
+
+              <RubriquePlan titre="Rythme">{choixUnique("rythme", PLAN_RYTHMES)}</RubriquePlan>
+
+              <RubriquePlan titre="Déplacements">
+                {choixUnique("mobilite", PLAN_MOBILITES)}
+                <div style={{ color: C.inkSoft }} className="t11 mt-3 mb-1.5">Au plus, depuis le départ</div>
+                {choixUnique("rayon", PLAN_RAYONS)}
+              </RubriquePlan>
+
+              {midi && <RubriquePlan titre="Repas de midi">{choixUnique("repas", PLAN_REPAS)}</RubriquePlan>}
+
+              <RubriquePlan titre="Budget">{choixUnique("budget", PLAN_BUDGETS)}</RubriquePlan>
+
+              <RubriquePlan titre="Précision">
+                <textarea value={rep.precision} onChange={(e) => maj("precision", e.target.value.slice(0, PLAN_TEXTE_MAX))}
+                  rows={2} maxLength={PLAN_TEXTE_MAX} aria-label="Précision libre"
+                  placeholder="Poussette, pas de musée, il pleut…"
+                  style={inputStyle} className="w-full rounded-xl px-3 py-2.5 outline-none resize-none" />
+                <div style={{ color: C.inkSoft }} className="t11 text-right">{rep.precision.length} / {PLAN_TEXTE_MAX}</div>
+              </RubriquePlan>
+            </>
+          )}
+
+          {enApercu && (
+            <>
+              {chargement && !plan && (
+                <div style={{ background: C.card, border: `1px dashed ${C.line}` }} className="rounded-2xl p-6 text-center">
+                  <Loader2 size={22} className="animate-spin mx-auto" style={{ color: C.teal }} />
+                  <div style={{ color: C.ink }} className="text-sm font-medium mt-2">
+                    {chargement === "google" ? "Localisation des étapes chez Google…" : "Gemini compose la journée…"}
+                  </div>
+                  <div style={{ color: C.inkSoft }} className="t11 mt-1">
+                    {chargement === "google"
+                      ? "Position, note et horaires de chaque étape."
+                      : "Une journée entière s'écrit en quelques secondes, parfois jusqu'à une minute."}
+                  </div>
+                </div>
+              )}
+
+              {erreur && (
+                <div>
+                  <div style={{ background: C.warnSoft, color: C.warn }} className="rounded-xl p-3 text-xs flex items-start gap-2">
+                    <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+                    <span style={{ wordBreak: "break-word" }}>{erreur}</span>
+                  </div>
+                  {!plan && (
+                    <div className="mt-3 flex gap-2">
+                      <button type="button" onClick={() => genere(false)} style={{ background: C.teal }}
+                        className="flex-1 surAccent rounded-xl py-2.5 text-sm font-medium active:scale-95 transition">Réessayer</button>
+                      <button type="button" onClick={retourQuestions} style={{ ...inputStyle }}
+                        className="flex-1 rounded-xl py-2.5 text-sm active:scale-95 transition">Modifier mes réponses</button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {plan && (
+                <>
+                  <div>
+                    {plan.titre && <div style={{ color: C.ink }} className="font-semibold text-lg leading-tight">{plan.titre}</div>}
+                    {plan.resume && <div style={{ color: C.inkSoft }} className="text-sm mt-1">{plan.resume}</div>}
+                  </div>
+                  {plan.avertissements.length > 0 && (
+                    <div style={{ background: C.amberSoft, color: C.ink }} className="rounded-xl p-3 text-xs space-y-1">
+                      {plan.avertissements.map((a, i) => (
+                        <div key={i} className="flex items-start gap-2">
+                          <AlertTriangle size={13} className="mt-0.5 shrink-0" style={{ color: C.amber }} />
+                          <span>{a}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {plan.etapes.length === 0 ? (
+                    <div style={{ background: C.card, border: `1px dashed ${C.line}` }} className="rounded-2xl p-6 text-center">
+                      <div style={{ color: C.inkSoft }} className="text-sm">Aucun programme pour ces réponses.</div>
+                      <button type="button" onClick={retourQuestions} style={{ background: C.teal }}
+                        className="mt-3 surAccent rounded-xl px-4 py-2 text-sm active:scale-95 transition">Modifier mes réponses</button>
+                    </div>
+                  ) : (
+                    <div>
+                      {plan.etapes.map((e) => {
+                        const creneau = horaire.parCle[e.cle] || null;
+                        return (
+                          <PlanEtapeCard key={e.cle} e={e} creneau={creneau}
+                            ouverture={creneau ? etatOuverture(e.horaires, jour, creneau.debut, creneau.fin) : null}
+                            onBascule={() => bascule(e.cle)} />
+                        );
+                      })}
+                      {retenues.length > 0 && (
+                        <div style={{ color: C.ink }} className="text-sm">
+                          Fin estimée vers <span style={{ fontFamily: MONO }} className="font-semibold">{minToTime(horaire.finEstimee)}</span>
+                          {ctx.suivante ? ` à « ${ctx.suivante.name} »` : ""}
+                        </div>
+                      )}
+                      {depassement && (
+                        <div style={{ background: C.warnSoft, color: C.warn }} className="mt-2 rounded-xl p-3 text-xs flex items-start gap-2">
+                          <AlertTriangle size={14} className="mt-0.5 shrink-0" /> <span>{depassement}</span>
+                        </div>
+                      )}
+                      <div style={{ color: C.inkSoft }} className="t11 mt-2">
+                        Programme écrit par Gemini, lieux situés par Google : à vérifier avant de s'y fier.
+                        Heures estimées ; la timeline les recalcule avec les trajets réels.
+                        {plan.etapes.some((e) => e.km != null) && " Distances à vol d'oiseau depuis le départ, notes et horaires issus de Google."}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Affiner : une seconde demande, qui repart du programme
+                      affiché. Les cases décochées y comptent comme un avis. */}
+                  <RubriquePlan titre="Affiner">
+                    <textarea value={affinage} onChange={(e) => setAffinage(e.target.value.slice(0, PLAN_TEXTE_MAX))}
+                      rows={2} maxLength={PLAN_TEXTE_MAX} aria-label="Affiner le programme"
+                      placeholder="Moins de route, remplacer les étapes écartées…"
+                      style={inputStyle} className="w-full rounded-xl px-3 py-2.5 outline-none resize-none" />
+                    <button type="button" onClick={() => genere(true)} disabled={!affinage.trim() || !!chargement}
+                      style={{ ...inputStyle, opacity: (!affinage.trim() || chargement) ? 0.5 : 1 }}
+                      className="mt-2 w-full rounded-xl py-2.5 text-sm font-medium inline-flex items-center justify-center gap-2 active:scale-95 transition">
+                      {chargement
+                        ? <><Loader2 size={16} className="animate-spin" /> {chargement === "google" ? "Localisation…" : "Gemini révise le programme…"}</>
+                        : <><Wand2 size={16} /> Affiner</>}
+                    </button>
+                  </RubriquePlan>
+                </>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+
+      <div style={{ background: C.card, borderTop: `1px solid ${C.line}`, paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}
+        className="px-4 pt-3">
+        <div className="mx-auto max-w-md">
+          {!enApercu ? (
+            <>
+              {(!rep.depart.trim() || creneauCourt) && (
+                <div style={{ color: C.warn }} className="t11 mb-2">
+                  {!rep.depart.trim()
+                    ? "Indiquez un point de départ."
+                    : `Créneau trop court : moins de ${PLAN_CRENEAU_MIN} minutes entre le début et la fin.`}
+                </div>
+              )}
+              <button type="button" onClick={() => genere(false)} disabled={!peutProposer}
+                style={{ background: peutProposer ? C.teal : C.inkSoft, opacity: peutProposer ? 1 : 0.6 }}
+                className="w-full surAccent rounded-xl py-3 font-medium inline-flex items-center justify-center gap-2 active:scale-95 transition">
+                <Wand2 size={18} /> Proposer un programme
+              </button>
+            </>
+          ) : (
+            <button type="button" onClick={ajoute} disabled={!retenues.length || !!chargement}
+              style={{ background: retenues.length && !chargement ? C.teal : C.inkSoft, opacity: retenues.length && !chargement ? 1 : 0.6 }}
+              className="w-full surAccent rounded-xl py-3 font-medium inline-flex items-center justify-center gap-2 active:scale-95 transition">
+              <Plus size={18} />
+              {/* « Aucune étape retenue » ne se dit que d'un programme affiché :
+                  pendant qu'il s'écrit, ce serait annoncer un échec. */}
+              {retenues.length
+                ? `Ajouter ${retenues.length} étape${retenues.length > 1 ? "s" : ""} à la journée`
+                : (plan ? "Aucune étape retenue" : "Ajouter à la journée")}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* --- Vue d'un séjour ---------------------------------------------- */
-function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onAddSuggestion, onRemoveSuggestion, onEditAct, onEditTrip, onUpdateChecklist, onEditDuration, onEditTravel, onReorder, canEdit = true }) {
+function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onAddSuggestion, onRemoveSuggestion, onAddPlan, onEditAct, onEditTrip, onUpdateChecklist, onEditDuration, onEditTravel, onReorder, canEdit = true }) {
   const days = daysInRange(trip.startDate, trip.endDate);
   const safeCurrent = current && days.includes(current) ? current : days[0];
   // L'en-tête est collant : sa hauteur sert de décalage pour ne pas glisser une
@@ -4550,23 +5453,52 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
   const ouvreSuggestions = (apresId) => {
     pileAncres.current = apresId ? [apresId] : [];
     const i = apresId ? acts.findIndex((x) => x.id === apresId) : acts.length - 1;
-    const etape = i >= 0 ? acts[i] : null;
-    const { texte, lat, lng, attente } = repereLieu(etape);
-    // Faute de coordonnées sur l'étape visée, on remonte la journée : la position
-    // de l'étape d'avant est un point de mesure presque aussi juste, et elle est
-    // déjà connue — bien mieux que de renoncer aux distances, ou de payer une
-    // recherche pour les obtenir.
-    let dep = { lat, lng };
-    for (let k = i - 1; k >= 0 && dep.lat == null; k--) {
-      const p = acts[k] && acts[k].place;
-      if (p && p.lat != null && p.lng != null) dep = { lat: p.lat, lng: p.lng };
-    }
+    const { texte, lat, lng, attente } = repereDepuis(acts, i);
     setAmorce({
       promptInitial: PROMPT_AUTOUR + texte,
       repereAttendu: attente,
-      repereInitial: { texte, ...dep },
+      repereInitial: { texte, lat, lng },
     });
     setSuggestionsOuvert(true);
+  };
+
+  // « Planifier la journée » : le contexte est figé à l'ouverture, comme
+  // l'amorce de Suggestions — l'étape après laquelle le programme s'insère,
+  // celle qui le suit, et ce qui en découle pour le questionnaire.
+  //
+  // Le COUCHER d'un hébergement n'est jamais l'ancre : le soir, on y rentre. Un
+  // programme posé « après » lui se rangerait de toute façon avant, les entrées
+  // d'hébergement étant fixées en fin de journée — on recule donc d'une entrée,
+  // et le coucher devient l'arrivée du programme. Le bouton flottant, qui
+  // désigne la dernière entrée du jour, tombe ainsi sur la dernière étape avant
+  // le retour à l'hébergement.
+  const [planContexte, setPlanContexte] = useState(null);
+  useRetour(!!planContexte, () => setPlanContexte(null));
+  const ouvrePlan = (apresId) => {
+    let i = apresId ? acts.findIndex((x) => x.id === apresId) : acts.length - 1;
+    if (i >= 0 && acts[i].staySlot === STAY_PM) i -= 1;
+    const ancreEtape = i >= 0 ? acts[i] : null;
+    const suivante = acts[i + 1] || null;
+    const dep = repereDepuis(acts, i);
+    const arr = suivante ? repereLieu(suivante) : null;
+    setPlanContexte({
+      apresId: ancreEtape ? ancreEtape.id : null,
+      ancre: ancreEtape,
+      suivante,
+      // Le début du créneau découle de l'ancre — sa fin — et ne se règle pas
+      // ici : l'heure de départ d'un matin se règle sur l'hébergement.
+      debutMin: ancreEtape ? ancreEtape._endMin : null,
+      // Une étape suivante à heure FIXE (réservation, arrivée réglée) borne le
+      // programme ; une étape « auto » sera simplement décalée.
+      finFixe: suivante && !suivante._auto ? suivante._startMin : null,
+      depart: { texte: dep.texte, lat: dep.lat, lng: dep.lng },
+      departAttendu: dep.attente,
+      arrivee: arr && (arr.texte || arr.lat != null) ? { texte: arr.texte, lat: arr.lat, lng: arr.lng } : null,
+      arriveeAttendue: arr ? arr.attente : null,
+      // Ce qui est déjà au programme du séjour, tous jours confondus : Gemini
+      // ne doit pas reproposer le lac visité la veille.
+      exclure: [...new Set(trip.activities.filter((a) => !isStay(a) && (a.name || "").trim()).map((a) => a.name.trim()))].slice(0, 40),
+    });
   };
 
   const totalTravel = useMemo(() => {
@@ -4759,7 +5691,8 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
                   onAjoutActivite={canEdit && !drag ? () => choisitTrajet(() => onAddAct(a.id)) : undefined}
                   onAjoutSuggestion={() => choisitTrajet(() => ouvreSuggestions(a.id))}
                   onAjoutCarte={canEdit && !drag ? () => choisitTrajet(() => ouvreCarte(a.id)) : undefined}
-                  onAjoutHebergement={canEdit && !drag ? () => choisitTrajet(() => onAddStay()) : undefined} />}
+                  onAjoutHebergement={canEdit && !drag ? () => choisitTrajet(() => onAddStay()) : undefined}
+                  onAjoutPlan={canEdit && !drag && onAddPlan ? () => choisitTrajet(() => ouvrePlan(a.id)) : undefined} />}
                 {/* Deux entrées du MÊME hébergement : le réveil et le coucher.
                     Aucun trajet à afficher — on ne va pas d'un lieu à lui-même —
                     mais toute la journée s'écoule entre les deux, et c'est là
@@ -4773,7 +5706,8 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
                     onActivite={() => choisitTrajet(() => onAddAct(a.id))}
                     onSuggestion={() => choisitTrajet(() => ouvreSuggestions(a.id))}
                     onCarte={() => choisitTrajet(() => ouvreCarte(a.id))}
-                    onHebergement={() => choisitTrajet(() => onAddStay())} />
+                    onHebergement={() => choisitTrajet(() => onAddStay())}
+                    onPlan={onAddPlan ? () => choisitTrajet(() => ouvrePlan(a.id)) : undefined} />
                 )}
                 {drag && drag.over === acts.length && i === acts.length - 1 && <InsertBar />}
               </div>
@@ -4790,7 +5724,8 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
                 onActivite={() => choisitTrajet(() => onAddAct(acts[acts.length - 1].id))}
                 onSuggestion={() => choisitTrajet(() => ouvreSuggestions(acts[acts.length - 1].id))}
                 onCarte={() => choisitTrajet(() => ouvreCarte(acts[acts.length - 1].id))}
-                onHebergement={() => choisitTrajet(() => onAddStay())} />
+                onHebergement={() => choisitTrajet(() => onAddStay())}
+                onPlan={onAddPlan ? () => choisitTrajet(() => ouvrePlan(acts[acts.length - 1].id)) : undefined} />
             )}
             {canEdit && acts.filter((a) => !isStay(a)).length > 1 && (
               <div style={{ color: C.inkSoft }} className="t11 mt-5 flex items-center gap-1">
@@ -4858,6 +5793,12 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
           onClose={() => setSuggestionsOuvert(false)} />
       )}
 
+      {planContexte && (
+        <PlanJourneeSheet jour={safeCurrent} contexte={planContexte}
+          onAjouter={(etapes, options) => onAddPlan(etapes, safeCurrent, planContexte.apresId, options)}
+          onClose={() => setPlanContexte(null)} />
+      )}
+
       {/* Bouton « + » flottant, masqué en lecture seule. Les deux ajouts ne
           s'affichent qu'à la demande : côte à côte, ils occupaient en permanence
           le bas de l'écran et recouvraient la fin de la journée. */}
@@ -4876,6 +5817,15 @@ function TripView({ trip, current, onSelectDay, onBack, onAddAct, onAddStay, onA
                   plus fréquent, reste au plus près du pouce, juste au-dessus du « + ». */}
               {ajoutOuvert && (
                 <>
+                  {/* En haut de la pile : de tous les ajouts, c'est le moins
+                      fréquent — on ne planifie pas une journée toutes les cinq
+                      minutes. */}
+                  {onAddPlan && (
+                    <button onClick={() => choisitAjout(() => ouvrePlan(null))} style={{ background: C.rose }}
+                      className="pointer-events-auto surAccent rounded-full pl-4 pr-5 py-3.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
+                      <Wand2 size={20} /> Planifier la journée
+                    </button>
+                  )}
                   <button onClick={() => choisitAjout(() => ouvreSuggestions(null))} style={{ background: C.encre }}
                     className="pointer-events-auto surAccent rounded-full pl-4 pr-5 py-3.5 font-medium shadow-lg flex items-center gap-2 active:scale-95 transition">
                     <Sparkles size={20} /> Suggestions
@@ -6114,26 +7064,6 @@ function SejourApp() {
   // Ouvre le formulaire d'une nouvelle activité, éventuellement avec un lieu déjà
   // rempli (lien reçu par partage). Prend le séjour en paramètre : à l'arrivée
   // d'un partage, l'état `trip` n'est pas encore à jour.
-  // Insère une étape juste après celle qui porte l'identifiant AFFICHÉ `apresId`
-  // (un hébergement du matin s'affiche sous « id#am », d'où l'identifiant de la
-  // séquence et non celui de la base). On travaille sur la séquence affichée,
-  // comme le déplacement manuel : c'est l'ordre du tableau qui porte la cascade
-  // des heures « auto », et enforceManualOrder la recalcule ensuite de proche en
-  // proche — trajets compris. Sans ancre reconnue, l'étape rejoint la fin du jour.
-  const activitesAvecInsertion = (t, date, apresId, act) => {
-    const seq = scheduleForDay(dayList(t.activities, date, t.endDate));
-    const i = seq.findIndex((x) => x.id === apresId);
-    if (i < 0) return [...t.activities.filter((a) => a.id !== act.id), act];
-    const firstStart = seq.length ? seq[0]._startMin : null;
-    const suite = seq.map(({ _startMin, _endMin, _auto, ...rest }) => rest);
-    suite.splice(i + 1, 0, act);
-    // Les entrées d'hébergement sont dérivées, elles ne s'enregistrent pas :
-    // on les retire après le recalcul, les vraies lignes étant dans `autres`.
-    const recalcule = enforceManualOrder(suite, firstStart).filter((a) => !isStay(a));
-    const autres = t.activities.filter((a) => isStay(a) || (a.date !== date && a.id !== act.id));
-    return [...autres, ...recalcule];
-  };
-
   const openNewActivity = (t, day, placeRaw = "", apresId = null) => {
     // 1re activité du jour : heure fixe ; les suivantes : "auto" (calculées en
     // cascade). Un hébergement au petit matin compte comme première étape.
@@ -6203,6 +7133,20 @@ function SejourApp() {
       : [...trip.activities, act];
     commit(trips.map((t) => (t.id === trip.id ? { ...t, activities } : t)));
     return act.id;
+  };
+  // Programme retenu dans l'écran « Planifier la journée » : toutes ses étapes
+  // rejoignent la journée d'un coup, à la suite de l'ancre et dans l'ordre du
+  // programme, en UNE sauvegarde (voir insereEtapes). Renvoie les identifiants
+  // créés.
+  const addPlan = (etapes, day, apresId, options) => {
+    if (!trip) return [];
+    const jour = day && days.includes(day) ? day : null;
+    if (!jour) return [];
+    const acts = etapesEnActivites(etapes, jour, apresId, options);
+    if (!acts.length) return [];
+    const activities = insereEtapes(trip, jour, apresId, acts);
+    commit(trips.map((t) => (t.id === trip.id ? { ...t, activities } : t)));
+    return acts.map((a) => a.id);
   };
   // Retrait d'une proposition qu'on vient d'ajouter, depuis sa carte. Même
   // effet que la suppression depuis l'éditeur, mais désignée par identifiant :
@@ -6518,7 +7462,7 @@ function SejourApp() {
       ) : (
         <TripView
           trip={trip} current={curDay} onSelectDay={setCurDay}
-          onBack={() => setTripId(null)} onAddAct={newActivity} onAddStay={newStay} onAddSuggestion={addSuggestion} onRemoveSuggestion={removeSuggestion} onEditAct={editActivity} onEditTrip={editTrip}
+          onBack={() => setTripId(null)} onAddAct={newActivity} onAddStay={newStay} onAddSuggestion={addSuggestion} onRemoveSuggestion={removeSuggestion} onAddPlan={addPlan} onEditAct={editActivity} onEditTrip={editTrip}
           onUpdateChecklist={updateChecklist} onReorder={reorderActivities}
           onEditDuration={(a) => setDurEdit({ id: a.id, durationMin: a.durationMin })}
           onEditTravel={(from, to) => setTravelEdit({ date: from.date, fromId: from.id, toId: to.id })}

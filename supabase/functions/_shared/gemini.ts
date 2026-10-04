@@ -1,5 +1,5 @@
 // Appel à l'API Gemini, partagé par les fonctions qui s'en servent
-// (`suggestions`, `place-reviews`, `place-guide`).
+// (`suggestions`, `place-reviews`, `place-guide`, `day-plan`).
 //
 // La clé vit dans le secret Supabase GEMINI_API_KEY, jamais dans le dépôt ni
 // dans le bundle. Depuis 2026 c'est une « auth key » liée à un compte de
@@ -34,6 +34,10 @@ const TRANSITOIRE = new Set([500, 502, 503, 504]);
 
 // Borne par appel. Assez large pour un modèle lent, assez courte pour que deux
 // modèles saturés rendent la main avant que la passerelle ne coupe.
+// Un appelant qui fait écrire nettement plus long — une journée entière plutôt
+// que six lignes — peut l'élargir par `delaiMs`, à condition que deux essais
+// tiennent encore sous les 150 s d'inactivité au-delà desquelles la passerelle
+// Supabase répond 504.
 const DELAI_MAX_MS = 25000;
 
 export type EchecGemini = { error: string; status: number; detail: string };
@@ -42,12 +46,13 @@ export type EchecGemini = { error: string; status: number; detail: string };
 // `schema` contraint la sortie (responseSchema) : rien à analyser à la main, et
 // pas de texte d'accompagnement à retirer.
 export async function demandeJson(
-  { cle, consigne, prompt, schema, temperature = 0.7 }: {
+  { cle, consigne, prompt, schema, temperature = 0.7, delaiMs = DELAI_MAX_MS }: {
     cle: string;
     consigne: string;
     prompt: string;
     schema: unknown;
     temperature?: number;
+    delaiMs?: number;
   },
 ): Promise<{ objet: unknown } | { echec: EchecGemini }> {
   const choisi = Deno.env.get("GEMINI_MODEL");
@@ -91,7 +96,7 @@ export async function demandeJson(
           // Sans cette borne, un appel qui ne revient pas laisse la passerelle
           // Supabase couper la requête : le client reçoit alors une erreur sans
           // corps lisible, et n'affiche qu'un « recherche impossible » muet.
-          signal: AbortSignal.timeout(DELAI_MAX_MS),
+          signal: AbortSignal.timeout(delaiMs),
         },
       );
     } catch (e) {

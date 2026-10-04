@@ -102,6 +102,37 @@ function looksLikeMatch(query: string, displayName: string, address: string): bo
   return hits / wanted.length >= 0.6;
 }
 
+// Les périodes d'ouverture telles que Google les donne — `open` / `close`, jour
+// 0 (dimanche) à 6, heure, minute — réduites à ces seuls champs. Un `close`
+// absent est la forme qu'a Google de dire « ouvert en permanence » ; il est
+// conservé tel quel. Un champ numérique absent vaut 0, comme dans tout JSON
+// issu d'un message protobuf : le dimanche et minuit peuvent ne pas être écrits.
+// Toute période malformée est écartée plutôt que devinée.
+function horairesDe(place: Record<string, unknown> | undefined): { horaires?: unknown[] } {
+  const brut = (place?.regularOpeningHours as Record<string, unknown> | undefined)?.periods;
+  if (!Array.isArray(brut)) return {};
+  const borne = (b: unknown) => {
+    if (!b || typeof b !== "object") return null;
+    const o = b as Record<string, unknown>;
+    const day = o.day ?? 0, hour = o.hour ?? 0, minute = o.minute ?? 0;
+    const ok = typeof day === "number" && day >= 0 && day <= 6
+      && typeof hour === "number" && hour >= 0 && hour <= 24
+      && typeof minute === "number" && minute >= 0 && minute <= 59;
+    return ok ? { day, hour, minute } : null;
+  };
+  const horaires = brut
+    .map((p) => {
+      const o = p as Record<string, unknown>;
+      const open = borne(o?.open);
+      if (!open) return null;
+      const close = o?.close == null ? null : borne(o.close);
+      if (o?.close != null && !close) return null;
+      return close ? { open, close } : { open };
+    })
+    .filter((p) => p !== null);
+  return horaires.length ? { horaires } : {};
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (!utilisateurConnecte(req)) return refusAuth(CORS);
@@ -110,7 +141,7 @@ Deno.serve(async (req: Request) => {
   if (!KEY) return json({ error: "GOOGLE_PLACES_KEY manquant (secret Supabase)" }, 500);
 
   try {
-    const { query, lat, lng, avecNote, placeId: idDemande } = await req.json();
+    const { query, lat, lng, avecNote, avecHoraires, placeId: idDemande } = await req.json();
 
     // --- Lieu désigné par son IDENTIFIANT -------------------------------
     // Sert la fiche d'un point d'intérêt touché sur la carte : c'est Google
@@ -187,10 +218,16 @@ Deno.serve(async (req: Request) => {
         // palier « Enterprise » chez Google (~32 → ~35 $ / 1000 au-delà du quota
         // gratuit). C'est le seul moyen de les obtenir sans payer une SECONDE
         // requête (fiche détaillée) : dans la même recherche, elles ne coûtent
-        // que la différence de palier. On ne les demande donc QUE pour l'écran
-        // Suggestions IA, qui les affiche : les vignettes de la timeline, elles,
-        // restent au palier Pro.
-        "X-Goog-FieldMask": CHAMPS + (avecNote === true ? ",places.rating,places.userRatingCount" : ""),
+        // que la différence de palier. On ne les demande donc QUE pour les écrans
+        // qui les affichent — Suggestions et « Planifier la journée » : les
+        // vignettes de la timeline, elles, restent au palier Pro.
+        // Les horaires habituels relèvent du MÊME palier Enterprise : demandés
+        // avec la note, ils ne coûtent rien de plus. C'est ce qui permet à
+        // l'aperçu d'un programme de dire « fermé ce jour-là » sans payer une
+        // fiche détaillée par étape.
+        "X-Goog-FieldMask": CHAMPS
+          + (avecNote === true ? ",places.rating,places.userRatingCount" : "")
+          + (avecHoraires === true ? ",places.regularOpeningHours" : ""),
       },
       body: JSON.stringify(searchBody),
     });
@@ -250,6 +287,10 @@ Deno.serve(async (req: Request) => {
       // n'a pas été demandé ne doit pas ressortir, même si Google en glissait.
       ...(avecNote === true && typeof place?.rating === "number" ? { note: place.rating } : {}),
       ...(avecNote === true && typeof place?.userRatingCount === "number" ? { nbAvis: place.userRatingCount } : {}),
+      // Horaires habituels de la semaine. Un lieu qui n'en déclare pas — un
+      // sentier, une plage — n'a pas ce champ : l'écran n'en dit alors rien,
+      // plutôt que de le croire fermé.
+      ...(avecHoraires === true ? horairesDe(place) : {}),
     };
 
     const photoName = place?.photos?.[0]?.name;
