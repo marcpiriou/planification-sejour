@@ -6,13 +6,15 @@ import {
   Check, MoreVertical, Route, Mail, LogOut,
   Users, Share2, UserPlus, User, Home as HomeIcon, Building2, ClipboardPaste, Copy,
   ListChecks, ChevronRight, ChevronDown, Search, Loader2, Archive, ArchiveRestore,
-  Compass, Sun, Moon, Smartphone, Wand2,
+  Compass, Sun, Moon, Smartphone, Wand2, Bell,
   // Alias obligatoire : « Map » masquerait le constructeur Map de JavaScript,
   // dont se servent les caches de trajets et de photos.
   Map as MapIcon
 } from "lucide-react";
 import { supabase, redirectTo } from "./supabase";
 import { takeSharedLink } from "./shared-link";
+import { takeRappelLink } from "./rappel-link";
+import { etatAppareil, activeAppareil, envoieTest, chargeReglages, enregistreReglage, publieHoraires } from "./rappels";
 
 /* ------------------------------------------------------------------ */
 /* Palette & thème                                                     */
@@ -1006,6 +1008,9 @@ async function geocodeText(query) {
 // et l'app continue avec son estimation à vol d'oiseau.
 const travelPending = new Set();
 let travelPauseUntil = 0;
+// Prévenus quand des temps réels arrivent : les heures « auto » bougent, et
+// avec elles les horaires publiés pour les rappels (voir SejourApp).
+const ecouteursTrajets = new Set();
 
 const travelRequestFor = (a, b) => {
   if (sameStay(a, b)) return null;
@@ -1050,6 +1055,7 @@ async function fetchTravelTimes(legs) {
       travelCache.set(l.key, r && typeof r.min === "number" ? { min: r.min, km: Number(r.km) || 0 } : null);
       change = true;
     }
+    if (change) ecouteursTrajets.forEach((f) => f());
     return change;
   } catch {
     travelPauseUntil = Date.now() + 60000;
@@ -1477,6 +1483,47 @@ function insereEtapes(t, date, apresId, acts) {
     ancre = act.id;
   }
   return activities;
+}
+
+// Horaires à publier pour les rappels (src/rappels.js) : chaque activité à
+// venir, et le départ du matin de chaque hébergement. Ni l'arrivée du soir, qui
+// n'appelle aucun geste, ni le point de départ et de retour du séjour.
+//
+// Les heures sont celles de la timeline — cascade des heures « auto » comprise,
+// avec les temps de trajet connus à cet instant. Converties en instant absolu
+// depuis l'heure de l'appareil : le serveur compare des instants, il n'a pas à
+// connaître le fuseau du séjour.
+function horairesAPublier(t, maintenant = new Date()) {
+  const aujourdhui = toISO(maintenant);
+  const lignes = [];
+  for (const iso of daysInRange(t.startDate, t.endDate)) {
+    if (iso < aujourdhui) continue;
+    const seq = scheduleForDay(dayList(t.activities, iso, t.endDate));
+    seq.forEach((a, i) => {
+      const depart = a.staySlot === STAY_AM;
+      if (a.staySlot === STAY_PM || (depart && isBase(a))) return;
+      // setMinutes déborde de lui-même au-delà de minuit, comme la cascade.
+      const debut = parseDate(iso);
+      debut.setMinutes(a._startMin);
+      if (debut <= maintenant) return;
+      const nom = (a.name || "").trim() || catOf(a.category).label;
+      let titre = nom, lieu = null;
+      if (depart) {
+        // Le matin, ce qui compte est où l'on va : la première étape du jour.
+        const suite = seq[i + 1];
+        titre = `Départ de « ${nom} »`;
+        lieu = suite && !sameStay(a, suite) ? `vers ${(suite.name || "").trim() || catOf(suite.category).label}` : null;
+      } else if (a.place) {
+        const p = (a.place.name || "").trim();
+        lieu = (p && p !== nom ? p : (a.place.address || "").trim()) || null;
+      }
+      lignes.push({
+        item_key: depart ? `${a.stayOf}#${iso}` : a.id,
+        starts_at: debut.toISOString(), jour: iso, heure: minToTime(a._startMin), titre, lieu,
+      });
+    });
+  }
+  return lignes;
 }
 
 // Réordonne les activités de chaque jour par heure effective (ordre chronologique stable).
@@ -6453,6 +6500,104 @@ function DateRangeField({ startDate, endDate, onChange }) {
 }
 
 /* --- Modale séjour (création / édition) --------------------------- */
+// Délais proposés pour les rappels, en minutes. La base accepte de 5 à 120.
+const RAPPEL_DELAIS = [5, 10, 15, 30, 60];
+const RAPPEL_DELAI_DEFAUT = 15;
+const fmtDelai = (m) => (m >= 60 && m % 60 === 0 ? `${m / 60} h` : `${m} min`);
+
+// Pourquoi l'interrupteur ne peut pas s'allumer, dit avec le geste qui y remédie.
+const RAPPEL_RAISONS = {
+  "ios-onglet": "Sur iPhone, les notifications n'arrivent qu'à l'application installée : dans Safari, Partager → « Sur l'écran d'accueil », puis ouvrez Periplo depuis son icône.",
+  refuse: "Les notifications sont bloquées pour Periplo. Autorisez-les dans les réglages du téléphone (ou du navigateur), puis revenez ici.",
+  ignore: "Autorisation non accordée : touchez de nouveau l'interrupteur pour qu'elle vous soit redemandée.",
+  "non-supporte": "Ce navigateur ne sait pas recevoir de notifications.",
+};
+
+// Rubrique « Rappels » de la modification d'un séjour. Le réglage (actif,
+// délai) suit le formulaire et s'enregistre avec lui ; l'inscription de
+// l'appareil, elle, se fait dès l'interrupteur, parce que le navigateur ne
+// demande son autorisation qu'en réponse directe à un geste.
+function RubriqueRappels({ actif, delai, onChange }) {
+  const [etat, setEtat] = useState(etatAppareil);
+  const [enCours, setEnCours] = useState(false);
+  const [raison, setRaison] = useState(null);
+  const [test, setTest] = useState(null);   // null | "envoi" | { ok, texte }
+  const bloque = !etat.possible;
+  const motif = raison || (bloque ? etat.raison : null);
+
+  const bascule = async () => {
+    if (enCours) return;
+    setTest(null);
+    if (actif) { onChange({ rappels: false }); return; }
+    setEnCours(true); setRaison(null);
+    const r = await activeAppareil();
+    setEnCours(false);
+    setEtat(etatAppareil());
+    if (r.ok) onChange({ rappels: true });
+    else setRaison(r.raison === "technique" || r.raison === "base" || r.raison === "session" ? "technique" : r.raison);
+  };
+  const essaie = async () => {
+    setTest("envoi");
+    const r = await envoieTest();
+    setTest(r.ok
+      ? { ok: true, texte: `Envoyée à ${r.appareils > 1 ? `${r.appareils} appareils` : "cet appareil"} : elle doit s'afficher dans quelques secondes.` }
+      : { ok: false, texte: r.appareils === 0 ? "Aucun appareil inscrit : éteignez puis rallumez l'interrupteur." : "L'envoi a échoué. Réessayez dans un instant." });
+  };
+
+  return (
+    <div style={{ background: C.surface, border: `1px solid ${C.line}` }} className="rounded-2xl p-3 space-y-3">
+      <div className="flex items-center gap-3">
+        <div className="flex-1 min-w-0">
+          <div style={{ color: C.ink }} className="text-sm font-medium flex items-center gap-1.5"><Bell size={15} style={{ color: C.teal }} /> Rappels avant chaque étape</div>
+          <div style={{ color: C.inkSoft }} className="t11 mt-0.5">
+            Une notification sur votre téléphone avant chaque activité et chaque départ du matin. Réglage personnel : les autres membres choisissent le leur.
+          </div>
+        </div>
+        <button type="button" role="switch" aria-checked={actif} aria-label="Activer les rappels"
+          onClick={bascule} disabled={enCours || (bloque && !actif)}
+          style={{ background: actif ? C.teal : C.line, opacity: (bloque && !actif) ? 0.5 : 1 }}
+          className="relative shrink-0 h-7 w-12 rounded-full transition">
+          {enCours
+            ? <Loader2 size={14} style={{ color: C.surAccent }} className="absolute top-1.5 left-4 animate-spin" />
+            : <span style={{ background: C.card, transform: `translateX(${actif ? 20 : 0}px)` }}
+                className="absolute top-1 left-1 h-5 w-5 rounded-full shadow transition-transform" />}
+        </button>
+      </div>
+
+      {motif && (
+        <div style={{ background: C.amberSoft, color: C.ink }} className="rounded-xl px-3 py-2 t11 flex gap-1.5">
+          <AlertTriangle size={14} style={{ color: C.amber }} className="shrink-0 mt-px" />
+          <span>{RAPPEL_RAISONS[motif] || "L'activation a échoué. Réessayez dans un instant."}</span>
+        </div>
+      )}
+
+      {actif && (
+        <>
+          <div role="group" aria-label="Délai du rappel">
+            <div style={{ color: C.inkSoft }} className="text-xs mb-1.5">Prévenir</div>
+            <div className="flex flex-wrap gap-1.5">
+              {RAPPEL_DELAIS.map((m) => (
+                <PastillePlan key={m} actif={delai === m} onClick={() => onChange({ rappelsDelai: m })}>{fmtDelai(m)} avant</PastillePlan>
+              ))}
+            </div>
+          </div>
+          <button type="button" onClick={essaie} disabled={test === "envoi"}
+            style={{ background: C.card, border: `1px solid ${C.line}`, color: C.ink }}
+            className="w-full rounded-xl py-2.5 text-sm font-medium active:scale-95 transition inline-flex items-center justify-center gap-1.5">
+            {test === "envoi" ? <Loader2 size={15} className="animate-spin" /> : <Bell size={15} />} Envoyer une notification de test
+          </button>
+          {test && test !== "envoi" && (
+            <div style={{ color: test.ok ? C.teal : C.warn }} className="t11">{test.texte}</div>
+          )}
+          <div style={{ color: C.inkSoft }} className="t11">
+            Les heures sont celles de la timeline, trajets compris ; un changement de programme est pris en compte dès son enregistrement.
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function TripModal({ draft, setDraft, onSave, onClose, onDelete, onToggleArchive, archived, isNew, canDelete = true }) {
   const [confirmDel, setConfirmDel] = useState(false);
   const upd = (k, v) => setDraft({ ...draft, [k]: v });
@@ -6480,6 +6625,11 @@ function TripModal({ draft, setDraft, onSave, onClose, onDelete, onToggleArchive
           </div>
           {dateError && <div style={{ color: C.warn }} className="text-xs -mt-2">La date de fin doit être postérieure ou égale à la date de début.</div>}
 
+          {!isNew && (
+            <RubriqueRappels actif={!!draft.rappels} delai={draft.rappelsDelai || RAPPEL_DELAI_DEFAUT}
+              onChange={(patch) => setDraft((d) => ({ ...d, ...patch }))} />
+          )}
+
           {isNew && (
             <div style={{ background: C.surface, border: `1px solid ${C.line}` }} className="rounded-2xl p-3 space-y-3">
               <div style={{ color: C.ink }} className="text-sm font-medium flex items-center gap-1.5"><MapPin size={15} style={{ color: C.teal }} /> Point de départ (1er jour)</div>
@@ -6503,7 +6653,7 @@ function TripModal({ draft, setDraft, onSave, onClose, onDelete, onToggleArchive
             <button onClick={onSave} disabled={nameError || dateError} style={{ background: nameError || dateError ? C.inkSoft : C.teal, opacity: nameError || dateError ? 0.6 : 1 }} className="w-full surAccent rounded-xl py-3 font-medium active:scale-95 transition">
               {isNew ? "Créer le séjour" : "Enregistrer"}
             </button>
-            <button onClick={onClose} style={{ border: `1px solid ${C.line}`, color: C.ink }} className="w-full rounded-xl py-3 font-medium bg-white active:scale-95 transition">
+            <button onClick={onClose} style={{ background: C.card, border: `1px solid ${C.line}`, color: C.ink }} className="w-full rounded-xl py-3 font-medium active:scale-95 transition">
               Annuler
             </button>
             {/* Archiver range le séjour hors de la liste principale sans rien
@@ -6512,8 +6662,8 @@ function TripModal({ draft, setDraft, onSave, onClose, onDelete, onToggleArchive
                 en cours dans le formulaire ne le suivent pas — d'où sa place
                 sous « Annuler », à côté de la suppression et non des champs. */}
             {!isNew && onToggleArchive && (
-              <button onClick={onToggleArchive} style={{ border: `1px solid ${C.line}`, color: C.ink }}
-                className="w-full rounded-xl py-3 font-medium bg-white active:scale-95 transition inline-flex items-center justify-center gap-1.5">
+              <button onClick={onToggleArchive} style={{ background: C.card, border: `1px solid ${C.line}`, color: C.ink }}
+                className="w-full rounded-xl py-3 font-medium active:scale-95 transition inline-flex items-center justify-center gap-1.5">
                 {archived
                   ? <><ArchiveRestore size={16} style={{ color: C.inkSoft }} /> Sortir des archives</>
                   : <><Archive size={16} style={{ color: C.inkSoft }} /> Archiver le séjour</>}
@@ -6522,7 +6672,7 @@ function TripModal({ draft, setDraft, onSave, onClose, onDelete, onToggleArchive
             {!isNew && canDelete && (
               confirmDel ? (
                 <div className="flex gap-2">
-                  <button onClick={() => setConfirmDel(false)} style={{ border: `1px solid ${C.line}`, color: C.ink }} className="flex-1 rounded-xl py-2.5 bg-white">Garder</button>
+                  <button onClick={() => setConfirmDel(false)} style={{ background: C.card, border: `1px solid ${C.line}`, color: C.ink }} className="flex-1 rounded-xl py-2.5">Garder</button>
                   <button onClick={onDelete} style={{ background: C.warn }} className="flex-1 rounded-xl py-2.5 surAccent font-medium">Supprimer le séjour</button>
                 </div>
               ) : (
@@ -6748,6 +6898,19 @@ function SejourApp() {
   // démarrage : il survit donc à l'écran de connexion, puisque celui-ci ne
   // remonte pas jusqu'ici sans session.
   const [sharedLink, setSharedLink] = useState(takeSharedLink);
+  // Notification de rappel touchée : le séjour et le jour à ouvrir.
+  const [rappelLink, setRappelLink] = useState(takeRappelLink);
+  // Rappels de l'utilisateur, par séjour : { [tripId]: { enabled, delai } }.
+  // Lus dans trip_reminders, propres à chaque membre (voir src/rappels.js).
+  const [reglagesRappels, setReglagesRappels] = useState({});
+  useEffect(() => { chargeReglages().then(setReglagesRappels); }, []);
+  // Les temps de trajet réels déplacent les heures « auto » : on republie.
+  const [trajetsTick, setTrajetsTick] = useState(0);
+  useEffect(() => {
+    const f = () => setTrajetsTick((n) => n + 1);
+    ecouteursTrajets.add(f);
+    return () => { ecouteursTrajets.delete(f); };
+  }, []);
 
   const [syncMsg, setSyncMsg] = useState(null);   // erreur de synchronisation à afficher
   useEffect(() => onSyncStatus(setSyncMsg), []);
@@ -6886,6 +7049,39 @@ function SejourApp() {
   };
   const openTrip = (id) => { const t = trips.find((x) => x.id === id); if (t) enterTrip(t); };
 
+  // Notification de rappel touchée : ouvre le séjour sur le jour de l'étape,
+  // une fois les séjours chargés. Un séjour disparu entre-temps laisse
+  // simplement l'accueil affiché.
+  useEffect(() => {
+    if (!loaded || !rappelLink) return;
+    const t = trips.find((x) => x.id === rappelLink.tripId);
+    if (t) {
+      enterTrip(t);
+      if (rappelLink.jour && daysInRange(t.startDate, t.endDate).includes(rappelLink.jour)) setCurDay(rappelLink.jour);
+    }
+    setRappelLink(null);
+  }, [loaded, trips, rappelLink]);
+
+  // Publication des horaires pour les rappels, après chaque modification et à
+  // l'arrivée des temps de trajet réels. Le délai regroupe une rafale de
+  // modifications en une seule écriture.
+  //
+  // Tout séjour modifiable qui n'est pas terminé est publié, que l'on ait
+  // activé ses rappels ou non : un autre membre a pu les activer, et ses
+  // réglages ne sont pas lisibles d'ici. Un lecteur ne publie pas — la base le
+  // lui refuserait — ; il reçoit les horaires publiés par les éditeurs.
+  useEffect(() => {
+    if (!loaded) return undefined;
+    const minuterie = setTimeout(() => {
+      const aujourdhui = toISO(new Date());
+      for (const t of trips) {
+        if (t.role === "viewer" || !t.endDate || t.endDate < aujourdhui) continue;
+        publieHoraires(t.id, horairesAPublier(t)).catch(() => { /* réessayé à la prochaine modification */ });
+      }
+    }, 2000);
+    return () => clearTimeout(minuterie);
+  }, [loaded, trips, trajetsTick]);
+
   // Le séjour ouvert est la couche la plus basse : le retour y ramène à la
   // liste. Déclarée AVANT les écrans qu'un séjour peut ouvrir, pour que ceux-ci
   // s'empilent au-dessus quand ils apparaissent dans le même rendu — l'ouverture
@@ -6930,7 +7126,11 @@ function SejourApp() {
 
   /* --- séjours --- */
   const newTrip = () => setTripModal({ isNew: true, id: null, name: "", startDate: toISO(new Date()), endDate: toISO(addDays(new Date(), 1)), startName: home.label || "Maison", startRaw: home.address || "", startTime: "09:00" });
-  const ouvreEditionTrip = (t) => setTripModal({ isNew: false, id: t.id, name: t.name, startDate: t.startDate, endDate: t.endDate });
+  const ouvreEditionTrip = (t) => {
+    const r = reglagesRappels[t.id];
+    setTripModal({ isNew: false, id: t.id, name: t.name, startDate: t.startDate, endDate: t.endDate,
+      rappels: !!(r && r.enabled), rappelsDelai: (r && r.delai) || RAPPEL_DELAI_DEFAUT });
+  };
   const editTrip = () => trip && ouvreEditionTrip(trip);
   // Édition depuis la liste d'accueil (crayon de la carte), séjour fermé : c'est
   // l'identifiant qui arrive, le séjour se retrouve dans l'état.
@@ -6990,6 +7190,16 @@ function SejourApp() {
     } else {
       const next = trips.map((t) => t.id === d.id ? { ...t, name: d.name.trim(), startDate: d.startDate, endDate: d.endDate } : t);
       commit(next); setTripModal(null);
+      // Le réglage des rappels n'est écrit que s'il a changé : il vit dans sa
+      // propre table, pas dans le séjour.
+      const avant = reglagesRappels[d.id];
+      if (!!d.rappels !== !!(avant && avant.enabled) || (d.rappels && d.rappelsDelai !== (avant && avant.delai))) {
+        const reglage = { enabled: !!d.rappels, delai: d.rappelsDelai || RAPPEL_DELAI_DEFAUT };
+        setReglagesRappels((r) => ({ ...r, [d.id]: reglage }));
+        enregistreReglage(d.id, reglage).then((res) => {
+          if (!res.ok) { setReglagesRappels((r) => ({ ...r, [d.id]: avant })); setSyncError(`rappels non enregistrés (${res.detail || "réseau"})`); }
+        });
+      }
       // Le jour affiché ne se recale que si c'est bien le séjour ouvert qu'on
       // vient de modifier : l'édition depuis la liste ne concerne aucun jour.
       const days = daysInRange(d.startDate, d.endDate);

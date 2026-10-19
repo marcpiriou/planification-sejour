@@ -783,6 +783,94 @@ nouvelle, et `place-photo`, rétrocompatible. Sans la première, l'écran
 afficherait son message d'erreur ; sans la seconde, les horaires manqueraient
 simplement à l'aperçu.
 
+## Rappels avant chaque étape
+Dans « Modifier le séjour », la rubrique **Rappels** envoie une notification
+sur le téléphone avant chaque activité et chaque départ du matin d'un
+hébergement — « Dans 15 min · Lac d'Orédon », l'heure et le lieu dessous. Le
+délai se choisit parmi 5, 10, 15, 30 min et 1 h. Toucher la notification ouvre
+le séjour sur le jour de l'étape.
+
+Le réglage est **personnel** : chaque membre d'un séjour partagé active ses
+rappels, choisit son délai, et les reçoit sur ses propres appareils. Ni
+l'arrivée du soir dans un hébergement, ni le point de départ et de retour ne
+déclenchent de rappel.
+
+### Pourquoi le serveur, et pas le téléphone
+Une application web ne peut pas programmer une notification : aucune minuterie
+du navigateur ne survit à la fermeture de l'application. Le rappel part donc du
+serveur, par **Web Push**, à l'heure dite :
+
+1. pg_cron interroge la base chaque minute (`rappels_en_attente()`), et
+   n'appelle l'Edge Function `send-reminders` que s'il y a quelque chose à
+   envoyer ;
+2. `send-reminders` **réserve** les rappels dus (`rappels_a_envoyer()`, qui les
+   inscrit dans `reminders_sent`) puis les envoie. Réserver avant d'envoyer
+   garantit qu'un rappel ne part jamais deux fois, même si deux appels se
+   chevauchent ;
+3. le service de push du téléphone (Google, Apple) le remet, et le service
+   worker (`public/push-sw.js`) l'affiche.
+
+Un rappel en retard de plus de dix minutes — après une panne — est abandonné
+plutôt qu'envoyé pour une étape déjà annoncée depuis longtemps. Le service de
+push ne le garde pas au-delà du début de l'étape (`TTL`).
+
+### L'heure réelle d'une étape est publiée par l'application
+Les heures « auto » se déduisent des temps de trajet Google, mis en cache dans
+le navigateur ; le serveur ne saurait les recalculer sans repayer Google. Après
+chaque modification, et quand des temps de trajet réels arrivent, l'application
+publie donc l'heure de chaque étape à venir dans `trip_schedule`. Une empreinte
+évite de réécrire ce qui n'a pas bougé.
+
+Limite assumée : un jour jamais affiché est publié avec les trajets **estimés**.
+L'écart se compte en minutes, et disparaît dès que le jour est ouvert.
+
+Seuls les éditeurs publient (la base le refuse aux lecteurs) ; un lecteur reçoit
+ses rappels à partir des horaires publiés par les éditeurs.
+
+### Android et iPhone
+- **Android** : Chrome demande l'autorisation au premier allumage de
+  l'interrupteur.
+- **iPhone** (iOS 16.4 ou plus récent) : Safari n'offre les notifications qu'à
+  l'application **ajoutée à l'écran d'accueil** et ouverte depuis son icône.
+  Dans un onglet, l'interrupteur est grisé et explique la marche à suivre.
+- Autorisation refusée : l'interrupteur est grisé, et le message renvoie aux
+  réglages du téléphone.
+
+Le bouton « Envoyer une notification de test » vérifie toute la chaîne, du
+serveur jusqu'à l'écran du téléphone.
+
+### Les clés, sans secret à saisir
+Chaque envoi est signé par une paire de clés **VAPID**. L'Edge Function
+`rappels` la crée au premier besoin, en WebCrypto, et la range dans le coffre
+de Supabase (vault) : la clé privée ne quitte jamais le serveur, et aucun
+secret n'est à poser à la main. La clé publique, elle, est servie au navigateur,
+qui en a besoin pour s'abonner — c'est prévu par le protocole.
+
+Le chiffrement des messages (RFC 8291) et la signature (RFC 8292) sont écrits en
+WebCrypto dans `supabase/functions/_shared/webpush.ts`, plutôt qu'avec la
+bibliothèque `web-push`, qui dépend de modules Node que le runtime Deno des
+Edge Functions n'émule qu'en partie.
+
+### Données — migration `0013_rappels.sql`
+| Table | Contenu | Accès |
+|---|---|---|
+| `push_subscriptions` | les appareils de chaque utilisateur | ses propres lignes |
+| `trip_reminders` | réglage par utilisateur et par séjour | sa propre ligne, s'il voit le séjour |
+| `trip_schedule` | heure publiée de chaque étape à venir | lecture : membres ; écriture : éditeurs |
+| `reminders_sent` | rappels déjà envoyés (purgés après deux jours) | service seul |
+
+`send-reminders` est déployée **sans vérification de jeton** : pg_cron
+l'appelle sans session. Elle ne sait faire qu'envoyer les rappels déjà dus, une
+fois chacun ; un appel venu d'ailleurs ne fait donc rien d'autre que ce
+qu'aurait fait la minute suivante, et sa réponse ne dit rien de qui a reçu quoi.
+`rappels` (clé publique, notification de test) exige une session, comme les
+autres fonctions.
+
+### Déploiement
+Dans cet ordre : migration `0013` (tables, fonctions, extensions pg_cron et
+pg_net, tâche planifiée), puis les fonctions `send-reminders` et `rappels`,
+puis le front.
+
 ## Activités « Hébergement »
 Un hébergement est enregistré **une seule fois**, à sa date d'arrivée, avec son nombre
 de nuits (colonne `activities.nights`, migration `0005`). Sa présence dans les journées
