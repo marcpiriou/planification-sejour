@@ -47,7 +47,10 @@ export default defineConfig({
         navigateFallback: "index.html",
         cleanupOutdatedCaches: true,
         clientsClaim: true,
-        skipWaiting: true
+        skipWaiting: true,
+        // Réception des rappels (Web Push) : deux écouteurs ajoutés au service
+        // worker généré, sans renoncer à la génération automatique du cache.
+        importScripts: ["push-sw.js"]
       }
     })
   ]
