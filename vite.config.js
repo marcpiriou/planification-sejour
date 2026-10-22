@@ -12,7 +12,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "autoUpdate",
-      includeAssets: ["favicon.svg", "icon-192.png", "icon-512.png", "icon-512-maskable.png", "logo-periplo.png"],
+      includeAssets: ["favicon.svg", "icon-192.png", "icon-512.png", "icon-512-maskable.png", "logo-periplo.png", "badge-notification.png"],
       manifest: {
         name: "Periplo — planificateur de séjours",
         short_name: "Periplo",

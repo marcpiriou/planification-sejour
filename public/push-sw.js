@@ -16,8 +16,12 @@ self.addEventListener("push", (event) => {
     tag: d.tag || undefined,
     // Un rappel recalé remplace le précédent : il doit tout de même sonner.
     renotify: !!d.tag,
-    icon: "icon-192.png",
-    badge: "icon-192.png",
+    // Pas d'`icon` : Android affiche déjà l'icône de l'application à gauche de
+    // la notification, et `icon` en ajoutait une seconde, en grand, à droite.
+    // Le `badge` est l'icône de la barre d'état : Android n'en garde que le
+    // canal alpha, d'où un repère blanc sur fond transparent — l'icône carrée
+    // de l'application s'y serait réduite à un carré plein.
+    badge: "badge-notification.png",
     data: { url: d.url || "" },
   }));
 });
