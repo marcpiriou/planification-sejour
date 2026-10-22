@@ -827,6 +827,14 @@ L'écart se compte en minutes, et disparaît dès que le jour est ouvert.
 Seuls les éditeurs publient (la base le refuse aux lecteurs) ; un lecteur reçoit
 ses rappels à partir des horaires publiés par les éditeurs.
 
+### L'icône de la notification
+Android affiche de lui-même l'icône de l'application à gauche du texte :
+la notification ne passe donc **pas** d'`icon`, qui ajouterait la même image en
+grand à droite. Elle ne passe que le `badge`, l'icône de la barre d'état
+(`public/badge-notification.png`) : Android n'en lit que le canal alpha, d'où un
+repère blanc sur fond transparent. Avec l'icône carrée de l'application, il
+n'aurait affiché qu'un carré plein.
+
 ### Android et iPhone
 - **Android** : Chrome demande l'autorisation au premier allumage de
   l'interrupteur.
